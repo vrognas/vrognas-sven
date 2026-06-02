@@ -98,7 +98,7 @@
   "devDependencies": {
     "@commitlint/cli": "^20.1.0",
     "@commitlint/config-conventional": "^20.0.0",
-    "@posit-dev/positron": "^0.1.8",
+    "@posit-dev/positron": "^0.2.4",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
     "@size-limit/file": "^12.1.0",
