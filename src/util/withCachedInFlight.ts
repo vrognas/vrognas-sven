@@ -20,7 +20,8 @@ export function withCachedInFlight<V>(
   key: string,
   cache: LRUCache<V>,
   inFlight: Map<string, Promise<V>>,
-  factory: () => Promise<V>
+  factory: () => Promise<V>,
+  ttlOverrideMs?: number
 ): Promise<V> {
   const cached = cache.get(key);
   if (cached !== undefined) {
@@ -33,7 +34,7 @@ export function withCachedInFlight<V>(
   const promise = (async () => {
     try {
       const result = await factory();
-      cache.set(key, result);
+      cache.set(key, result, ttlOverrideMs);
       return result;
     } finally {
       inFlight.delete(key);

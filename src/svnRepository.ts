@@ -111,6 +111,15 @@ export class Repository {
   // (e.g. diff editor left side, then BlameProvider line mapping) share a
   // single SVN read instead of re-executing.
   private _catCache = new LRUCache<Buffer>(50, 30 * 1000);
+  // Content/diffs keyed to a pinned NUMERIC revision are immutable in
+  // SVN's data model - hold them for a day (LRU cap bounds memory).
+  // HEAD/BASE/PREV/COMMITTED/date refs are mutable and never qualify.
+  private static readonly IMMUTABLE_REVISION_TTL_MS = 24 * 60 * 60 * 1000;
+  private _patchRevisionCache = new LRUCache<string>(
+    50,
+    Repository.IMMUTABLE_REVISION_TTL_MS
+  );
+  private _patchRevisionInFlight = new Map<string, Promise<string>>();
 
   // Path-keyed cache for `svn diff --properties-only <path>`. The status
   // refresh flow fetches this per-file for every file with prop changes;
@@ -1178,6 +1187,13 @@ export class Repository {
   /** Dedup concurrent + short-window-sequential svn cat calls for the same args */
   private showBufferWithArgs(args: string[]): Promise<Buffer> {
     const key = args.join("\0");
+    // Pinned numeric revision => immutable content => day-long TTL
+    const revIdx = args.indexOf("-r");
+    const revision = revIdx >= 0 ? args[revIdx + 1] : undefined;
+    const ttlOverride =
+      revision && /^\d+$/.test(revision)
+        ? Repository.IMMUTABLE_REVISION_TTL_MS
+        : undefined;
     return withCachedInFlight(
       key,
       this._catCache,
@@ -1198,7 +1214,8 @@ export class Repository {
           });
         }
         return result.stdout;
-      }
+      },
+      ttlOverride
     );
   }
 
@@ -1611,13 +1628,27 @@ export class Repository {
    * Includes property changes in addition to content changes
    */
   public async patchRevision(revision: string, url: Uri): Promise<string> {
-    const result = await this.exec([
-      "diff",
-      "-c",
-      revision,
-      url.toString(true)
-    ]);
-    return result.stdout;
+    const fetch = async () => {
+      const result = await this.exec([
+        "diff",
+        "-c",
+        revision,
+        url.toString(true)
+      ]);
+      return result.stdout;
+    };
+
+    // Numeric revision diffs are immutable - fired on every history-view
+    // diff click, so cache them; mutable refs (HEAD/dates) bypass
+    if (!/^\d+$/.test(revision)) {
+      return fetch();
+    }
+    return withCachedInFlight(
+      `${revision}@${url.toString(true)}`,
+      this._patchRevisionCache,
+      this._patchRevisionInFlight,
+      fetch
+    );
   }
 
   public async removeFiles(files: string[], keepLocal: boolean) {
@@ -2672,5 +2703,7 @@ export class Repository {
     this._listCache.clear();
     this._catCache.clear();
     this._copyPointCache.clear();
+    this._patchRevisionCache.clear();
+    this._patchRevisionInFlight.clear();
   }
 }

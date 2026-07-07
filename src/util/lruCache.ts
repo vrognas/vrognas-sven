@@ -51,8 +51,11 @@ export class LRUCache<T> {
 
   /**
    * Set value with automatic TTL and LRU eviction.
+   * @param ttlOverrideMs Per-entry TTL replacing the cache default - use
+   *        for values that are immutable (e.g. revision-pinned SVN
+   *        content) and can safely outlive the mutable-data TTL.
    */
-  set(key: string, value: T): void {
+  set(key: string, value: T, ttlOverrideMs?: number): void {
     // Evict existing entry if present (clear its timeout)
     this.delete(key);
 
@@ -63,7 +66,7 @@ export class LRUCache<T> {
 
     const timeout = setTimeout(() => {
       this.delete(key);
-    }, this.ttlMs);
+    }, ttlOverrideMs ?? this.ttlMs);
 
     this.cache.set(key, {
       value,
