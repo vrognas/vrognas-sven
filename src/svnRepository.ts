@@ -2606,9 +2606,8 @@ export class Repository {
   /** Clear all caches (call on repository disposal). */
   public clearInfoCacheTimers(): void {
     this._infoCache.clear();
-    this._blameCache.clear();
-    this._blameErrorCache.clear();
-    this._blameInFlight.clear();
+    // Delegate so the generation bump also blocks in-flight write-backs
+    this.clearBlameCache();
     this._logCache.clear();
     this._listCache.clear();
     this._catCache.clear();

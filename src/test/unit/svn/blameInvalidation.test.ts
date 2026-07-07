@@ -37,6 +37,32 @@ suite("Blame cache invalidation on mutating operations", () => {
     );
   });
 
+  test("dispose-path clear also blocks in-flight write-back", async () => {
+    const { BLAME_XML } = await import("./helpers/fakeSvnRepository");
+    const { repo, setExec } = await makeFakeSvnRepo();
+
+    let release!: () => void;
+    setExec(
+      () =>
+        new Promise(resolve => {
+          release = () => resolve({ stdout: BLAME_XML });
+        })
+    );
+    const pending = repo.blame("file.txt");
+    await new Promise(r => setTimeout(r, 10));
+
+    repo.clearInfoCacheTimers(); // repository disposal path
+
+    release();
+    await pending;
+
+    assert.strictEqual(
+      repo._blameCache.get("file.txt@BASE"),
+      undefined,
+      "in-flight fetch must not repopulate caches of a disposed repository"
+    );
+  });
+
   test("Repository.run clears blame cache on force-refresh ops", async () => {
     const { Repository } = await import("../../../repository");
 
