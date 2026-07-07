@@ -172,20 +172,50 @@ export class SvnFileSystemProvider implements FileSystemProvider, Disposable {
   }
 
   /**
-   * Core stat implementation - fetches file metadata from SVN
+   * True when the URI's content tracks the working copy (quickdiff BASE
+   * originals, log/patch documents) rather than being pinned to a specific
+   * revision. Pinned content is immutable, so its stat can be constant.
+   */
+  private static isWorkingCopyRef(ref: string | undefined): boolean {
+    if (!ref) {
+      return true; // provideOriginalResource passes no ref -> BASE
+    }
+    const upper = ref.toUpperCase();
+    return upper === "BASE" || upper === "PREV" || upper === "COMMITTED";
+  }
+
+  /**
+   * Core stat implementation.
+   *
+   * NO remote calls: this used to run `svn list <URL>` (a server round-trip
+   * per opened tracked file, fired by VS Code's quickdiff stat) to fetch
+   * HEAD size/mtime for content that is actually served from the LOCAL
+   * pristine BASE. Instead, mtime now comes from local `svn info` (wc.db,
+   * 2-min cache): the BASE last-changed date moves exactly when commit/
+   * update change BASE, which is what drives VS Code to reload the
+   * original. Size is not available locally and is reported as 0 - the
+   * old HEAD size already disagreed with the BASE content whenever the
+   * server was ahead, so nothing may depend on it.
    */
   private async doStat(uri: Uri): Promise<FileStat> {
     try {
       await this.sourceControlManager.isInitialized;
 
-      const { fsPath } = fromSvnUri(uri);
+      const { fsPath, action, extra } = fromSvnUri(uri);
+
+      // Revision-pinned content never changes - constant stat, no svn call
+      if (
+        action === SvnUriAction.SHOW &&
+        !SvnFileSystemProvider.isWorkingCopyRef(extra.ref)
+      ) {
+        return { type: FileType.File, size: 0, mtime: 0, ctime: 0 };
+      }
 
       // For virtual SVN files, be lenient - return default stats if repository
       // not found yet. Let readFile() handle the actual error. This prevents
       // false FileNotFound during async repository discovery.
       const repository = this.sourceControlManager.getRepository(fsPath);
 
-      let size = 0;
       let mtime = new Date().getTime();
 
       if (repository) {
@@ -215,35 +245,30 @@ export class SvnFileSystemProvider implements FileSystemProvider, Disposable {
         }
 
         try {
-          const listResults = await repository.list(fsPath);
-
-          if (listResults.length) {
-            size = Number(listResults[0]!.size) as number;
-            mtime = Date.parse(listResults[0]!.commit.date);
+          const info = await repository.getInfo(fsPath);
+          if (info.commit?.date) {
+            mtime = Date.parse(info.commit.date);
           }
         } catch (error) {
-          // Suppress "not found" errors for untracked/unversioned files (expected)
-          // W155010/E155010: node not found in working copy
-          // W160013: path not found on server
-          // E200009: could not list/cat targets (some don't exist)
-          // W200005: not under version control
+          // Suppress "not found" errors for untracked/unversioned files.
+          // getInfo's negative cache replays a plain Error without stderr,
+          // so match the message as well as stderr codes.
+          const text = `${
+            error && typeof error === "object" && "stderr" in error
+              ? String((error as { stderr?: unknown }).stderr)
+              : ""
+          } ${error instanceof Error ? error.message : ""}`;
           const isUntrackedFile =
-            typeof error === "object" &&
-            error !== null &&
-            "stderr" in error &&
-            typeof error.stderr === "string" &&
-            (error.stderr.includes("W155010") ||
-              error.stderr.includes("E155010") ||
-              error.stderr.includes("W160013") ||
-              error.stderr.includes("E200009") ||
-              error.stderr.includes("W200005"));
+            /W155010|E155010|W160013|E200009|W200005|E155007|not under version control/.test(
+              text
+            );
           if (!isUntrackedFile) {
-            logError("Failed to list SVN file", error);
+            logError("Failed to stat SVN file", error);
           }
         }
       }
 
-      return { type: FileType.File, size, mtime, ctime: 0 };
+      return { type: FileType.File, size: 0, mtime, ctime: 0 };
     } catch (error) {
       // Re-throw FileSystemErrors as-is
       if (error instanceof FileSystemError) {

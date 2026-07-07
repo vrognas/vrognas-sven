@@ -6,15 +6,28 @@ export class Uri {
     public readonly scheme: string,
     public readonly path: string,
     public readonly fsPath: string,
-    private readonly raw?: string
+    private readonly raw?: string,
+    public readonly query: string = ""
   ) {}
 
-  with(change: { scheme?: string; path?: string; fsPath?: string }): Uri {
+  // Real API semantics: with() preserves query unless overridden
+  with(change: {
+    scheme?: string;
+    path?: string;
+    fsPath?: string;
+    query?: string;
+  }): Uri {
     const nextScheme = change.scheme ?? this.scheme;
     const nextPath = change.path ?? this.path;
     const nextFsPath =
       change.fsPath ?? (nextScheme === "file" ? nextPath : this.fsPath);
-    return new Uri(nextScheme, nextPath, nextFsPath);
+    return new Uri(
+      nextScheme,
+      nextPath,
+      nextFsPath,
+      undefined,
+      change.query ?? this.query
+    );
   }
 
   toString(): string {
