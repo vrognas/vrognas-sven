@@ -747,8 +747,25 @@ export class Repository {
     // Convert to relative path
     const relativePath = this.removeAbsolutePath(file);
 
+    // Resolve BASE to the file's actual base revision: revision-keyed
+    // entries are immutable (long TTL) and mixed-revision working copies
+    // get per-file-correct keys. Local wc.db read, 2-min info cache; on
+    // failure (unversioned, offline) fall back to the literal keyword.
+    // The svn args keep the BASE keyword - only the key is resolved.
+    let keyRevision = revision;
+    if (revision.toUpperCase() === "BASE") {
+      try {
+        const info = await this.getInfo(file);
+        if (/^\d+$/.test(info.revision)) {
+          keyRevision = info.revision;
+        }
+      } catch {
+        // keep the literal BASE key
+      }
+    }
+
     // Cache key includes revision for per-revision caching
-    const cacheKey = `${relativePath}@${revision}`;
+    const cacheKey = `${relativePath}@${keyRevision}`;
 
     if (!skipCache) {
       // Fast-path cache check OUTSIDE @sequentialize (getInfo pattern) so
@@ -905,7 +922,14 @@ export class Repository {
     }
 
     if (generation === this._blameGeneration) {
-      this._blameCache.set(cacheKey, blame);
+      // Revision-keyed entries are immutable - hold them for a day
+      this._blameCache.set(
+        cacheKey,
+        blame,
+        /@\d+$/.test(cacheKey)
+          ? Repository.IMMUTABLE_REVISION_TTL_MS
+          : undefined
+      );
     }
     return blame;
   }

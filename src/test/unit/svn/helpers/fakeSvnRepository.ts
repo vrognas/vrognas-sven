@@ -43,6 +43,12 @@ export async function makeFakeSvnRepo(): Promise<FakeSvnRepo> {
   const repo: any = Object.create(SvnRepository.prototype);
   repo.removeAbsolutePath = (p: string) => p;
   repo.getRepoUrl = async () => "https://svn.example.com/repo";
+  // Blame's BASE resolution probes getInfo; fail it fast (no exec) so
+  // count-based tests keep literal @BASE keys. Override with a resolving
+  // stub (async () => ({ revision: "123" })) to exercise revision keying.
+  repo.getInfo = async () => {
+    throw new Error("fake: svn info not wired");
+  };
   repo.exec = async (_args: string[]) => {
     execCount++;
     return execImpl();
