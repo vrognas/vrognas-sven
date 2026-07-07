@@ -71,6 +71,25 @@ suite("Blame redundant call elimination", () => {
     );
   });
 
+  test("message fallback stays untargeted (survives replaced paths)", async () => {
+    const uri = Uri.file("/test/file.ts");
+    sandbox.stub(blameConfiguration, "isLogsEnabled").returns(true);
+    // Targeted range log can fail when blame revisions belong to a
+    // replaced/renamed ancestor path - the per-revision fallback must not
+    // repeat the same targeted query
+    mockRepository.logBatch.rejects(new Error("E160013: path not found"));
+    mockRepository.log.resolves([{ revision: "100", msg: "m" }] as any);
+
+    await (provider as any).prefetchMessages(["100"], uri);
+
+    assert.ok(mockRepository.log.calledOnce);
+    assert.strictEqual(
+      mockRepository.log.firstCall.args[3],
+      undefined,
+      "single-revision fallback log must be untargeted"
+    );
+  });
+
   test("blame and list ops skip the SCM progress spinner", async () => {
     const mockThis: any = {
       state: RepositoryState.Idle,

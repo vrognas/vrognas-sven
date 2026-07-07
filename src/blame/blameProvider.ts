@@ -1368,10 +1368,14 @@ export class BlameProvider implements Disposable {
   /**
    * Get commit message for revision (cached)
    */
-  private async getCommitMessage(
-    revision: string,
-    target?: Uri
-  ): Promise<string> {
+  /**
+   * Deliberately UNTARGETED: a single-revision log is cheap either way,
+   * and a targeted one misses revisions that belong to a replaced/renamed
+   * ancestor path (this is also the fallback when the targeted range log
+   * in prefetchMessages fails for exactly that reason). Only the RANGE
+   * query (logBatch) needs a target - that's where the cost lives.
+   */
+  private async getCommitMessage(revision: string): Promise<string> {
     if (this.messageCache.has(revision)) {
       return this.messageCache.get(revision)!;
     }
@@ -1381,12 +1385,7 @@ export class BlameProvider implements Disposable {
     }
 
     try {
-      const log = await this.repository.log(
-        revision,
-        revision,
-        1,
-        target?.fsPath
-      );
+      const log = await this.repository.log(revision, revision, 1);
       const message = log[0]?.msg || "";
       this.messageCache.set(revision, message);
 
@@ -1442,9 +1441,11 @@ export class BlameProvider implements Disposable {
         err
       );
 
-      // Fallback to sequential fetching on error
+      // Fallback to sequential fetching on error (untargeted - see
+      // getCommitMessage; the targeted range log may have failed because
+      // of the target)
       for (const revision of uncached) {
-        await this.getCommitMessage(revision, target);
+        await this.getCommitMessage(revision);
       }
     }
   }
