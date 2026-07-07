@@ -610,7 +610,9 @@ export class Repository {
   /**
    * Clear all blame cache entries (call after any operation that can
    * change BASE content: commit, update, revert, switch, merge, ...).
-   * The 5-min TTL remains the backstop for external svn operations.
+   * Revision-keyed blame entries are pegged fetches (content matches the
+   * key by construction), so external svn operations cannot poison them;
+   * they only delay key re-resolution by up to the 2-min info TTL.
    */
   public clearBlameCache(): void {
     this._blameCache.clear();
@@ -620,6 +622,10 @@ export class Repository {
     // those orphaned fetches from writing their result back on completion.
     this._blameInFlight.clear();
     this._blameGeneration++;
+    // Per-file info entries feed blame cache keys (BASE resolution) and
+    // resetInfoCache() deletes only the repo-root entry - clear the whole
+    // info cache so key resolution stays coherent with the mutated WC
+    this._infoCache.clear();
   }
 
   public resetLogCache(cacheKey: string): void {
@@ -763,6 +769,15 @@ export class Repository {
         // keep the literal BASE key
       }
     }
+
+    // COHERENCE BY CONSTRUCTION: once BASE resolves to a number, fetch
+    // that exact pegged revision too. Fetching the mutable BASE keyword
+    // while keying on a (possibly stale) resolved number lets new-BASE
+    // content land under an old revision key with the immutable TTL.
+    // With a pegged fetch the content always matches the key; a stale
+    // resolution only means a briefly stale DISPLAY, bounded by the
+    // 2-min info TTL and the full info clear on mutating operations.
+    revision = keyRevision;
 
     // Cache key includes revision for per-revision caching
     const cacheKey = `${relativePath}@${keyRevision}`;
@@ -2726,6 +2741,8 @@ export class Repository {
     this._logCache.clear();
     this._listCache.clear();
     this._catCache.clear();
+    this._catInFlight.clear();
+    this._listInFlight.clear();
     this._copyPointCache.clear();
     this._patchRevisionCache.clear();
     this._patchRevisionInFlight.clear();

@@ -31,15 +31,27 @@ export function withCachedInFlight<V>(
   if (pending) {
     return pending;
   }
+  // Owner guard: if the in-flight registry was cleared or superseded
+  // while fetching (e.g. repository disposal cleared the caches), the
+  // result must not repopulate the cleared cache. Boxed so the closure
+  // can reference the promise created below.
+  const owner: { promise?: Promise<V> } = {};
+  const stillOwner = () =>
+    owner.promise !== undefined && inFlight.get(key) === owner.promise;
   const promise = (async () => {
     try {
       const result = await factory();
-      cache.set(key, result, ttlOverrideMs);
+      if (stillOwner()) {
+        cache.set(key, result, ttlOverrideMs);
+      }
       return result;
     } finally {
-      inFlight.delete(key);
+      if (stillOwner()) {
+        inFlight.delete(key);
+      }
     }
   })();
+  owner.promise = promise;
   inFlight.set(key, promise);
   return promise;
 }

@@ -421,7 +421,14 @@ export class RepoLogProvider
     // Hidden view: defer the server fetch until reveal. Post-commit and
     // post-update flows fire this command unconditionally, and panels
     // are hidden in the common case - the 2 svn log calls bought nothing.
-    if (this.treeView && !this.treeView.visible) {
+    // Load-more clicks (fetchMoreClick) bypass: a click implies visible.
+    if (!fetchMoreClick && this.treeView && !this.treeView.visible) {
+      // Keep the post-commit invariant cheaply: consumers of the low-
+      // level log cache must not see pre-commit entries; only the
+      // server refetch is deferred until reveal
+      for (const repo of this.sourceControlManager.repositories) {
+        repo.clearLogCache();
+      }
       this.pendingExplicitRefresh = true;
       return;
     }

@@ -289,8 +289,24 @@ export class ItemLogProvider
    * Explicit refresh (post-commit/update flows, user command). Hidden
    * view: defer the cache-clearing server fetch until reveal.
    */
-  public async explicitRefreshCmd() {
+  public async explicitRefreshCmd(
+    element?: ILogTreeItem,
+    te?: TextEditor,
+    loadMore?: boolean
+  ) {
+    // Load-more button: page older history - never clear caches, never
+    // defer (a click implies the view is visible). The previous inline
+    // handler dropped these args and reset the whole view instead.
+    if (loadMore) {
+      return this.refresh(element, te, true);
+    }
     if (this.treeView && !this.treeView.visible) {
+      // Keep the post-commit invariant cheaply: consumers of the low-
+      // level log cache must not see pre-commit entries; only the
+      // server refetch is deferred until reveal
+      for (const repo of this.sourceControlManager.repositories) {
+        repo.clearLogCache();
+      }
       this.pendingExplicitRefresh = true;
       return;
     }

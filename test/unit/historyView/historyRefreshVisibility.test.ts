@@ -5,10 +5,11 @@ type Harness = {
   refresh: ReturnType<typeof vi.fn>;
   editorChanged?: ReturnType<typeof vi.fn>;
   pendingExplicitRefresh?: boolean;
+  sourceControlManager?: { repositories: { clearLogCache: () => void }[] };
 };
 
 type ProviderProto = {
-  explicitRefreshCmd: (this: Harness) => Promise<void>;
+  explicitRefreshCmd: (this: Harness, ...args: unknown[]) => Promise<void>;
   onVisibilityChanged: (this: Harness, visible: boolean) => void;
 };
 
@@ -30,7 +31,8 @@ describe("History refresh visibility gating", () => {
     const refresh = vi.fn(async () => undefined);
     const mockThis: Harness = {
       treeView: { visible: false },
-      refresh
+      refresh,
+      sourceControlManager: { repositories: [] }
     };
 
     const { explicitRefreshCmd, onVisibilityChanged } = proto(RepoLogProvider);
@@ -62,6 +64,67 @@ describe("History refresh visibility gating", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
+  it("hidden defer still clears the low-level log cache (post-commit invariant)", async () => {
+    const { RepoLogProvider } = await import(
+      "../../../src/historyView/repoLogProvider"
+    );
+    const clearLogCache = vi.fn();
+    const refresh = vi.fn(async () => undefined);
+    const mockThis: Harness = {
+      treeView: { visible: false },
+      refresh,
+      sourceControlManager: { repositories: [{ clearLogCache }] }
+    };
+
+    await proto(RepoLogProvider).explicitRefreshCmd.call(mockThis);
+
+    expect(refresh).not.toHaveBeenCalled();
+    expect(clearLogCache).toHaveBeenCalledTimes(1);
+  });
+
+  it("repoLog: load-more click bypasses the hidden defer", async () => {
+    const { RepoLogProvider } = await import(
+      "../../../src/historyView/repoLogProvider"
+    );
+    const refresh = vi.fn(async () => undefined);
+    const mockThis: Harness = {
+      treeView: { visible: false },
+      refresh
+    };
+
+    await proto(RepoLogProvider).explicitRefreshCmd.call(
+      mockThis,
+      undefined,
+      true // fetchMoreClick
+    );
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("itemLog: load-more pages older history instead of resetting", async () => {
+    const { ItemLogProvider } = await import(
+      "../../../src/historyView/itemLogProvider"
+    );
+    const refresh = vi.fn(async () => undefined);
+    const element = { kind: 1 };
+    const mockThis: Harness = {
+      treeView: { visible: true },
+      refresh
+    };
+
+    // createLoadMoreItem("sven.itemlog.refresh", [element, undefined, true])
+    await proto(ItemLogProvider).explicitRefreshCmd.call(
+      mockThis,
+      element,
+      undefined,
+      true
+    );
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(refresh.mock.calls[0]![0]).toBe(element);
+    expect(refresh.mock.calls[0]![2]).toBe(true); // loadMore
+    expect(refresh.mock.calls[0]![3]).not.toBe(true); // not cache-clearing
+  });
+
   it("itemLog: explicit refresh while hidden defers; reveal runs it once", async () => {
     const { ItemLogProvider } = await import(
       "../../../src/historyView/itemLogProvider"
@@ -70,7 +133,8 @@ describe("History refresh visibility gating", () => {
     const mockThis: Harness = {
       treeView: { visible: false },
       refresh,
-      editorChanged: vi.fn()
+      editorChanged: vi.fn(),
+      sourceControlManager: { repositories: [] }
     };
 
     const { explicitRefreshCmd, onVisibilityChanged } = proto(ItemLogProvider);

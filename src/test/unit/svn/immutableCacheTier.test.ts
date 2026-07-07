@@ -58,6 +58,35 @@ suite("Immutable pinned-revision cache tier", () => {
     );
   });
 
+  test("in-flight result does not repopulate a cleared cache", async () => {
+    const { withCachedInFlight } = await import(
+      "../../../util/withCachedInFlight"
+    );
+    const cache = new LRUCache<string>(10, 10_000);
+    const inFlight = new Map<string, Promise<string>>();
+
+    let release!: () => void;
+    const pending = withCachedInFlight(
+      "k",
+      cache,
+      inFlight,
+      () => new Promise<string>(r => (release = () => r("stale")))
+    );
+
+    // Repository disposal clears caches while the fetch is in flight
+    cache.clear();
+    inFlight.clear();
+
+    release();
+    await pending;
+
+    assert.strictEqual(
+      cache.get("k"),
+      undefined,
+      "orphaned in-flight fetch must not write back after a clear"
+    );
+  });
+
   test("patchRevision (svn diff -c REV) is cached for numeric revisions", async () => {
     const { repo, getCount, setExec } = await makeFakeSvnRepo();
     setExec(async () => ({ stdout: "Index: f.txt\n..." }));

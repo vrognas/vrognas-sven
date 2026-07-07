@@ -284,14 +284,26 @@ export const window = {
   }),
   createTreeView: vi.fn((...args: unknown[]) => {
     void args;
-    // Real API semantics: visibility state + change event
-    return {
+    // Real API semantics: visibility state + change event. Tests can
+    // flip visibility via view._fireVisibility(false/true).
+    const listeners: Array<(e: { visible: boolean }) => void> = [];
+    const view = {
       reveal: vi.fn(async () => undefined),
       visible: true,
-      onDidChangeVisibility: vi.fn(() => new Disposable(() => {})),
+      onDidChangeVisibility: vi.fn(
+        (listener: (e: { visible: boolean }) => void) => {
+          listeners.push(listener);
+          return new Disposable(() => {});
+        }
+      ),
+      _fireVisibility: (visible: boolean) => {
+        view.visible = visible;
+        listeners.forEach(l => l({ visible }));
+      },
       description: undefined,
       dispose: vi.fn()
     };
+    return view;
   }),
   withProgress: vi.fn((_options, task) => task({ report: vi.fn() }))
 };
