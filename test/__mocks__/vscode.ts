@@ -246,6 +246,9 @@ const createSourceControl = () => {
 
 // window mock
 export const window = {
+  // Real API semantics: focused window state + focus-change event
+  state: { focused: true },
+  onDidChangeWindowState: vi.fn(() => ({ dispose: vi.fn() })),
   showInformationMessage: vi.fn(),
   showWarningMessage: vi.fn(),
   showErrorMessage: vi.fn(),

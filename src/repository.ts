@@ -433,7 +433,9 @@ export class Repository implements IRemoteRepository {
       this.disposables
     );
 
-    // Initialize RemoteChangeService - interval ticks are probe-gated
+    // Initialize RemoteChangeService - interval ticks are probe-gated,
+    // focus-gated (skip while unfocused, catch up on refocus) and back
+    // off when the server is unreachable
     this.remoteChangeService = new RemoteChangeService(
       () => this.pollRemoteChanges(),
       () => ({
@@ -441,7 +443,16 @@ export class Repository implements IRemoteRepository {
           "remoteChanges.checkFrequency",
           300
         )
-      })
+      }),
+      {
+        isFocused: () => window.state.focused,
+        onDidFocus: listener =>
+          window.onDidChangeWindowState(e => {
+            if (e.focused) {
+              listener();
+            }
+          })
+      }
     );
 
     // Initialize FileDecorationProvider for Explorer view decorations

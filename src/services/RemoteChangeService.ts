@@ -13,6 +13,17 @@ export type RemoteChangeConfig = {
 };
 
 /**
+ * Host-environment hooks, injected so this service stays vscode-free.
+ * Both optional: defaults poll every tick (legacy behavior).
+ */
+export type RemoteChangeServiceOptions = {
+  /** Window focus state - unfocused ticks are skipped */
+  readonly isFocused?: () => boolean;
+  /** Subscribe to focus-gained events for the catch-up poll */
+  readonly onDidFocus?: (listener: () => void) => { dispose(): void };
+};
+
+/**
  * Service for polling remote SVN changes at configurable intervals.
  * Extracted from Repository (lines 275-318, 387-401).
  *
@@ -66,15 +77,53 @@ export interface IRemoteChangeService {
 export class RemoteChangeService implements IRemoteChangeService {
   private interval?: NodeJS.Timeout;
   private disposed: boolean = false;
+  private readonly isFocused: () => boolean;
+  private focusSubscription?: { dispose(): void };
+  // Set when a tick was skipped for lack of focus - refocus catches up
+  private missedTickWhileUnfocused = false;
+  // Exponential backoff: after N consecutive failures skip 2^N - 1 ticks
+  private consecutiveFailures = 0;
+  private ticksToSkip = 0;
+  private static readonly MAX_BACKOFF_TICKS = 7;
 
   /**
-   * @param onPoll Callback invoked at each poll interval
+   * @param onPoll Callback invoked at each poll interval; MUST return a
+   *               promise reflecting success/failure for backoff to work
    * @param getConfig Function to retrieve current config (allows dynamic updates)
+   * @param options Focus hooks (see RemoteChangeServiceOptions)
    */
   constructor(
     private readonly onPoll: () => Promise<void> | void,
-    private readonly getConfig: () => RemoteChangeConfig
-  ) {}
+    private readonly getConfig: () => RemoteChangeConfig,
+    options: RemoteChangeServiceOptions = {}
+  ) {
+    this.isFocused = options.isFocused ?? (() => true);
+    if (options.onDidFocus) {
+      this.focusSubscription = options.onDidFocus(() => {
+        if (this.missedTickWhileUnfocused && this.isRunning) {
+          this.missedTickWhileUnfocused = false;
+          // Catch-up poll ~immediately instead of waiting a full interval
+          void this.executePoll();
+        }
+      });
+    }
+  }
+
+  private async executePoll(): Promise<void> {
+    try {
+      await this.onPoll();
+      this.consecutiveFailures = 0;
+      this.ticksToSkip = 0;
+    } catch (err) {
+      this.consecutiveFailures++;
+      this.ticksToSkip = Math.min(
+        2 ** this.consecutiveFailures - 1,
+        RemoteChangeService.MAX_BACKOFF_TICKS
+      );
+      logError("[RemoteChangeService] Polling failed", err);
+      // Continue polling despite errors (after backoff)
+    }
+  }
 
   start(): void {
     if (this.disposed) {
@@ -97,10 +146,17 @@ export class RemoteChangeService implements IRemoteChangeService {
     const jitteredMs = frequencyMs + jitter;
 
     this.interval = setInterval(() => {
-      void Promise.resolve(this.onPoll()).catch((err: unknown) => {
-        logError("[RemoteChangeService] Polling failed", err);
-        // Continue polling despite errors
-      });
+      // Skip unfocused ticks - badges are invisible; refocus catches up
+      if (!this.isFocused()) {
+        this.missedTickWhileUnfocused = true;
+        return;
+      }
+      // Failure backoff - don't hammer an unreachable server every tick
+      if (this.ticksToSkip > 0) {
+        this.ticksToSkip--;
+        return;
+      }
+      void this.executePoll();
     }, jitteredMs);
   }
 
@@ -121,6 +177,7 @@ export class RemoteChangeService implements IRemoteChangeService {
 
   dispose(): void {
     this.stop();
+    this.focusSubscription?.dispose();
     this.disposed = true;
   }
 }
