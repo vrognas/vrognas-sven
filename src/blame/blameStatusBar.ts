@@ -15,7 +15,9 @@ import {
   window
 } from "vscode";
 import { debounce } from "../decorators";
-import { ISvnBlameLine, Status } from "../common/types";
+import { ISvnBlameLine, Operation, Status } from "../common/types";
+import { BLAME_INVALIDATING_OPERATIONS } from "../util";
+import { Repository } from "../repository";
 import { SourceControlManager } from "../source_control_manager";
 import { blameConfiguration } from "./blameConfiguration";
 import { blameStateManager } from "./blameStateManager";
@@ -75,6 +77,23 @@ export class BlameStatusBar implements Disposable {
       // Blame state changes
       blameStateManager.onDidChangeState(() => this.onBlameStateChanged())
     );
+
+    // Mutating repository operations change BASE content; without this the
+    // same-line skip would pin pre-op blame while the cursor doesn't move.
+    // (Guarded: stubbed managers in unit tests may lack instance fields.)
+    const hookRepository = (repo: Repository) => {
+      if (typeof repo.onDidRunOperation === "function") {
+        this.disposables.push(
+          repo.onDidRunOperation(op => this.onRepositoryOperation(op))
+        );
+      }
+    };
+    (this.sourceControlManager.repositories ?? []).forEach(hookRepository);
+    if (typeof this.sourceControlManager.onDidOpenRepository === "function") {
+      this.disposables.push(
+        this.sourceControlManager.onDidOpenRepository(hookRepository)
+      );
+    }
 
     // Initial update
     if (window.activeTextEditor) {
@@ -229,6 +248,14 @@ export class BlameStatusBar implements Disposable {
     if (key === this.lastLineKey) {
       return;
     }
+    void this.updateStatusBar();
+  }
+
+  private onRepositoryOperation(operation: Operation): void {
+    if (!BLAME_INVALIDATING_OPERATIONS.has(operation)) {
+      return;
+    }
+    this.lastLineKey = undefined;
     void this.updateStatusBar();
   }
 

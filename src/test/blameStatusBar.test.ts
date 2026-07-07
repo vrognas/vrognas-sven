@@ -15,6 +15,8 @@ suite("BlameStatusBar E2E Tests", () => {
   setup(() => {
     sandbox = sinon.createSandbox();
     mockSourceControlManager = sandbox.createStubInstance(SourceControlManager);
+    // Real getter semantics: repositories maps over openRepositories
+    (mockSourceControlManager as any).openRepositories = [];
   });
 
   teardown(() => {
@@ -28,7 +30,12 @@ suite("BlameStatusBar E2E Tests", () => {
     // Arrange
     const testUri = Uri.file("/test/file.txt");
     const blameData: ISvnBlameLine[] = [
-      { lineNumber: 1, revision: "1234", author: "john", date: "2025-11-18T10:00:00Z" }
+      {
+        lineNumber: 1,
+        revision: "1234",
+        author: "john",
+        date: "2025-11-18T10:00:00Z"
+      }
     ];
 
     // Mock repository
@@ -95,8 +102,18 @@ suite("BlameStatusBar E2E Tests", () => {
     // Arrange
     const testUri = Uri.file("/test/file.txt");
     const blameData: ISvnBlameLine[] = [
-      { lineNumber: 1, revision: "1234", author: "john", date: "2025-11-18T10:00:00Z" },
-      { lineNumber: 2, revision: "1235", author: "jane", date: "2025-11-18T11:00:00Z" }
+      {
+        lineNumber: 1,
+        revision: "1234",
+        author: "john",
+        date: "2025-11-18T10:00:00Z"
+      },
+      {
+        lineNumber: 2,
+        revision: "1235",
+        author: "jane",
+        date: "2025-11-18T11:00:00Z"
+      }
     ];
 
     const mockRepo = {

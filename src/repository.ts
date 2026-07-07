@@ -101,6 +101,7 @@ import {
   dispose,
   eventToPromise,
   filterEvent,
+  BLAME_INVALIDATING_OPERATIONS,
   FORCE_REFRESH_OPERATIONS,
   getSvnDir,
   isDescendant,
@@ -2087,7 +2088,7 @@ export class Repository implements IRemoteRepository {
         // so blame doesn't show pre-op data for up to 5 min. In finally:
         // a FAILED commit/update can still have partially mutated the WC.
         // Runs before onDidRunOperation so subscribers see a clean cache.
-        if (forceRefresh) {
+        if (BLAME_INVALIDATING_OPERATIONS.has(operation)) {
           this.repository.clearBlameCache();
         }
         this._operations.end(operation);

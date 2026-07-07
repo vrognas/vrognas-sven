@@ -279,6 +279,24 @@ export const FORCE_REFRESH_OPERATIONS: ReadonlySet<Operation> = new Set([
 ]);
 
 /**
+ * Operations after which BASE content may differ, so blame caches and
+ * blame UI must refresh. Superset of FORCE_REFRESH_OPERATIONS: switch and
+ * merge manage their own grace period but still change BASE.
+ *
+ * The SINGLE source of truth for "what invalidates blame" — consumers:
+ *   - Repository.run() clears SvnRepository's blame caches
+ *   - BlameProvider drops its version-keyed cache and re-renders
+ *   - BlameStatusBar resets its same-line skip and refreshes
+ * (SvnRepository.switchBranch/merge/rollbackToRevision also clear
+ * directly in their finally blocks as the innermost guarantee.)
+ */
+export const BLAME_INVALIDATING_OPERATIONS: ReadonlySet<Operation> = new Set([
+  ...FORCE_REFRESH_OPERATIONS,
+  Operation.SwitchBranch,
+  Operation.Merge
+]);
+
+/**
  * Whether an operation needs lock status (--show-updates) in its post-op status.
  * Only operations that interact with locks or check remote state need it.
  * Regular status refreshes (file watcher) stay local-only for performance.

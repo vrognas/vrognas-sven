@@ -127,6 +127,7 @@ suite("Blame review fixes", () => {
       isInsideUnversionedOrIgnored: sandbox.stub().returns(undefined)
     };
     const scm = sandbox.createStubInstance(SourceControlManager);
+    (scm as any).openRepositories = [];
     scm.getRepository.returns(mockRepo as any);
 
     const statusBar = new BlameStatusBar(scm as any);
@@ -149,6 +150,55 @@ suite("Blame review fixes", () => {
         blameStub.callCount,
         2,
         "failed blame must not be pinned by the same-line skip"
+      );
+    } finally {
+      statusBar.dispose();
+    }
+  });
+
+  test("status bar refreshes after a mutating op despite same-line skip", async () => {
+    const testUri = Uri.file("/test/file.txt");
+    blameStateManager.setBlameEnabled(testUri, true);
+
+    const opEmitter = new EventEmitter<Operation>();
+    const mockRepo = {
+      blame: sandbox.stub().resolves(BLAME_DATA),
+      statusReady: Promise.resolve(),
+      getResourceFromFile: sandbox.stub().returns(undefined),
+      isInsideUnversionedOrIgnored: sandbox.stub().returns(undefined),
+      onDidRunOperation: opEmitter.event
+    };
+    const scm: any = {
+      getRepository: () => mockRepo,
+      repositories: [mockRepo],
+      onDidOpenRepository: new EventEmitter<unknown>().event
+    };
+
+    const statusBar = new BlameStatusBar(scm);
+    try {
+      const mockEditor = {
+        document: { uri: testUri, lineCount: 5, version: 1 },
+        selection: { active: { line: 0 } }
+      } as any;
+      sandbox.stub(window, "activeTextEditor").value(mockEditor);
+
+      const fire = () =>
+        (statusBar as any).onSelectionChanged({ textEditor: mockEditor });
+
+      fire();
+      await new Promise(r => setTimeout(r, 400));
+      fire(); // same line, successful render - must be skipped
+      await new Promise(r => setTimeout(r, 400));
+      assert.strictEqual(mockRepo.blame.callCount, 1, "same-line skip holds");
+
+      // Commit changes BASE - status bar must refresh without cursor moving
+      opEmitter.fire(Operation.Commit);
+      await new Promise(r => setTimeout(r, 400));
+
+      assert.strictEqual(
+        mockRepo.blame.callCount,
+        2,
+        "mutating op must refresh the status bar for the pinned line"
       );
     } finally {
       statusBar.dispose();

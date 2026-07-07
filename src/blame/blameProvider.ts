@@ -30,7 +30,7 @@ import {
 } from "./templateCompiler";
 import { getErrorMessage, logError } from "../util/errorLogger";
 import { Operation, Status } from "../common/types";
-import { FORCE_REFRESH_OPERATIONS, isDescendant } from "../util";
+import { BLAME_INVALIDATING_OPERATIONS, isDescendant } from "../util";
 import {
   computeLineMapping,
   LineMapping,
@@ -701,11 +701,7 @@ export class BlameProvider implements Disposable {
    * refresh the active editor so decorations reflect the new BASE.
    */
   private onRepositoryOperation(operation: Operation): void {
-    if (
-      !FORCE_REFRESH_OPERATIONS.has(operation) &&
-      operation !== Operation.SwitchBranch &&
-      operation !== Operation.Merge
-    ) {
+    if (!BLAME_INVALIDATING_OPERATIONS.has(operation)) {
       return;
     }
 
