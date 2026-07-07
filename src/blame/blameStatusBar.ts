@@ -26,7 +26,7 @@ import { formatBlameDate } from "../util/formatting";
  * BlameStatusBar manages the status bar item showing blame info for current line
  * Singleton instance (unlike BlameProvider which is per-repo).
  *
- * Blame data is fetched via `Repository.getBlameForFile`, which is itself
+ * Blame data is fetched via `Repository.blame`, which is itself
  * cached by `SvnRepository._blameCache` (5min TTL). No local cache layer
  * here — a redundant TTL of the same length plus over-eager invalidation
  * on edit/save (BASE blame doesn't change on a local edit) was previously
@@ -35,6 +35,9 @@ import { formatBlameDate } from "../util/formatting";
 export class BlameStatusBar implements Disposable {
   private statusBarItem: StatusBarItem;
   private disposables: Disposable[] = [];
+  // Last `${uri}#${line}` the status bar was updated for; selection events
+  // on the same line are skipped before they reach the blame pipeline.
+  private lastLineKey?: string;
 
   constructor(private sourceControlManager: SourceControlManager) {
     // Create status bar item (right-aligned, priority 100)
@@ -94,6 +97,24 @@ export class BlameStatusBar implements Disposable {
 
     // Check if should show
     if (!this.shouldShowStatusBar(editor.document.uri)) {
+      this.statusBarItem.hide();
+      return;
+    }
+
+    // Size gates: skip files BlameProvider refuses for performance
+    // (over-limit CSVs, files over largeFileLimit). Silent - no toast.
+    const doc = editor.document;
+    if (
+      blameConfiguration.isCsvLike(doc.uri) &&
+      doc.lineCount > blameConfiguration.getCsvLineLimit()
+    ) {
+      this.statusBarItem.hide();
+      return;
+    }
+    if (
+      blameConfiguration.isFileTooLarge(doc.lineCount) &&
+      blameConfiguration.shouldWarnLargeFile()
+    ) {
       this.statusBarItem.hide();
       return;
     }
@@ -182,24 +203,37 @@ export class BlameStatusBar implements Disposable {
 
   // ===== Event Handlers =====
 
-  @debounce(150)
-  private async onSelectionChanged(
-    _event: TextEditorSelectionChangeEvent
-  ): Promise<void> {
-    await this.updateStatusBar();
+  private onSelectionChanged(event: TextEditorSelectionChangeEvent): void {
+    // Only the active editor drives the status bar
+    const editor = event.textEditor;
+    if (editor !== window.activeTextEditor) {
+      return;
+    }
+
+    // Same-line skip: cheap synchronous check per event; updateStatusBar
+    // (debounced 150ms) is only scheduled when the line actually changed.
+    const key = `${editor.document.uri.toString()}#${editor.selection.active.line}`;
+    if (key === this.lastLineKey) {
+      return;
+    }
+    this.lastLineKey = key;
+    void this.updateStatusBar();
   }
 
   private async onActiveEditorChanged(
     _editor: TextEditor | undefined
   ): Promise<void> {
+    this.lastLineKey = undefined;
     await this.updateStatusBar();
   }
 
   private async onConfigurationChanged(): Promise<void> {
+    this.lastLineKey = undefined;
     await this.updateStatusBar();
   }
 
   private async onBlameStateChanged(): Promise<void> {
+    this.lastLineKey = undefined;
     await this.updateStatusBar();
   }
 

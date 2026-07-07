@@ -533,6 +533,19 @@ export class BlameProvider implements Disposable {
       return;
     }
 
+    // Size gates mirror updateDecorations (silent on the cursor path):
+    // without these, clicking into a file the main path refused would
+    // trigger the full blame fetch it was refused for.
+    const lineCount = editor.document.lineCount;
+    if (
+      (blameConfiguration.isCsvLike(editor.document.uri) &&
+        lineCount > blameConfiguration.getCsvLineLimit()) ||
+      (blameConfiguration.isFileTooLarge(lineCount) &&
+        blameConfiguration.shouldWarnLargeFile())
+    ) {
+      return;
+    }
+
     // Get cached blame data (don't re-fetch)
     const blameData = await this.getBlameData(editor.document.uri);
     if (!blameData) {
