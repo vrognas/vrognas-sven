@@ -822,9 +822,10 @@ export class Repository {
           );
         }
         if (err.stderr.includes("E155007")) {
+          // Keep the code in the message: callers silent-skip on it
           throw this.cacheBlameError(
             cacheKey,
-            `File not under version control: ${relativePath}`,
+            `File not under version control (E155007): ${relativePath}`,
             generation
           );
         }

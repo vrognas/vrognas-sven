@@ -1,5 +1,6 @@
 import * as assert from "assert";
 import * as sinon from "sinon";
+import { vi } from "vitest";
 import { EventEmitter, Uri, window } from "vscode";
 import { Operation, RepositoryState } from "../../../common/types";
 import { BlameProvider } from "../../../blame/blameProvider";
@@ -202,6 +203,50 @@ suite("Blame review fixes", () => {
       );
     } finally {
       statusBar.dispose();
+    }
+  });
+
+  test("E155007 blame failures are silent and carry the code", async () => {
+    // svnRepository layer: rewrapped message must keep the error code so
+    // callers' silent-skip checks can match it
+    const { repo, setExec } = await makeFakeSvnRepo();
+    setExec(() =>
+      Promise.reject({ stderr: "svn: E155007: '/x' is not a working copy" })
+    );
+    await assert.rejects(repo.blame("outside.txt"), /E155007/);
+
+    // provider layer: such errors must not reach logError (silent skip,
+    // matching the old svn-info pre-check behavior for non-WC files)
+    const errorLogger = await import("../../../util/errorLogger");
+    const logSpy = vi
+      .spyOn(errorLogger, "logError")
+      .mockImplementation(() => {});
+    try {
+      const mockRepository = sandbox.createStubInstance(Repository);
+      (mockRepository as any).repository = {
+        workspaceRoot: "/test",
+        root: "/test"
+      };
+      mockRepository.getResourceFromFile.returns(undefined as any);
+      mockRepository.blame.rejects(
+        new Error("File not under version control (E155007): outside.txt")
+      );
+      const provider = new BlameProvider(mockRepository as any);
+      try {
+        const uri = Uri.file("/test/outside.txt");
+        const editor = { document: { uri, version: 1 } } as any;
+        const result = await (provider as any).getBlameData(uri, editor);
+        assert.strictEqual(result, undefined);
+        assert.strictEqual(
+          logSpy.mock.calls.length,
+          0,
+          "E155007 must be skipped silently, not logged"
+        );
+      } finally {
+        provider.dispose();
+      }
+    } finally {
+      logSpy.mockRestore();
     }
   });
 

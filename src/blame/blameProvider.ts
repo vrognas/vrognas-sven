@@ -873,11 +873,15 @@ export class BlameProvider implements Disposable {
       // Suppress expected errors for unversioned/untracked files (not actual errors)
       // W155010: node not found in working copy
       // E200009: could not perform operation on some targets
+      // E155007: not a working copy (file outside/detached from the WC -
+      //          the shallow-checkout edge the old svn-info pre-check hid)
       const isUntrackedFile =
         stderrStr.includes("W155010") ||
         stderrStr.includes("E200009") ||
+        stderrStr.includes("E155007") ||
         errorMsg.includes("W155010") ||
-        errorMsg.includes("E200009");
+        errorMsg.includes("E200009") ||
+        errorMsg.includes("E155007");
 
       if (isUntrackedFile) {
         return undefined; // Silently skip unversioned files
