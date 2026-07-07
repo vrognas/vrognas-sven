@@ -83,6 +83,13 @@ export class Repository {
   // invalidation can't repopulate the cache with pre-mutation data.
   private _blameGeneration = 0;
   private _logCache = new LRUCache<ISvnLogEntry[]>(50, 60 * 1000);
+  // A branch's copy origin is immutable for a given branch URL - resolve
+  // once per session. null = verified "not a copy" (parsed result);
+  // errors propagate and are never cached.
+  private _copyPointCache = new Map<
+    string,
+    { copyFromPath: string; copyFromRev: string; copyToPath: string } | null
+  >();
   // URL-keyed cache for `svn list` (remote call). 30s TTL — covers diff-open
   // bursts where multiple svn-scheme URIs resolve to the same fsPath and
   // each stat would otherwise fire its own network list.
@@ -907,9 +914,21 @@ export class Repository {
     return new Error(message);
   }
 
-  public async getChanges(): Promise<ISvnPathChange[]> {
-    // First, check to see if this branch was copied from somewhere.
-    let args = [
+  /**
+   * Where was the current branch copied from? Immutable per branch URL,
+   * so the `svn log --stop-on-copy` round-trip runs once per session.
+   */
+  private async resolveCopyPoint(): Promise<{
+    copyFromPath: string;
+    copyFromRev: string;
+    copyToPath: string;
+  } | null> {
+    const branchUrl = this._info?.url ?? "";
+    if (branchUrl && this._copyPointCache.has(branchUrl)) {
+      return this._copyPointCache.get(branchUrl)!;
+    }
+
+    const logArgs = [
       "log",
       "-r1:HEAD",
       "--limit=1",
@@ -918,35 +937,48 @@ export class Repository {
       "--with-all-revprops",
       "--verbose"
     ];
-    let result = await this.exec(args);
-    const entries = await parseSvnLog(result.stdout);
+    const logResult = await this.exec(logArgs); // errors propagate, uncached
+    const entries = await parseSvnLog(logResult.stdout);
 
-    if (entries.length === 0 || entries[0]?.paths.length === 0) {
-      return [];
-    }
+    let point: {
+      copyFromPath: string;
+      copyFromRev: string;
+      copyToPath: string;
+    } | null = null;
 
-    const copyCommitPath = entries[0]!.paths[0]!;
-
+    const copyCommitPath = entries[0]?.paths[0];
     if (
-      copyCommitPath.copyfromRev === undefined ||
-      copyCommitPath.copyfromPath === undefined ||
-      copyCommitPath._ === undefined ||
-      copyCommitPath.copyfromRev.trim().length === 0 ||
-      copyCommitPath.copyfromPath.trim().length === 0 ||
-      copyCommitPath._.trim().length === 0
+      copyCommitPath?.copyfromRev?.trim() &&
+      copyCommitPath.copyfromPath?.trim() &&
+      copyCommitPath._?.trim()
     ) {
+      point = {
+        copyFromPath: copyCommitPath.copyfromPath,
+        copyFromRev: copyCommitPath.copyfromRev,
+        copyToPath: copyCommitPath._
+      };
+    }
+
+    if (branchUrl) {
+      this._copyPointCache.set(branchUrl, point);
+    }
+    return point;
+  }
+
+  public async getChanges(): Promise<ISvnPathChange[]> {
+    // First, check to see if this branch was copied from somewhere.
+    const copyPoint = await this.resolveCopyPoint();
+    if (!copyPoint) {
       return [];
     }
 
-    const copyFromPath = copyCommitPath.copyfromPath;
-    const copyFromRev = copyCommitPath.copyfromRev;
-    const copyToPath = copyCommitPath._;
+    const { copyFromPath, copyFromRev, copyToPath } = copyPoint;
     const copyFromUrl = this.info.repository.root + copyFromPath;
     const copyToUrl = this.info.repository.root + copyToPath;
 
     // Get last merge revision from path that this branch was copied from.
-    args = ["mergeinfo", "--show-revs=merged", copyFromUrl, copyToUrl];
-    result = await this.exec(args);
+    let args = ["mergeinfo", "--show-revs=merged", copyFromUrl, copyToUrl];
+    let result = await this.exec(args);
     const revisions = result.stdout.trim().split("\n");
     let latestMergedRevision: string = "";
 

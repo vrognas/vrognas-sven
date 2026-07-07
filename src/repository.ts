@@ -213,6 +213,15 @@ export class Repository implements IRemoteRepository {
   // Server-knowledge tracker - see recordServerRevision()
   private _lastKnownServerRevision?: { revision: number; timestamp: number };
 
+  // Repo-GLOBAL youngest revision (any branch). Distinct from the WC-
+  // subtree probe above: branch-changes must react to commits on the
+  // SOURCE branch, which never touch this working copy's subtree.
+  private _lastKnownRepoRevision?: { revision: number; timestamp: number };
+
+  // getChanges() result, valid while the repo youngest revision holds.
+  // Cleared alongside the blame caches on mutating operations.
+  private _changesCache?: { revision: number; changes: ISvnPathChange[] };
+
   // Property caches for decoration tooltips (eol-style, mime-type)
   private eolStyleCache = new Map<string, string>();
   private mimeTypeCache = new Map<string, string>();
@@ -1669,6 +1678,11 @@ export class Repository implements IRemoteRepository {
     if (revMatch && revMatch[1]) {
       const newRevision = revMatch[1];
       this.recordServerRevision(parseInt(newRevision, 10));
+      // Commit revisions are repo-global - feed the branch-changes gate too
+      this._lastKnownRepoRevision = {
+        revision: parseInt(newRevision, 10),
+        timestamp: Date.now()
+      };
       // Update info.revision directly so BASE indicator is correct
       // This handles mixed-revision working copies after partial commit
       if (
@@ -1820,8 +1834,56 @@ export class Repository implements IRemoteRepository {
     );
   }
 
+  /**
+   * Repo-global youngest revision, fresh within one poll interval.
+   * Falls back to one remote `svn info <repo root>` round-trip when the
+   * recorded observation is stale. undefined = offline/unknown (callers
+   * must not gate on it).
+   */
+  private async getRepoYoungestRevision(): Promise<number | undefined> {
+    const maxAge = this.getRemoteCheckFrequencyMs();
+    const known = this._lastKnownRepoRevision;
+    if (known && Date.now() - known.timestamp < maxAge) {
+      return known.revision;
+    }
+    try {
+      const info = await this.run(Operation.Info, () =>
+        this.repository.getInfo(
+          this.repository.info.repository.root,
+          undefined,
+          true, // skipCache - the gate must not trust the 2-min info cache
+          true
+        )
+      );
+      const revision = parseInt(info.revision, 10);
+      if (!isNaN(revision)) {
+        this._lastKnownRepoRevision = { revision, timestamp: Date.now() };
+        return revision;
+      }
+    } catch {
+      // Offline/unreachable - callers run ungated
+    }
+    return undefined;
+  }
+
+  /**
+   * Branch-changes pipeline (4 server round-trips), gated on the repo
+   * youngest revision: its output can only change when a commit or merge
+   * lands on either branch, which by definition creates a new revision.
+   */
   public async getChanges(): Promise<ISvnPathChange[]> {
-    return this.run(Operation.Changes, () => this.repository.getChanges());
+    const revision = await this.getRepoYoungestRevision();
+    if (revision !== undefined && this._changesCache?.revision === revision) {
+      return this._changesCache.changes;
+    }
+
+    const changes = await this.run(Operation.Changes, () =>
+      this.repository.getChanges()
+    );
+    if (revision !== undefined) {
+      this._changesCache = { revision, changes };
+    }
+    return changes;
   }
 
   public async blame(path: string, revision?: string) {
@@ -2191,6 +2253,7 @@ export class Repository implements IRemoteRepository {
         // Runs before onDidRunOperation so subscribers see a clean cache.
         if (BLAME_INVALIDATING_OPERATIONS.has(operation)) {
           this.repository.clearBlameCache();
+          this._changesCache = undefined;
         }
         this._operations.end(operation);
         this._onDidRunOperation.fire(operation);
