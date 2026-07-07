@@ -83,13 +83,16 @@ export class Repository {
   // invalidation can't repopulate the cache with pre-mutation data.
   private _blameGeneration = 0;
   private _logCache = new LRUCache<ISvnLogEntry[]>(50, 60 * 1000);
-  // A branch's copy origin is immutable for a given branch URL - resolve
-  // once per session. null = verified "not a copy" (parsed result);
-  // errors propagate and are never cached.
-  private _copyPointCache = new Map<
-    string,
-    { copyFromPath: string; copyFromRev: string; copyToPath: string } | null
-  >();
+  // A branch's copy origin is stable for a given branch URL, but not
+  // strictly immutable (delete + re-create at the same URL) and the URL
+  // itself can go stale around switches - so: long TTL instead of
+  // session-lifetime, cleared on switch and dispose. null = verified
+  // "not a copy" (parsed result); errors propagate and are never cached.
+  private _copyPointCache = new LRUCache<{
+    copyFromPath: string;
+    copyFromRev: string;
+    copyToPath: string;
+  } | null>(10, 30 * 60 * 1000);
   // URL-keyed cache for `svn list` (remote call). 30s TTL — covers diff-open
   // bursts where multiple svn-scheme URIs resolve to the same fsPath and
   // each stat would otherwise fire its own network list.
@@ -924,8 +927,11 @@ export class Repository {
     copyToPath: string;
   } | null> {
     const branchUrl = this._info?.url ?? "";
-    if (branchUrl && this._copyPointCache.has(branchUrl)) {
-      return this._copyPointCache.get(branchUrl)!;
+    if (branchUrl) {
+      const cached = this._copyPointCache.get(branchUrl);
+      if (cached !== undefined) {
+        return cached;
+      }
     }
 
     const logArgs = [
@@ -959,8 +965,12 @@ export class Repository {
       };
     }
 
-    if (branchUrl) {
-      this._copyPointCache.set(branchUrl, point);
+    // Re-read the URL after the awaited exec: a switch completing mid-
+    // fetch refreshes _info, and writing under the pre-switch URL would
+    // poison that entry
+    const writeUrl = this._info?.url ?? "";
+    if (writeUrl && writeUrl === branchUrl) {
+      this._copyPointCache.set(writeUrl, point);
     }
     return point;
   }
@@ -1456,6 +1466,7 @@ export class Repository {
       // Clear on failure too - a partial switch can still mutate the WC
       this.resetInfoCache();
       this.clearBlameCache();
+      this._copyPointCache.clear();
     }
     return true;
   }
@@ -2660,5 +2671,6 @@ export class Repository {
     this._logCache.clear();
     this._listCache.clear();
     this._catCache.clear();
+    this._copyPointCache.clear();
   }
 }

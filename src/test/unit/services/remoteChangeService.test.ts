@@ -157,6 +157,47 @@ describe("RemoteChangeService E2E", () => {
     );
   });
 
+  it("refocus catch-up respects the failure backoff", async () => {
+    let attempts = 0;
+    let focused = true;
+    let focusListener: (() => void) | undefined;
+    const config: RemoteChangeConfig = { checkFrequencySeconds: 0.05 };
+
+    const service = new RemoteChangeService(
+      async () => {
+        attempts++;
+        throw new Error("server unreachable");
+      },
+      () => config,
+      {
+        isFocused: () => focused,
+        onDidFocus: listener => {
+          focusListener = listener;
+          return { dispose: () => (focusListener = undefined) };
+        }
+      }
+    );
+
+    service.start();
+    await new Promise(r => setTimeout(r, 80)); // first tick fails, backoff armed
+    const afterFirstFailure = attempts;
+    assert.ok(afterFirstFailure >= 1);
+
+    focused = false;
+    await new Promise(r => setTimeout(r, 80)); // unfocused tick arms missedTick
+    focused = true;
+    focusListener?.(); // alt-tab back while backoff is active
+    await new Promise(r => setTimeout(r, 20));
+
+    assert.strictEqual(
+      attempts,
+      afterFirstFailure,
+      "refocus must not bypass the backoff against a dead server"
+    );
+
+    service.dispose();
+  });
+
   /**
    * Test 3: Error handling - verify errors don't crash polling
    */

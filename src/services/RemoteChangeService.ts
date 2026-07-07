@@ -100,7 +100,13 @@ export class RemoteChangeService implements IRemoteChangeService {
     this.isFocused = options.isFocused ?? (() => true);
     if (options.onDidFocus) {
       this.focusSubscription = options.onDidFocus(() => {
-        if (this.missedTickWhileUnfocused && this.isRunning) {
+        // ticksToSkip guard: alt-tabbing while the server is down must
+        // not bypass the failure backoff with a poll per refocus
+        if (
+          this.missedTickWhileUnfocused &&
+          this.isRunning &&
+          this.ticksToSkip === 0
+        ) {
           this.missedTickWhileUnfocused = false;
           // Catch-up poll ~immediately instead of waiting a full interval
           void this.executePoll();

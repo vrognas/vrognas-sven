@@ -48,6 +48,56 @@ suite("Branch-changes server-query gating", () => {
     );
   });
 
+  test("copy-point cache cleared by switchBranch", async () => {
+    const { repo, getCount, setExec } = await makeFakeSvnRepo();
+    (repo as any)._info = {
+      url: "https://svn.example.com/repo/branches/x",
+      revision: "100",
+      repository: { root: "https://svn.example.com/repo" }
+    };
+    (repo as any)._copyPointCache = new Map();
+    setExec(async () => ({ stdout: EMPTY_LOG }));
+
+    await repo.getChanges(); // resolves + caches copy point
+    await repo.switchBranch("branches/y"); // exec: switch
+    await repo.getChanges(); // must re-resolve
+
+    assert.strictEqual(
+      getCount(),
+      3,
+      "switch must clear the copy-point cache (log, switch, log)"
+    );
+  });
+
+  test("mutating op mid-fetch blocks the changes-cache write-back", async () => {
+    const { Repository } = await import("../../../repository");
+
+    let pipelineRuns = 0;
+    const mockThis: any = {
+      getRepoYoungestRevision: async () => 50,
+      _changesGeneration: 0,
+      run: async (_op: unknown, fn: () => Promise<unknown>) => {
+        pipelineRuns++;
+        // A switch completes while the 4-round-trip fetch is in flight
+        mockThis._changesGeneration++;
+        mockThis._changesCache = undefined;
+        return fn();
+      },
+      repository: { getChanges: async () => [{ oldPath: "old-branch" }] }
+    };
+    const getChanges = (Repository.prototype as any).getChanges;
+
+    await getChanges.call(mockThis);
+    assert.strictEqual(
+      mockThis._changesCache,
+      undefined,
+      "pre-switch result must not repopulate the cleared cache"
+    );
+
+    await getChanges.call(mockThis);
+    assert.strictEqual(pipelineRuns, 2, "next call re-runs the pipeline");
+  });
+
   test("Repository.getChanges is gated on the repo youngest revision", async () => {
     const { Repository } = await import("../../../repository");
 

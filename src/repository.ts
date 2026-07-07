@@ -218,9 +218,12 @@ export class Repository implements IRemoteRepository {
   // SOURCE branch, which never touch this working copy's subtree.
   private _lastKnownRepoRevision?: { revision: number; timestamp: number };
 
-  // getChanges() result, valid while the repo youngest revision holds.
-  // Cleared alongside the blame caches on mutating operations.
-  private _changesCache?: { revision: number; changes: ISvnPathChange[] };
+  // getChanges() result, valid while branch URL + repo youngest revision
+  // hold. Cleared alongside the blame caches on mutating operations; the
+  // generation counter blocks stale write-backs from in-flight fetches
+  // (same pattern as the blame cache).
+  private _changesCache?: { key: string; changes: ISvnPathChange[] };
+  private _changesGeneration = 0;
 
   // Property caches for decoration tooltips (eol-style, mime-type)
   private eolStyleCache = new Map<string, string>();
@@ -703,6 +706,9 @@ export class Repository implements IRemoteRepository {
   // --show-updates sweep is needed even when HEAD hasn't moved
   private static readonly LOCK_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
   private lastFullRemoteStatusTs = 0;
+  // Youngest revision the probe saw when the last full fetch ran - the
+  // poll gate's anchor (see pollRemoteChanges)
+  private _lastRemoteStatusRevision?: number;
 
   /**
    * Event-driven remote refresh (post switch/merge/pull, config change,
@@ -718,9 +724,18 @@ export class Repository implements IRemoteRepository {
   /**
    * Two-tier remote poll. Interval ticks first run a cheap single
    * round-trip youngest-revision probe and skip the full-working-copy
-   * `svn status --show-updates` tree walk when nothing can have changed:
-   * no revisions beyond BASE (revisions are global and monotonic), no
-   * stale incoming-changes UI left to clear, and no lock sweep due.
+   * `svn status --show-updates` tree walk when nothing can have changed.
+   *
+   * The gate compares the probed youngest revision against the one seen
+   * at the LAST FULL FETCH - never against BASE. BASE comparisons lie in
+   * mixed-revision working copies (own commits bump only committed
+   * nodes; the root revision is a single scalar). Revision identity is
+   * exact: any new server revision differs from the anchored one.
+   *
+   * Known probe blind spots, both bounded by the lock sweep: members
+   * pinned below the WC root revision, and svn:externals sources (their
+   * incoming changes never bumped this subtree's log).
+   *
    * force=true (event-driven refresh) always runs the full fetch.
    */
   public async pollRemoteChanges(force = false): Promise<void> {
@@ -734,20 +749,28 @@ export class Repository implements IRemoteRepository {
       return;
     }
 
+    let probedYoungest: number | undefined;
     if (!force) {
       const probe = await this.probeRemoteChanges();
+      probedYoungest = probe.youngestRevision;
       const lockSweepDue =
         Date.now() - this.lastFullRemoteStatusTs >=
         Repository.LOCK_SWEEP_INTERVAL_MS;
       const staleIncomingUi =
         (this.groupManager.remoteChanges?.resourceStates.length ?? 0) > 0;
+      const unchangedSinceFullFetch =
+        probedYoungest !== undefined &&
+        probedYoungest === this._lastRemoteStatusRevision;
 
-      if (!probe.hasChanges && !staleIncomingUi && !lockSweepDue) {
-        return; // server quiet, UI current, locks recently swept
+      if (unchangedSinceFullFetch && !staleIncomingUi && !lockSweepDue) {
+        return; // nothing new since the last full fetch, UI current
       }
     }
 
     await this.run(Operation.StatusRemote);
+    // Anchor the gate to what the probe saw. After force refreshes this
+    // is undefined, so the next tick runs one full fetch to re-anchor.
+    this._lastRemoteStatusRevision = probedYoungest;
     // Full --show-updates includes lock info - sweep satisfied on success
     this.lastFullRemoteStatusTs = Date.now();
   }
@@ -1873,15 +1896,30 @@ export class Repository implements IRemoteRepository {
    */
   public async getChanges(): Promise<ISvnPathChange[]> {
     const revision = await this.getRepoYoungestRevision();
-    if (revision !== undefined && this._changesCache?.revision === revision) {
+
+    // Branch identity in the key: an svn switch (even an external one -
+    // info refreshes via the watcher) changes the output with no new
+    // repository revision.
+    let branchUrl = "";
+    try {
+      branchUrl = this.repository.info.url;
+    } catch {
+      // info not initialized yet - key on revision alone
+    }
+    const key = `${branchUrl}@${revision}`;
+
+    if (revision !== undefined && this._changesCache?.key === key) {
       return this._changesCache.changes;
     }
 
+    const generation = this._changesGeneration;
     const changes = await this.run(Operation.Changes, () =>
       this.repository.getChanges()
     );
-    if (revision !== undefined) {
-      this._changesCache = { revision, changes };
+    // Skip the write when a mutating op invalidated mid-fetch - the
+    // result may describe the pre-mutation branch
+    if (revision !== undefined && generation === this._changesGeneration) {
+      this._changesCache = { key, changes };
     }
     return changes;
   }
@@ -2216,9 +2254,12 @@ export class Repository implements IRemoteRepository {
         const fetchLockStatus = shouldFetchLockStatus(operation);
 
         if (!isReadOnly(operation)) {
+          // StatusRemote forces the refresh: the poll already gated the
+          // decision, so the 1s model cache must not swallow the fetch
+          // (it would mark the lock sweep done with zero lock data)
           await this.updateModelState(
             checkRemote,
-            forceRefresh,
+            forceRefresh || operation === Operation.StatusRemote,
             fetchLockStatus
           );
         }
@@ -2254,6 +2295,7 @@ export class Repository implements IRemoteRepository {
         if (BLAME_INVALIDATING_OPERATIONS.has(operation)) {
           this.repository.clearBlameCache();
           this._changesCache = undefined;
+          this._changesGeneration++;
         }
         this._operations.end(operation);
         this._onDidRunOperation.fire(operation);
