@@ -71,6 +71,14 @@ export class Repository {
   // LRU caches with TTL expiration
   private _infoCache = new LRUCache<ISvnInfo | null>(500, 2 * 60 * 1000);
   private _blameCache = new LRUCache<ISvnBlameLine[]>(100, 5 * 60 * 1000);
+  // In-flight dedup for concurrent blame calls (BlameProvider and
+  // BlameStatusBar race on the same file at every editor switch).
+  private _blameInFlight = new Map<string, Promise<ISvnBlameLine[]>>();
+  // Short-TTL negative cache for non-transient blame failures (binary
+  // file, unversioned, invalid revision, parse failure). Without it a
+  // failing file re-spawns a full `svn blame` on every debounced cursor
+  // event because errors never reach _blameCache.
+  private _blameErrorCache = new LRUCache<string>(50, 30 * 1000);
   private _logCache = new LRUCache<ISvnLogEntry[]>(50, 60 * 1000);
   // URL-keyed cache for `svn list` (remote call). 30s TTL — covers diff-open
   // bursts where multiple svn-scheme URIs resolve to the same fsPath and
@@ -677,7 +685,6 @@ export class Repository {
    * const blame = await repository.blame("src/file.ts");
    * const blameAtRev = await repository.blame("src/file.ts", "100");
    */
-  @sequentialize
   public async blame(
     file: string,
     revision: string = "BASE",
@@ -689,12 +696,55 @@ export class Repository {
     // Cache key includes revision for per-revision caching
     const cacheKey = `${relativePath}@${revision}`;
 
-    // Check cache first (unless skipCache=true)
     if (!skipCache) {
+      // Fast-path cache check OUTSIDE @sequentialize (getInfo pattern) so
+      // cache hits don't queue behind an unrelated in-flight network blame.
       const cached = this._blameCache.get(cacheKey);
       if (cached !== undefined) {
         return cached;
       }
+
+      // Replay recent non-transient failures without re-spawning svn
+      const cachedError = this._blameErrorCache.get(cacheKey);
+      if (cachedError !== undefined) {
+        throw new Error(cachedError);
+      }
+
+      // Concurrent callers for the same file share one fetch
+      const inFlight = this._blameInFlight.get(cacheKey);
+      if (inFlight !== undefined) {
+        return inFlight;
+      }
+    }
+
+    const fetchPromise = this._doBlameFetch(relativePath, revision, cacheKey);
+
+    if (!skipCache) {
+      this._blameInFlight.set(cacheKey, fetchPromise);
+      const cleanup = () => {
+        if (this._blameInFlight.get(cacheKey) === fetchPromise) {
+          this._blameInFlight.delete(cacheKey);
+        }
+      };
+      fetchPromise.then(cleanup, cleanup);
+    }
+
+    return fetchPromise;
+  }
+
+  // The actual subprocess + parse path. Sequentialized so concurrent misses
+  // for different files can't spawn multiple `svn blame` simultaneously;
+  // cache hits no longer queue here, see blame() above.
+  @sequentialize
+  private async _doBlameFetch(
+    relativePath: string,
+    revision: string,
+    cacheKey: string
+  ): Promise<ISvnBlameLine[]> {
+    // Re-check cache in case a queued fetch populated it while waiting
+    const cached = this._blameCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
     }
 
     // Build SVN blame command
@@ -724,7 +774,8 @@ export class Repository {
     try {
       result = await this.exec(args);
     } catch (err: unknown) {
-      // Handle known SVN errors
+      // Handle known SVN errors. Non-transient failures are negative-cached
+      // (short TTL) so cursor-event traffic doesn't re-spawn a doomed blame.
       if (
         typeof err === "object" &&
         err !== null &&
@@ -732,21 +783,31 @@ export class Repository {
         typeof err.stderr === "string"
       ) {
         if (err.stderr.includes("E195012") && err.stderr.includes("binary")) {
-          throw new Error(`Cannot blame binary file: ${relativePath}`);
+          throw this.cacheBlameError(
+            cacheKey,
+            `Cannot blame binary file: ${relativePath}`
+          );
         }
         if (err.stderr.includes("E155007")) {
-          throw new Error(`File not under version control: ${relativePath}`);
+          throw this.cacheBlameError(
+            cacheKey,
+            `File not under version control: ${relativePath}`
+          );
         }
         if (err.stderr.includes("E160006")) {
-          throw new Error(`Invalid revision: ${revision}`);
+          throw this.cacheBlameError(cacheKey, `Invalid revision: ${revision}`);
         }
         // W155010: node not found (file/dir outside working copy or shallow checkout)
         // E200009: could not perform operation on some targets
-        // These are expected for unversioned/non-existent files - don't log as errors
+        // These are expected for unversioned/non-existent files - don't log as errors.
+        // Cache the stderr (contains the code) so replayed errors still match
+        // the callers' silent-skip checks.
         if (err.stderr.includes("W155010") || err.stderr.includes("E200009")) {
+          this._blameErrorCache.set(cacheKey, err.stderr);
           throw err; // Re-throw without logging (caller handles silently)
         }
       }
+      // Transient errors (network, auth, repo lock) are NOT cached - retryable
       logError(`Failed to execute blame for ${relativePath}`, err);
       throw new Error(
         `Blame failed for ${relativePath}: ${getErrorMessage(err)}`
@@ -759,13 +820,20 @@ export class Repository {
       blame = await parseSvnBlame(result.stdout);
     } catch (err) {
       logError(`Failed to parse blame XML for ${relativePath}`, err);
-      throw new Error(
+      throw this.cacheBlameError(
+        cacheKey,
         `Blame parse failed for ${relativePath}: ${getErrorMessage(err)}`
       );
     }
 
     this._blameCache.set(cacheKey, blame);
     return blame;
+  }
+
+  /** Store a non-transient blame failure and return the Error to throw. */
+  private cacheBlameError(cacheKey: string, message: string): Error {
+    this._blameErrorCache.set(cacheKey, message);
+    return new Error(message);
   }
 
   public async getChanges(): Promise<ISvnPathChange[]> {
@@ -2472,6 +2540,8 @@ export class Repository {
   public clearInfoCacheTimers(): void {
     this._infoCache.clear();
     this._blameCache.clear();
+    this._blameErrorCache.clear();
+    this._blameInFlight.clear();
     this._logCache.clear();
     this._listCache.clear();
     this._catCache.clear();
