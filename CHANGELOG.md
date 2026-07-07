@@ -24,6 +24,7 @@ Blame performance overhaul: far fewer svn subprocesses, no fetches when blame is
 - Cold blame of a clean file no longer pays a redundant `svn info` pre-check (blame's own error handling already skips unversioned files silently) — halves cold-path subprocess count.
 - Inline commit-message prefetch passes the blamed file to `svn log`, so the server returns only that file's history instead of every revision in the checkout between the file's min and max blamed revisions.
 - `Operation.Blame` and `Operation.List` no longer flash the SCM progress spinner (background reads triggered by cursor movement and quickdiff stats).
+- Post-review hardening: `BlameProvider` subscribes to `onDidRunOperation` and drops its version-keyed cache on mutating ops (a commit doesn't bump `document.version`, so repo-level invalidation alone never reached decorations); `clearBlameCache` also drops in-flight fetches and bumps a generation counter so a blame that started pre-commit can't repopulate the cleared cache; cache clearing moved to `finally` (failed update/commit may still mutate the WC); `skipCache=true` forces a fresh fetch again; status bar same-line skip no longer pins transient failures — only definitive outcomes suppress retries.
 
 ---
 

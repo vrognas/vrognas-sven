@@ -2044,12 +2044,6 @@ export class Repository implements IRemoteRepository {
       try {
         const result = await this.retryRun(runOperation);
 
-        // Mutating ops can change BASE content - drop the repo blame cache
-        // so blame doesn't show pre-commit/pre-update data for up to 5 min
-        if (forceRefresh) {
-          this.repository.clearBlameCache();
-        }
-
         const checkRemote = operation === Operation.StatusRemote;
 
         // Only fetch lock status (--show-updates) when needed.
@@ -2089,6 +2083,13 @@ export class Repository implements IRemoteRepository {
 
         throw err;
       } finally {
+        // Mutating ops can change BASE content - drop the repo blame cache
+        // so blame doesn't show pre-op data for up to 5 min. In finally:
+        // a FAILED commit/update can still have partially mutated the WC.
+        // Runs before onDidRunOperation so subscribers see a clean cache.
+        if (forceRefresh) {
+          this.repository.clearBlameCache();
+        }
         this._operations.end(operation);
         this._onDidRunOperation.fire(operation);
       }

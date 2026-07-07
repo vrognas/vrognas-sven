@@ -91,12 +91,16 @@ export class BlameStatusBar implements Disposable {
 
     // Hide if no editor
     if (!editor) {
+      this.lastLineKey = undefined;
       this.statusBarItem.hide();
       return;
     }
 
+    const lineKey = `${editor.document.uri.toString()}#${editor.selection.active.line}`;
+
     // Check if should show
     if (!this.shouldShowStatusBar(editor.document.uri)) {
+      this.lastLineKey = lineKey; // deterministic - no point retrying
       this.statusBarItem.hide();
       return;
     }
@@ -108,6 +112,7 @@ export class BlameStatusBar implements Disposable {
       blameConfiguration.isCsvLike(doc.uri) &&
       doc.lineCount > blameConfiguration.getCsvLineLimit()
     ) {
+      this.lastLineKey = lineKey; // deterministic - no point retrying
       this.statusBarItem.hide();
       return;
     }
@@ -115,6 +120,7 @@ export class BlameStatusBar implements Disposable {
       blameConfiguration.isFileTooLarge(doc.lineCount) &&
       blameConfiguration.shouldWarnLargeFile()
     ) {
+      this.lastLineKey = lineKey; // deterministic - no point retrying
       this.statusBarItem.hide();
       return;
     }
@@ -125,6 +131,9 @@ export class BlameStatusBar implements Disposable {
     // Fetch blame data for file (cached)
     const blameData = await this.getBlameData(editor.document.uri);
     if (!blameData) {
+      // Failure or unversioned: leave lastLineKey unset so the next
+      // same-line event retries (transient errors aren't negative-cached)
+      this.lastLineKey = undefined;
       this.showUncommittedStatus();
       return;
     }
@@ -134,11 +143,13 @@ export class BlameStatusBar implements Disposable {
 
     if (blameLine && blameLine.revision) {
       // Show blame info
+      this.lastLineKey = lineKey;
       this.statusBarItem.text = this.formatStatusBarText(blameLine);
       this.statusBarItem.tooltip = this.formatTooltip(blameLine);
       this.statusBarItem.show();
     } else {
-      // Uncommitted line
+      // Uncommitted line: keep retryable (data may arrive post-commit)
+      this.lastLineKey = undefined;
       this.showUncommittedStatus();
     }
   }
@@ -212,11 +223,12 @@ export class BlameStatusBar implements Disposable {
 
     // Same-line skip: cheap synchronous check per event; updateStatusBar
     // (debounced 150ms) is only scheduled when the line actually changed.
+    // lastLineKey is written by updateStatusBar on DEFINITIVE outcomes only,
+    // so a transient blame failure stays retryable on the same line.
     const key = `${editor.document.uri.toString()}#${editor.selection.active.line}`;
     if (key === this.lastLineKey) {
       return;
     }
-    this.lastLineKey = key;
     void this.updateStatusBar();
   }
 

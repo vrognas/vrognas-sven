@@ -29,8 +29,8 @@ import {
   CompiledTemplateFn
 } from "./templateCompiler";
 import { getErrorMessage, logError } from "../util/errorLogger";
-import { Status } from "../common/types";
-import { isDescendant } from "../util";
+import { Operation, Status } from "../common/types";
+import { FORCE_REFRESH_OPERATIONS, isDescendant } from "../util";
 import {
   computeLineMapping,
   LineMapping,
@@ -136,6 +136,16 @@ export class BlameProvider implements Disposable {
       blameStateManager.onDidChangeState(uri => this.onBlameStateChange(uri)),
       blameConfiguration.onDidChange(e => this.onConfigurationChange(e))
     );
+
+    // Mutating repository operations change BASE content; the provider
+    // cache is version-keyed and a commit doesn't bump document.version,
+    // so it must be dropped explicitly. (Guarded: stubbed repositories in
+    // unit tests may not carry the instance-field event.)
+    if (typeof this.repository.onDidRunOperation === "function") {
+      this.disposables.push(
+        this.repository.onDidRunOperation(op => this.onRepositoryOperation(op))
+      );
+    }
 
     this.isActivated = true;
 
@@ -683,6 +693,31 @@ export class BlameProvider implements Disposable {
 
     this.currentLineNumber = newLine;
     await this.updateInlineDecorationsForCursor(event.textEditor);
+  }
+
+  /**
+   * Drop the version-keyed provider cache after operations that change
+   * BASE content (commit/update/revert/... plus switch/merge), then
+   * refresh the active editor so decorations reflect the new BASE.
+   */
+  private onRepositoryOperation(operation: Operation): void {
+    if (
+      !FORCE_REFRESH_OPERATIONS.has(operation) &&
+      operation !== Operation.SwitchBranch &&
+      operation !== Operation.Merge
+    ) {
+      return;
+    }
+
+    this.blameCache.clear();
+    this.lineMappingCache.clear();
+    this.cacheAccessOrder.clear();
+    this.inFlightMessageFetches.clear();
+
+    const editor = window.activeTextEditor;
+    if (editor) {
+      void this.updateDecorations(editor);
+    }
   }
 
   private async onBlameStateChange(uri: Uri | undefined): Promise<void> {

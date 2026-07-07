@@ -79,6 +79,9 @@ export class Repository {
   // failing file re-spawns a full `svn blame` on every debounced cursor
   // event because errors never reach _blameCache.
   private _blameErrorCache = new LRUCache<string>(50, 30 * 1000);
+  // Bumped by clearBlameCache so fetches that started before an
+  // invalidation can't repopulate the cache with pre-mutation data.
+  private _blameGeneration = 0;
   private _logCache = new LRUCache<ISvnLogEntry[]>(50, 60 * 1000);
   // URL-keyed cache for `svn list` (remote call). 30s TTL — covers diff-open
   // bursts where multiple svn-scheme URIs resolve to the same fsPath and
@@ -576,6 +579,11 @@ export class Repository {
   public clearBlameCache(): void {
     this._blameCache.clear();
     this._blameErrorCache.clear();
+    // Drop in-flight promises too: callers arriving after the clear must
+    // not be handed a pre-mutation fetch. The generation bump prevents
+    // those orphaned fetches from writing their result back on completion.
+    this._blameInFlight.clear();
+    this._blameGeneration++;
   }
 
   public resetLogCache(cacheKey: string): void {
@@ -727,7 +735,12 @@ export class Repository {
       }
     }
 
-    const fetchPromise = this._doBlameFetch(relativePath, revision, cacheKey);
+    const fetchPromise = this._doBlameFetch(
+      relativePath,
+      revision,
+      cacheKey,
+      skipCache
+    );
 
     if (!skipCache) {
       this._blameInFlight.set(cacheKey, fetchPromise);
@@ -749,13 +762,22 @@ export class Repository {
   private async _doBlameFetch(
     relativePath: string,
     revision: string,
-    cacheKey: string
+    cacheKey: string,
+    skipCache: boolean
   ): Promise<ISvnBlameLine[]> {
     // Re-check cache in case a queued fetch populated it while waiting
-    const cached = this._blameCache.get(cacheKey);
-    if (cached !== undefined) {
-      return cached;
+    // (skipCache callers demanded a fresh exec - don't hand them a cache hit)
+    if (!skipCache) {
+      const cached = this._blameCache.get(cacheKey);
+      if (cached !== undefined) {
+        return cached;
+      }
     }
+
+    // Snapshot the generation: if clearBlameCache runs while this fetch is
+    // in flight (commit/update finished), the result is pre-mutation data
+    // and must not be written back.
+    const generation = this._blameGeneration;
 
     // Build SVN blame command
     const args = [
@@ -795,17 +817,23 @@ export class Repository {
         if (err.stderr.includes("E195012") && err.stderr.includes("binary")) {
           throw this.cacheBlameError(
             cacheKey,
-            `Cannot blame binary file: ${relativePath}`
+            `Cannot blame binary file: ${relativePath}`,
+            generation
           );
         }
         if (err.stderr.includes("E155007")) {
           throw this.cacheBlameError(
             cacheKey,
-            `File not under version control: ${relativePath}`
+            `File not under version control: ${relativePath}`,
+            generation
           );
         }
         if (err.stderr.includes("E160006")) {
-          throw this.cacheBlameError(cacheKey, `Invalid revision: ${revision}`);
+          throw this.cacheBlameError(
+            cacheKey,
+            `Invalid revision: ${revision}`,
+            generation
+          );
         }
         // W155010: node not found (file/dir outside working copy or shallow checkout)
         // E200009: could not perform operation on some targets
@@ -813,7 +841,9 @@ export class Repository {
         // Cache the stderr (contains the code) so replayed errors still match
         // the callers' silent-skip checks.
         if (err.stderr.includes("W155010") || err.stderr.includes("E200009")) {
-          this._blameErrorCache.set(cacheKey, err.stderr);
+          if (generation === this._blameGeneration) {
+            this._blameErrorCache.set(cacheKey, err.stderr);
+          }
           throw err; // Re-throw without logging (caller handles silently)
         }
       }
@@ -832,17 +862,30 @@ export class Repository {
       logError(`Failed to parse blame XML for ${relativePath}`, err);
       throw this.cacheBlameError(
         cacheKey,
-        `Blame parse failed for ${relativePath}: ${getErrorMessage(err)}`
+        `Blame parse failed for ${relativePath}: ${getErrorMessage(err)}`,
+        generation
       );
     }
 
-    this._blameCache.set(cacheKey, blame);
+    if (generation === this._blameGeneration) {
+      this._blameCache.set(cacheKey, blame);
+    }
     return blame;
   }
 
-  /** Store a non-transient blame failure and return the Error to throw. */
-  private cacheBlameError(cacheKey: string, message: string): Error {
-    this._blameErrorCache.set(cacheKey, message);
+  /**
+   * Store a non-transient blame failure and return the Error to throw.
+   * Skips the write when the cache generation moved (invalidation ran
+   * while the fetch was in flight - the failure may be pre-mutation).
+   */
+  private cacheBlameError(
+    cacheKey: string,
+    message: string,
+    generation: number
+  ): Error {
+    if (generation === this._blameGeneration) {
+      this._blameErrorCache.set(cacheKey, message);
+    }
     return new Error(message);
   }
 
@@ -1355,12 +1398,15 @@ export class Repository {
     const repoUrl = await this.getRepoUrl();
     const branchUrl = repoUrl + "/" + ref;
 
-    await this.exec(
-      ["switch", branchUrl].concat(force ? ["--ignore-ancestry"] : [])
-    );
-
-    this.resetInfoCache();
-    this.clearBlameCache();
+    try {
+      await this.exec(
+        ["switch", branchUrl].concat(force ? ["--ignore-ancestry"] : [])
+      );
+    } finally {
+      // Clear on failure too - a partial switch can still mutate the WC
+      this.resetInfoCache();
+      this.clearBlameCache();
+    }
     return true;
   }
 
@@ -1379,10 +1425,13 @@ export class Repository {
     args = args.concat(reintegrate ? ["--reintegrate"] : []);
     args = args.concat([branchUrl]);
 
-    await this.exec(args);
-
-    this.resetInfoCache();
-    this.clearBlameCache();
+    try {
+      await this.exec(args);
+    } finally {
+      // Clear on failure too - a conflicted merge still mutates the WC
+      this.resetInfoCache();
+      this.clearBlameCache();
+    }
     return true;
   }
 
@@ -1406,9 +1455,13 @@ export class Repository {
     const safePath = fixPegRevision(relativePath);
     const args = ["merge", "-r", `HEAD:${targetRevision}`, safePath];
 
-    const result = await this.exec(args);
-    this.resetInfoCache();
-    this.clearBlameCache();
+    let result;
+    try {
+      result = await this.exec(args);
+    } finally {
+      this.resetInfoCache();
+      this.clearBlameCache();
+    }
 
     return result.stdout;
   }
