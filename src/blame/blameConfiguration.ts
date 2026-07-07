@@ -236,6 +236,27 @@ class BlameConfiguration {
       this.get<string[]>("csvExtensions", DEFAULT_CSV_EXTENSIONS)
     );
   }
+
+  /**
+   * Size gate shared by ALL blame fetch paths (decorations, cursor path,
+   * status bar) - a gate present on one path but not another lets cursor
+   * traffic trigger the very fetch the main path refused.
+   * Returns why blame should be skipped, or undefined to proceed.
+   * The large-file gate is active only while largeFileWarning is on:
+   * disabling the warning is the opt-in for blaming large files.
+   */
+  public getBlameSizeGate(
+    uri: Uri,
+    lineCount: number
+  ): "csv" | "largeFile" | undefined {
+    if (this.isCsvLike(uri) && lineCount > this.getCsvLineLimit()) {
+      return "csv";
+    }
+    if (this.isFileTooLarge(lineCount) && this.shouldWarnLargeFile()) {
+      return "largeFile";
+    }
+    return undefined;
+  }
 }
 
 export const blameConfiguration = new BlameConfiguration();

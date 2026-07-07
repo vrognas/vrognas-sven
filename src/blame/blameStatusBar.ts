@@ -115,31 +115,21 @@ export class BlameStatusBar implements Disposable {
       return;
     }
 
-    const lineKey = `${editor.document.uri.toString()}#${editor.selection.active.line}`;
+    // lastLineKey contract: written ONLY when a blame result is rendered
+    // for this line (below). Every other outcome leaves it unset so the
+    // next same-line event re-evaluates - those paths are cheap (config
+    // reads / cache hits, no subprocess) and their inputs are mutable
+    // (lineCount shrinks, blame data changes, errors are transient).
 
     // Check if should show
     if (!this.shouldShowStatusBar(editor.document.uri)) {
-      this.lastLineKey = lineKey; // deterministic - no point retrying
       this.statusBarItem.hide();
       return;
     }
 
-    // Size gates: skip files BlameProvider refuses for performance
-    // (over-limit CSVs, files over largeFileLimit). Silent - no toast.
+    // Shared size gate: skip files BlameProvider refuses. Silent - no toast.
     const doc = editor.document;
-    if (
-      blameConfiguration.isCsvLike(doc.uri) &&
-      doc.lineCount > blameConfiguration.getCsvLineLimit()
-    ) {
-      this.lastLineKey = lineKey; // deterministic - no point retrying
-      this.statusBarItem.hide();
-      return;
-    }
-    if (
-      blameConfiguration.isFileTooLarge(doc.lineCount) &&
-      blameConfiguration.shouldWarnLargeFile()
-    ) {
-      this.lastLineKey = lineKey; // deterministic - no point retrying
+    if (blameConfiguration.getBlameSizeGate(doc.uri, doc.lineCount)) {
       this.statusBarItem.hide();
       return;
     }
@@ -150,8 +140,6 @@ export class BlameStatusBar implements Disposable {
     // Fetch blame data for file (cached)
     const blameData = await this.getBlameData(editor.document.uri);
     if (!blameData) {
-      // Failure or unversioned: leave lastLineKey unset so the next
-      // same-line event retries (transient errors aren't negative-cached)
       this.lastLineKey = undefined;
       this.showUncommittedStatus();
       return;
@@ -161,8 +149,8 @@ export class BlameStatusBar implements Disposable {
     const blameLine = blameData.find(b => b.lineNumber === lineNumber);
 
     if (blameLine && blameLine.revision) {
-      // Show blame info
-      this.lastLineKey = lineKey;
+      // Show blame info - the one definitive outcome that arms the skip
+      this.lastLineKey = this.lineKeyFor(editor);
       this.statusBarItem.text = this.formatStatusBarText(blameLine);
       this.statusBarItem.tooltip = this.formatTooltip(blameLine);
       this.statusBarItem.show();
@@ -242,13 +230,17 @@ export class BlameStatusBar implements Disposable {
 
     // Same-line skip: cheap synchronous check per event; updateStatusBar
     // (debounced 150ms) is only scheduled when the line actually changed.
-    // lastLineKey is written by updateStatusBar on DEFINITIVE outcomes only,
-    // so a transient blame failure stays retryable on the same line.
-    const key = `${editor.document.uri.toString()}#${editor.selection.active.line}`;
-    if (key === this.lastLineKey) {
+    // lastLineKey is armed only by a successful render in updateStatusBar,
+    // so failures/gates/hidden states stay re-evaluated on the same line.
+    if (this.lineKeyFor(editor) === this.lastLineKey) {
       return;
     }
     void this.updateStatusBar();
+  }
+
+  /** Same-line skip key; single definition for handler + updateStatusBar. */
+  private lineKeyFor(editor: TextEditor): string {
+    return `${editor.document.uri.toString()}#${editor.selection.active.line}`;
   }
 
   private onRepositoryOperation(operation: Operation): void {

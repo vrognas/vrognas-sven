@@ -129,6 +129,37 @@ suite("Blame size gates", () => {
     );
   });
 
+  test("status bar recovers when a gated file shrinks below the limit", async () => {
+    const testUri = Uri.file("/test/big.csv");
+    blameStateManager.setBlameEnabled(testUri, true);
+    const mockRepo = makeMockRepo(sandbox);
+    const scm = sandbox.createStubInstance(SourceControlManager);
+    (scm as any).openRepositories = [];
+    scm.getRepository.returns(mockRepo as any);
+
+    statusBar = new BlameStatusBar(scm as any);
+    const mockEditor = makeMockEditor(testUri, 1000); // > 500 default limit
+    sandbox.stub(window, "activeTextEditor").value(mockEditor);
+
+    const fire = () =>
+      (statusBar as any).onSelectionChanged({ textEditor: mockEditor });
+
+    fire();
+    await new Promise(r => setTimeout(r, 400));
+    assert.ok(mockRepo.blame.notCalled, "over-limit CSV stays gated");
+
+    // User deletes most rows; cursor stays on the same line number
+    mockEditor.document.lineCount = 100;
+    fire();
+    await new Promise(r => setTimeout(r, 400));
+
+    assert.strictEqual(
+      mockRepo.blame.callCount,
+      1,
+      "gate must re-evaluate once the file is under the limit"
+    );
+  });
+
   test("provider cursor path skips blame for over-limit CSV", async () => {
     const testUri = Uri.file("/test/big.csv");
     blameStateManager.setBlameEnabled(testUri, true);

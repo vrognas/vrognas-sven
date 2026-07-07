@@ -217,24 +217,21 @@ export class BlameProvider implements Disposable {
       }
     }
 
-    // CSV-like aggressive gate (runs before generic largeFileLimit)
-    if (blameConfiguration.isCsvLike(target.document.uri)) {
-      const csvLimit = blameConfiguration.getCsvLineLimit();
-      if (target.document.lineCount > csvLimit) {
-        window.showWarningMessage(
-          `Blame skipped for large CSV (${target.document.lineCount} lines > ` +
-            `${csvLimit} limit). ` +
-            `Adjust 'sven.blame.csvLineLimit' or 'sven.blame.csvExtensions'.`
-        );
-        return;
-      }
+    // Shared size gate (CSV limit runs before generic largeFileLimit);
+    // this is the only surface that warns - the others skip silently
+    const sizeGate = blameConfiguration.getBlameSizeGate(
+      target.document.uri,
+      target.document.lineCount
+    );
+    if (sizeGate === "csv") {
+      window.showWarningMessage(
+        `Blame skipped for large CSV (${target.document.lineCount} lines > ` +
+          `${blameConfiguration.getCsvLineLimit()} limit). ` +
+          `Adjust 'sven.blame.csvLineLimit' or 'sven.blame.csvExtensions'.`
+      );
+      return;
     }
-
-    // Large file check
-    if (
-      blameConfiguration.isFileTooLarge(target.document.lineCount) &&
-      blameConfiguration.shouldWarnLargeFile()
-    ) {
+    if (sizeGate === "largeFile") {
       window.showWarningMessage(
         `File too large for blame (${target.document.lineCount} lines). Consider disabling blame.`
       );
@@ -543,15 +540,12 @@ export class BlameProvider implements Disposable {
       return;
     }
 
-    // Size gates mirror updateDecorations (silent on the cursor path):
-    // without these, clicking into a file the main path refused would
-    // trigger the full blame fetch it was refused for.
-    const lineCount = editor.document.lineCount;
+    // Shared size gate, silent on the cursor path
     if (
-      (blameConfiguration.isCsvLike(editor.document.uri) &&
-        lineCount > blameConfiguration.getCsvLineLimit()) ||
-      (blameConfiguration.isFileTooLarge(lineCount) &&
-        blameConfiguration.shouldWarnLargeFile())
+      blameConfiguration.getBlameSizeGate(
+        editor.document.uri,
+        editor.document.lineCount
+      )
     ) {
       return;
     }
