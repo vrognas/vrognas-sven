@@ -354,7 +354,8 @@ suite("Svn Repository Tests", () => {
     repository.exec = async (args: string[]) => {
       assert.equal(args[0], "log");
       assert.equal(args[1], "-r");
-      assert.equal(args[2], "BASE:HEAD");
+      // Descending: --limit 1 must return the YOUNGEST revision
+      assert.equal(args[2], "HEAD:BASE");
       assert.equal(args[3], "--limit");
       assert.equal(args[4], "1");
       assert.equal(args[5], "--xml");
@@ -368,9 +369,9 @@ suite("Svn Repository Tests", () => {
       };
     };
 
-    const hasChanges = await repository.hasRemoteChanges();
+    const probe = await repository.hasRemoteChanges();
     assert.strictEqual(
-      hasChanges,
+      probe.hasChanges,
       false,
       "Should return false when no new revisions"
     );
@@ -402,12 +403,13 @@ suite("Svn Repository Tests", () => {
       };
     };
 
-    const hasChanges = await repository.hasRemoteChanges();
+    const probe = await repository.hasRemoteChanges();
     assert.strictEqual(
-      hasChanges,
+      probe.hasChanges,
       true,
       "Should return true when new revisions exist"
     );
+    assert.strictEqual(probe.youngestRevision, 42);
   });
 
   test("getStatus: Skips status check when no remote changes", async () => {

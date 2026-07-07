@@ -210,6 +210,9 @@ export class Repository implements IRemoteRepository {
   // Cached result from last remote-change check (background polling or explicit)
   private _lastRemoteCheck?: { hasChanges: boolean; timestamp: number };
 
+  // Server-knowledge tracker - see recordServerRevision()
+  private _lastKnownServerRevision?: { revision: number; timestamp: number };
+
   // Property caches for decoration tooltips (eol-style, mime-type)
   private eolStyleCache = new Map<string, string>();
   private mimeTypeCache = new Map<string, string>();
@@ -1421,6 +1424,9 @@ export class Repository implements IRemoteRepository {
       });
       // Note: status refresh handled by run() via updateModelState() after callback
       // Do NOT call this.status() here - causes credentialLock deadlock (nested retryRun)
+      if (updateResult.revision !== null) {
+        this.recordServerRevision(updateResult.revision);
+      }
       if (!files || files.length === 0) {
         // Full update — at HEAD, no remote changes
         this._lastRemoteCheck = { hasChanges: false, timestamp: Date.now() };
@@ -1441,14 +1447,58 @@ export class Repository implements IRemoteRepository {
   }
 
   /**
+   * Cheap server probe (one constant-cost round-trip): are there new
+   * revisions beyond BASE, and what is the youngest one observed?
+   * Records the revision in the server-knowledge tracker and caches the
+   * boolean for reuse by PreCommitUpdateService.
+   */
+  public async probeRemoteChanges(): Promise<{
+    hasChanges: boolean;
+    youngestRevision?: number;
+  }> {
+    const probe = await this.repository.hasRemoteChanges();
+    this.recordServerRevision(probe.youngestRevision);
+    this._lastRemoteCheck = {
+      hasChanges: probe.hasChanges,
+      timestamp: Date.now()
+    };
+    return probe;
+  }
+
+  /**
    * Check if server has new commits since last update.
-   * Uses svn log BASE:HEAD to compare local vs remote revision.
    * Caches result for reuse by PreCommitUpdateService.
    */
   public async hasRemoteChanges(): Promise<boolean> {
-    const result = await this.repository.hasRemoteChanges();
-    this._lastRemoteCheck = { hasChanges: result, timestamp: Date.now() };
-    return result;
+    return (await this.probeRemoteChanges()).hasChanges;
+  }
+
+  /**
+   * Youngest server revision observed via ANY server response (probe,
+   * update, commit). One number answers most "is my knowledge current?"
+   * questions: any server-side content change bumps the youngest
+   * revision. Locks are the exception - they change without revisions.
+   */
+  public recordServerRevision(revision: number | undefined): void {
+    if (revision === undefined || isNaN(revision)) {
+      return;
+    }
+    const current = this._lastKnownServerRevision;
+    if (!current || revision > current.revision) {
+      this._lastKnownServerRevision = { revision, timestamp: Date.now() };
+    } else {
+      // Same or older revision observed - still refreshes the timestamp
+      // for the current value (the knowledge was just re-confirmed)
+      if (revision === current.revision) {
+        current.timestamp = Date.now();
+      }
+    }
+  }
+
+  public get lastKnownServerRevision():
+    | { revision: number; timestamp: number }
+    | undefined {
+    return this._lastKnownServerRevision;
   }
 
   /**
@@ -1568,6 +1618,7 @@ export class Repository implements IRemoteRepository {
     const revMatch = result.match(/revision (\d+)/i);
     if (revMatch && revMatch[1]) {
       const newRevision = revMatch[1];
+      this.recordServerRevision(parseInt(newRevision, 10));
       // Update info.revision directly so BASE indicator is correct
       // This handles mixed-revision working copies after partial commit
       if (

@@ -424,31 +424,48 @@ export class Repository {
   }
 
   /**
-   * Check if there are new remote revisions without running full status.
-   * Uses `svn log -r BASE:HEAD --limit 1` to detect if BASE < HEAD.
+   * Cheap server probe: youngest revision in [BASE, HEAD] touching this
+   * working copy's subtree, via one constant-cost round-trip.
    *
-   * @returns true if new revisions exist, false otherwise
+   * Range is DESCENDING (`HEAD:BASE`) so `--limit 1` returns the YOUNGEST
+   * matching revision — ascending would return the oldest, which would
+   * freeze any "did HEAD move since last time" gate built on it. The
+   * range is inclusive of BASE, so a single entry AT BASE means no
+   * incoming changes.
+   *
+   * @returns hasChanges: new revisions exist beyond BASE for this subtree;
+   *          youngestRevision: that revision (or BASE when up to date);
+   *          undefined youngestRevision means the probe failed.
    */
-  public async hasRemoteChanges(): Promise<boolean> {
+  public async hasRemoteChanges(): Promise<{
+    hasChanges: boolean;
+    youngestRevision?: number;
+  }> {
     try {
       const result = await this.exec([
         "log",
         "-r",
-        "BASE:HEAD",
+        "HEAD:BASE",
         "--limit",
         "1",
         "--xml"
       ]);
 
-      // Parse log XML to check if any entries exist
-      // Empty log means BASE == HEAD (no new revisions)
-      const hasEntries = result.stdout.includes("<logentry");
+      const base = parseInt(this._info?.revision ?? "0", 10);
+      const match = /<logentry\s+[^>]*revision="(\d+)"/.exec(result.stdout);
 
-      return hasEntries;
+      if (match) {
+        const youngest = parseInt(match[1]!, 10);
+        return { hasChanges: youngest > base, youngestRevision: youngest };
+      }
+
+      // Empty log: no revision in [BASE, HEAD] touches this subtree
+      return { hasChanges: false, youngestRevision: base };
     } catch (err) {
-      // If log fails, assume changes exist and fall back to full status
+      // Probe failed - assume changes exist so callers fall back to a
+      // full status; omit youngestRevision (nothing was learned)
       logError("hasRemoteChanges failed, falling back to full status", err);
-      return true;
+      return { hasChanges: true };
     }
   }
 
@@ -474,8 +491,8 @@ export class Repository {
     // Optimization: Check for remote changes before expensive status call
     // Skip this optimization if fetchLockStatus=true (need --show-updates for locks)
     if (params.checkRemoteChanges && !params.fetchLockStatus) {
-      const hasChanges = await this.hasRemoteChanges();
-      if (!hasChanges) {
+      const probe = await this.hasRemoteChanges();
+      if (!probe.hasChanges) {
         console.log("Remote poll: No new revisions, skipping status");
         return [];
       }
