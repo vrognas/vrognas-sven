@@ -5,6 +5,7 @@
 "use strict";
 
 import { Disposable, Event, EventEmitter, Uri, window } from "vscode";
+import { blameConfiguration } from "./blameConfiguration";
 
 /**
  * Get target URI from argument or active editor.
@@ -33,11 +34,14 @@ export class BlameStateManager implements Disposable {
   }
 
   /**
-   * Check if blame is enabled for a specific file
+   * Check if blame is enabled for a specific file.
+   * Files without an explicit state default to `sven.blame.autoBlame`:
+   * with autoBlame off, blame stays hidden (and unfetched) until the user
+   * enables it per file via the enable/toggle/show commands.
    */
   public isBlameEnabled(uri: Uri): boolean {
     const key = uri.toString();
-    return this.fileStates.get(key) ?? true;
+    return this.fileStates.get(key) ?? blameConfiguration.isAutoBlameEnabled();
   }
 
   /**

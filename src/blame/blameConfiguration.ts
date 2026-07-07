@@ -84,10 +84,11 @@ class BlameConfiguration {
   }
 
   /**
-   * Check if auto-blame on file open is enabled
+   * Check if auto-blame on file open is enabled.
+   * Fallback must match the package.json default (true).
    */
   public isAutoBlameEnabled(): boolean {
-    return this.get<boolean>("autoBlame", false);
+    return this.get<boolean>("autoBlame", true);
   }
 
   /**

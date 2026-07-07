@@ -1,6 +1,8 @@
 import * as assert from "assert";
+import { vi } from "vitest";
 import { Uri } from "vscode";
 import { BlameStateManager } from "../../../blame/blameStateManager";
+import { blameConfiguration } from "../../../blame/blameConfiguration";
 
 suite("BlameStateManager Tests", () => {
   let stateManager: BlameStateManager;
@@ -74,6 +76,29 @@ suite("BlameStateManager Tests", () => {
 
       const enabledFiles = stateManager.getEnabledFiles();
       assert.strictEqual(enabledFiles.length, 2);
+    });
+  });
+
+  suite("autoBlame Default", () => {
+    teardown(() => {
+      vi.restoreAllMocks();
+    });
+
+    test("default follows autoBlame=false: blame off until explicitly enabled", () => {
+      vi.spyOn(blameConfiguration, "isAutoBlameEnabled").mockReturnValue(false);
+      assert.strictEqual(stateManager.isBlameEnabled(testUri), false);
+      assert.strictEqual(stateManager.shouldShowBlame(testUri), false);
+    });
+
+    test("explicit enable overrides autoBlame=false", () => {
+      vi.spyOn(blameConfiguration, "isAutoBlameEnabled").mockReturnValue(false);
+      stateManager.setBlameEnabled(testUri, true);
+      assert.strictEqual(stateManager.shouldShowBlame(testUri), true);
+    });
+
+    test("default follows autoBlame=true (default config)", () => {
+      vi.spyOn(blameConfiguration, "isAutoBlameEnabled").mockReturnValue(true);
+      assert.strictEqual(stateManager.isBlameEnabled(testUri), true);
     });
   });
 
