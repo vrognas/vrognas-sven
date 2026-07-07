@@ -53,6 +53,8 @@ export class ItemLogProvider
   private isRollingBack = false;
   private refreshDebounceTimer?: ReturnType<typeof setTimeout>;
   private treeView?: TreeView<ILogTreeItem>;
+  // Explicit refresh requested while the view was hidden - run on reveal
+  private pendingExplicitRefresh = false;
 
   constructor(private sourceControlManager: SourceControlManager) {
     try {
@@ -63,11 +65,9 @@ export class ItemLogProvider
       // refreshes while hidden, so without this the panel can show stale
       // history after the user un-hides it.
       this._dispose.push(
-        this.treeView.onDidChangeVisibility(e => {
-          if (e.visible) {
-            void this.editorChanged(window.activeTextEditor);
-          }
-        })
+        this.treeView.onDidChangeVisibility(e =>
+          this.onVisibilityChanged(e.visible)
+        )
       );
       this._dispose.push(this.treeView);
     } catch (err) {
@@ -109,7 +109,7 @@ export class ItemLogProvider
       ),
       commands.registerCommand(
         "sven.itemlog.refresh",
-        () => this.refresh(undefined, undefined, false, true),
+        this.explicitRefreshCmd,
         this
       ),
       commands.registerCommand(
@@ -283,6 +283,32 @@ export class ItemLogProvider
       prevRev,
       commit.revision
     );
+  }
+
+  /**
+   * Explicit refresh (post-commit/update flows, user command). Hidden
+   * view: defer the cache-clearing server fetch until reveal.
+   */
+  public async explicitRefreshCmd() {
+    if (this.treeView && !this.treeView.visible) {
+      this.pendingExplicitRefresh = true;
+      return;
+    }
+    return this.refresh(undefined, undefined, false, true);
+  }
+
+  private onVisibilityChanged(visible: boolean): void {
+    if (!visible) {
+      return;
+    }
+    if (this.pendingExplicitRefresh) {
+      this.pendingExplicitRefresh = false;
+      void this.refresh(undefined, undefined, false, true);
+    } else {
+      // Refresh once on reveal - editorChanged skips refreshes while
+      // hidden, so the panel could otherwise show stale history
+      void this.editorChanged(window.activeTextEditor);
+    }
   }
 
   public async editorChanged(te?: TextEditor) {

@@ -62,6 +62,8 @@ export class RepoLogProvider
   // Performance optimization: visibility tracking and debouncing
   private treeView?: TreeView<ILogTreeItem>;
   private refreshTimeout?: NodeJS.Timeout;
+  // Explicit refresh requested while the view was hidden - run on reveal
+  private pendingExplicitRefresh = false;
   private readonly DEBOUNCE_MS = 1000;
 
   // History filtering
@@ -126,6 +128,11 @@ export class RepoLogProvider
       this.treeView = window.createTreeView("sven.repolog", {
         treeDataProvider: this
       });
+      this._dispose.push(
+        this.treeView.onDidChangeVisibility(e =>
+          this.onVisibilityChanged(e.visible)
+        )
+      );
       this._dispose.push(this.treeView);
     } catch (err) {
       // Handle dev reload race condition where previous view wasn't yet disposed
@@ -411,7 +418,21 @@ export class RepoLogProvider
     element?: ILogTreeItem,
     fetchMoreClick?: boolean
   ) {
+    // Hidden view: defer the server fetch until reveal. Post-commit and
+    // post-update flows fire this command unconditionally, and panels
+    // are hidden in the common case - the 2 svn log calls bought nothing.
+    if (this.treeView && !this.treeView.visible) {
+      this.pendingExplicitRefresh = true;
+      return;
+    }
     return this.refresh(element, fetchMoreClick, true);
+  }
+
+  private onVisibilityChanged(visible: boolean): void {
+    if (visible && this.pendingExplicitRefresh) {
+      this.pendingExplicitRefresh = false;
+      void this.refresh(undefined, undefined, true);
+    }
   }
 
   // Navigate to the BASE revision in the tree view

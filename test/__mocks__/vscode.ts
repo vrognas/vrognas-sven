@@ -284,8 +284,12 @@ export const window = {
   }),
   createTreeView: vi.fn((...args: unknown[]) => {
     void args;
+    // Real API semantics: visibility state + change event
     return {
       reveal: vi.fn(async () => undefined),
+      visible: true,
+      onDidChangeVisibility: vi.fn(() => new Disposable(() => {})),
+      description: undefined,
       dispose: vi.fn()
     };
   }),
