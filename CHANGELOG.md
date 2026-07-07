@@ -7,6 +7,25 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.66] - 2026-07-07
+
+Server round-trips minimized without sacrificing freshness: the extension now keys "is my knowledge current?" on SVN's global monotonic revision number instead of wall-clock timers.
+
+### Changed
+
+- **Two-tier remote poll**: interval ticks run one constant-cost youngest-revision probe (`svn log -r HEAD:BASE --limit 1`) and skip the full-working-copy `svn status --show-updates` tree walk when nothing changed since the last full fetch, the incoming-changes UI is current, and no lock sweep is due. Locks change without revision bumps, so a full sweep still runs every 15 minutes and immediately after lock/unlock. Steady state per repo: 12 tree walks/hour become ~4 plus cheap probes. Known probe blind spots (working-copy members pinned below the root revision, `svn:externals` sources) are bounded by the sweep.
+- **Focus-gated polling with error backoff**: unfocused windows skip poll ticks entirely and catch up ~immediately on refocus (respecting backoff); consecutive failures back off exponentially instead of hammering an unreachable server.
+- **Branch-changes pipeline gated on repo revision**: the 4-round-trip pipeline (`log --stop-on-copy`, `mergeinfo`, `info URL`, `diff --summarize`) previously re-ran on every status burst while the view was visible (~80 calls/hour); it now runs only when a commit/merge lands on either branch. The copy point is cached per branch URL (30-min TTL, cleared on switch); results are keyed by branch URL + repo youngest revision with a generation counter against stale write-backs.
+- **Server-knowledge tracker**: every server response that carries revision information (probe, update result, commit response) feeds a per-repo monotonic record, so features reuse observations instead of re-asking the server.
+
+### Fixed
+
+- The `hasRemoteChanges` probe used an ascending `BASE:HEAD` range, so `--limit 1` returned the _oldest_ revision; it also over-reported (the range includes BASE itself). Now descending, returning the youngest revision, with `hasChanges` = youngest > BASE.
+- The poll gate compares revision identity against the last full fetch rather than `youngest > BASE`, which lies in mixed-revision working copies (own commits bump only committed nodes) and could persistently hide colleagues' incoming changes after a partial commit.
+- A poll-decided `svn status --show-updates` can no longer be silently swallowed by the 1-second model cache while the lock sweep is stamped done.
+
+---
+
 ## [0.2.65] - 2026-07-07
 
 QuickDiff no longer phones home: opening a tracked file used to fire a remote `svn list <URL>` round-trip just to stat the virtual BASE original.
