@@ -433,9 +433,9 @@ export class Repository implements IRemoteRepository {
       this.disposables
     );
 
-    // Initialize RemoteChangeService
+    // Initialize RemoteChangeService - interval ticks are probe-gated
     this.remoteChangeService = new RemoteChangeService(
-      () => this.updateRemoteChangedFiles(),
+      () => this.pollRemoteChanges(),
       () => ({
         checkFrequencySeconds: configuration.get<number>(
           "remoteChanges.checkFrequency",
@@ -679,18 +679,57 @@ export class Repository implements IRemoteRepository {
     return;
   }
 
+  // Lock badges change WITHOUT revision bumps, so a periodic full
+  // --show-updates sweep is needed even when HEAD hasn't moved
+  private static readonly LOCK_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+  private lastFullRemoteStatusTs = 0;
+
+  /**
+   * Event-driven remote refresh (post switch/merge/pull, config change,
+   * explicit command): state definitely changed, so always run the full
+   * fetch. Interval ticks call pollRemoteChanges() directly and are
+   * probe-gated.
+   */
   @debounce(500)
   public async updateRemoteChangedFiles() {
+    void this.pollRemoteChanges(true);
+  }
+
+  /**
+   * Two-tier remote poll. Interval ticks first run a cheap single
+   * round-trip youngest-revision probe and skip the full-working-copy
+   * `svn status --show-updates` tree walk when nothing can have changed:
+   * no revisions beyond BASE (revisions are global and monotonic), no
+   * stale incoming-changes UI left to clear, and no lock sweep due.
+   * force=true (event-driven refresh) always runs the full fetch.
+   */
+  public async pollRemoteChanges(force = false): Promise<void> {
     const config = this.getConfig();
 
-    if (config.remoteChangesCheckFrequency) {
-      void this.run(Operation.StatusRemote);
-    } else {
+    if (!config.remoteChangesCheckFrequency) {
       // Clear remote changes when disabled
       if (this.groupManager.remoteChanges) {
         this.groupManager.remoteChanges.resourceStates = [];
       }
+      return;
     }
+
+    if (!force) {
+      const probe = await this.probeRemoteChanges();
+      const lockSweepDue =
+        Date.now() - this.lastFullRemoteStatusTs >=
+        Repository.LOCK_SWEEP_INTERVAL_MS;
+      const staleIncomingUi =
+        (this.groupManager.remoteChanges?.resourceStates.length ?? 0) > 0;
+
+      if (!probe.hasChanges && !staleIncomingUi && !lockSweepDue) {
+        return; // server quiet, UI current, locks recently swept
+      }
+    }
+
+    await this.run(Operation.StatusRemote);
+    // Full --show-updates includes lock info - sweep satisfied on success
+    this.lastFullRemoteStatusTs = Date.now();
   }
 
   /**
