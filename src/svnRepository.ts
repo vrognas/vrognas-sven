@@ -568,6 +568,16 @@ export class Repository {
     this._blameCache.delete(cacheKey);
   }
 
+  /**
+   * Clear all blame cache entries (call after any operation that can
+   * change BASE content: commit, update, revert, switch, merge, ...).
+   * The 5-min TTL remains the backstop for external svn operations.
+   */
+  public clearBlameCache(): void {
+    this._blameCache.clear();
+    this._blameErrorCache.clear();
+  }
+
   public resetLogCache(cacheKey: string): void {
     this._logCache.delete(cacheKey);
   }
@@ -1350,6 +1360,7 @@ export class Repository {
     );
 
     this.resetInfoCache();
+    this.clearBlameCache();
     return true;
   }
 
@@ -1371,6 +1382,7 @@ export class Repository {
     await this.exec(args);
 
     this.resetInfoCache();
+    this.clearBlameCache();
     return true;
   }
 
@@ -1396,6 +1408,7 @@ export class Repository {
 
     const result = await this.exec(args);
     this.resetInfoCache();
+    this.clearBlameCache();
 
     return result.stdout;
   }
