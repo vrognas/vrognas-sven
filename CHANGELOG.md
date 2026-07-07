@@ -7,6 +7,17 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.65] - 2026-07-07
+
+QuickDiff no longer phones home: opening a tracked file used to fire a remote `svn list <URL>` round-trip just to stat the virtual BASE original.
+
+### Changed
+
+- `SvnFileSystemProvider.stat` makes no remote calls. mtime comes from local `svn info` (wc.db, 2-min cache) — the BASE last-changed date moves exactly when commit/update change BASE, preserving VS Code's reload signal for quickdiff originals and log/patch documents. Revision-pinned URIs (immutable content) get a constant stat with no svn call. Size is reported as 0: it isn't available locally, and the previously fetched HEAD size already disagreed with the displayed BASE content whenever the server was ahead.
+- Test mock `Uri` now carries `query` through `with()` (real API semantics); the old mock dropped it, so `fromSvnUri` silently fell back to defaults in tests.
+
+---
+
 ## [0.2.64] - 2026-07-07
 
 Maintainability/DRY pass over the 0.2.63 blame series; fixes the staleness gaps the review surfaced.
