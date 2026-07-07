@@ -233,7 +233,7 @@ export class BlameProvider implements Disposable {
 
     try {
       // Fetch blame data (with cache)
-      const blameData = await this.getBlameData(target.document.uri);
+      const blameData = await this.getBlameData(target.document.uri, target);
 
       if (!blameData) {
         this.clearDecorations(target);
@@ -547,7 +547,7 @@ export class BlameProvider implements Disposable {
     }
 
     // Get cached blame data (don't re-fetch)
-    const blameData = await this.getBlameData(editor.document.uri);
+    const blameData = await this.getBlameData(editor.document.uri, editor);
     if (!blameData) {
       return;
     }
@@ -780,13 +780,17 @@ export class BlameProvider implements Disposable {
   /**
    * Get blame data for URI (with caching)
    */
-  private async getBlameData(uri: Uri): Promise<ISvnBlameLine[] | undefined> {
+  private async getBlameData(
+    uri: Uri,
+    editor: TextEditor
+  ): Promise<ISvnBlameLine[] | undefined> {
     const key = uri.toString();
 
-    // Get current document version (changes on every edit/reload)
-    const editor = window.activeTextEditor;
+    // Document version (changes on every edit/reload) from the editor that
+    // triggered the lookup - NOT window.activeTextEditor, which pinned
+    // non-active visible editors to version -1 (a permanent cache miss).
     const currentVersion =
-      editor?.document.uri.toString() === key ? editor.document.version : -1;
+      editor.document.uri.toString() === key ? editor.document.version : -1;
 
     // Check cache - validate version to detect external changes (svn update, etc.)
     const cached = this.blameCache.get(key);

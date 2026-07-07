@@ -5,6 +5,8 @@ import { BlameProvider } from "../../../blame/blameProvider";
 import { Repository } from "../../../repository";
 import { ISvnBlameLine } from "../../../common/types";
 
+const edFor = (uri: Uri) => ({ document: { uri, version: 1 } }) as any;
+
 suite("BlameProvider - LRU Cache Eviction", () => {
   let provider: BlameProvider;
   let mockRepository: sinon.SinonStubbedInstance<Repository>;
@@ -43,7 +45,7 @@ suite("BlameProvider - LRU Cache Eviction", () => {
 
     // Act - Fill cache with 21 files
     for (const uri of uris) {
-      await (provider as any).getBlameData(uri);
+      await (provider as any).getBlameData(uri, edFor(uri));
     }
 
     // Assert - First file should be evicted, last file should exist
@@ -79,15 +81,15 @@ suite("BlameProvider - LRU Cache Eviction", () => {
 
     // Act - Fill cache completely
     for (const uri of uris) {
-      await (provider as any).getBlameData(uri);
+      await (provider as any).getBlameData(uri, edFor(uri));
     }
 
     // Access first file again (should move to front of LRU)
-    await (provider as any).getBlameData(uris[0]);
+    await (provider as any).getBlameData(uris[0], edFor(uris[0]!));
 
     // Add one more file (should evict second file, not first)
     const newUri = Uri.file("/test/file_new.txt");
-    await (provider as any).getBlameData(newUri);
+    await (provider as any).getBlameData(newUri, edFor(newUri));
 
     // Assert
     const firstCached = (provider as any).blameCache.has(uris[0]!.toString());

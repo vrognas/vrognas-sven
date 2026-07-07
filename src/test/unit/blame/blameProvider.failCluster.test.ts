@@ -143,9 +143,10 @@ suite("BlameProvider - Fail Cluster", () => {
       data: cachedData,
       version: 7
     });
-    sandbox.stub(window, "activeTextEditor").value(createEditor(uri, 1, 7));
+    const editor = createEditor(uri, 1, 7);
+    sandbox.stub(window, "activeTextEditor").value(editor);
 
-    const result = await (provider as any).getBlameData(uri);
+    const result = await (provider as any).getBlameData(uri, editor);
 
     assert.deepStrictEqual(result, cachedData);
     assert.ok(mockRepository.getInfo.notCalled);
@@ -170,7 +171,7 @@ suite("BlameProvider - Fail Cluster", () => {
       .stub(commands, "executeCommand")
       .resolves(undefined);
 
-    const result = await (provider as any).getBlameData(uri);
+    const result = await (provider as any).getBlameData(uri, createEditor(uri));
     await new Promise(resolve => setTimeout(resolve, 0));
 
     assert.strictEqual(result, undefined);
@@ -194,7 +195,7 @@ suite("BlameProvider - Fail Cluster", () => {
     const warningStub = sandbox.stub(window, "showWarningMessage");
     const errorStub = sandbox.stub(window, "showErrorMessage");
 
-    const result = await (provider as any).getBlameData(uri);
+    const result = await (provider as any).getBlameData(uri, createEditor(uri));
 
     assert.strictEqual(result, undefined);
     assert.ok(warningStub.notCalled);
@@ -214,7 +215,7 @@ suite("BlameProvider - Fail Cluster", () => {
     const warningStub = sandbox.stub(window, "showWarningMessage");
     const errorStub = sandbox.stub(window, "showErrorMessage");
 
-    const result = await (provider as any).getBlameData(uri);
+    const result = await (provider as any).getBlameData(uri, createEditor(uri));
 
     assert.strictEqual(result, undefined);
     assert.ok(warningStub.notCalled);
@@ -387,13 +388,13 @@ suite("BlameProvider - Fail Cluster", () => {
       type: Status.UNVERSIONED,
       resourceUri: uri
     } as any);
-    const first = await (provider as any).getBlameData(uri);
+    const first = await (provider as any).getBlameData(uri, createEditor(uri));
     assert.strictEqual(first, undefined);
     assert.ok(mockRepository.getInfo.notCalled);
 
     mockRepository.getResourceFromFile.returns(undefined as any);
     mockRepository.getInfo.rejects(new Error("not versioned"));
-    const second = await (provider as any).getBlameData(uri);
+    const second = await (provider as any).getBlameData(uri, createEditor(uri));
     assert.strictEqual(second, undefined);
   });
 
