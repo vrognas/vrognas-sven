@@ -7,6 +7,26 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.64] - 2026-07-07
+
+Maintainability/DRY pass over the 0.2.63 blame series; fixes the staleness gaps the review surfaced.
+
+### Fixed
+
+- Status bar refreshes after commit/update/switch/merge even when the cursor stays on the same line: it now subscribes to each repository's `onDidRunOperation` (the same-line skip previously pinned pre-op blame indefinitely).
+- E155007 (non-working-copy) blame failures are silent again, matching the removed `svn info` pre-check's behavior — no more log spam and 30s re-spawn loop for detached/shallow-checkout files.
+- A gated over-limit file recovers once it shrinks below the limit: status bar `lastLineKey` is armed only by a successful render, so gates, failures, and hidden states re-evaluate on same-line events.
+- Dispose-path cache clearing delegates to `clearBlameCache()`, so the generation bump blocks in-flight write-backs on every clear path.
+- Per-revision commit-message logs are untargeted again: a single-revision log costs the same either way, and targeting misses revisions from replaced/renamed ancestor paths — the exact case where the targeted range log fails and this fallback runs. Only `logBatch` keeps the file target.
+
+### Changed
+
+- `BLAME_INVALIDATING_OPERATIONS` in `util.ts` is the single source of truth for which operations drop blame caches (previously encoded divergently across `Repository.run()`, the provider, and `svnRepository` methods).
+- One shared `blameConfiguration.getBlameSizeGate()` replaces the size-check predicate triplicated across decorations, cursor path, and status bar; `lineKeyFor()` is the single same-line-key definition.
+- Fake-SvnRepository test fixture consolidated into `src/test/unit/svn/helpers/fakeSvnRepository.ts` — a drifted copy (missing `_blameGeneration`) had made an invalidation assertion pass for the wrong reason.
+
+---
+
 ## [0.2.63] - 2026-07-07
 
 Blame performance overhaul: far fewer svn subprocesses, no fetches when blame isn't wanted, and post-commit blame no longer stale.
@@ -24,7 +44,6 @@ Blame performance overhaul: far fewer svn subprocesses, no fetches when blame is
 - Cold blame of a clean file no longer pays a redundant `svn info` pre-check (blame's own error handling already skips unversioned files silently) — halves cold-path subprocess count.
 - Inline commit-message prefetch passes the blamed file to `svn log`, so the server returns only that file's history instead of every revision in the checkout between the file's min and max blamed revisions.
 - `Operation.Blame` and `Operation.List` no longer flash the SCM progress spinner (background reads triggered by cursor movement and quickdiff stats).
-- Second review pass (maintainability/DRY): `BLAME_INVALIDATING_OPERATIONS` in `util.ts` is the single source of truth for which operations drop blame caches (was encoded divergently in three layers); the status bar now also subscribes to repository operations so its same-line skip can't pin pre-commit blame; one shared `getBlameSizeGate()` replaces the size-check predicate triplicated across decorations/cursor/status bar; status bar `lastLineKey` has a single write site (successful render) so gated files recover when they shrink and failures stay retryable; E155007 (non-working-copy) blame errors are silent again, matching the removed `svn info` pre-check's behavior; per-revision message logs stay untargeted (immune to replaced-path history — only the range query needs the file target); dispose-path cache clearing delegates to `clearBlameCache()` so the generation bump holds on every clear path; the fake-SvnRepository test fixture is consolidated into one helper (a drifted copy had made an invalidation assertion pass for the wrong reason).
 - Post-review hardening: `BlameProvider` subscribes to `onDidRunOperation` and drops its version-keyed cache on mutating ops (a commit doesn't bump `document.version`, so repo-level invalidation alone never reached decorations); `clearBlameCache` also drops in-flight fetches and bumps a generation counter so a blame that started pre-commit can't repopulate the cleared cache; cache clearing moved to `finally` (failed update/commit may still mutate the WC); `skipCache=true` forces a fresh fetch again; status bar same-line skip no longer pins transient failures — only definitive outcomes suppress retries.
 
 ---

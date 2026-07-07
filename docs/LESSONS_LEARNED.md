@@ -1,7 +1,27 @@
 # Lessons Learned
 
-**Version**: 0.2.63
+**Version**: 0.2.64
 **Updated**: 2026-07-07
+
+---
+
+### 72. A Skip-Guard Is a Cache — It Needs an Invalidation Story
+
+**Lesson**: The status bar's same-line skip (`lastLineKey`) was keyed on `uri#line` but its outcome depended on inputs outside the key: blame data (changes on commit/update), `lineCount` (changes on edit), and transient error state. Three staleness bugs followed from one guard: pre-commit blame pinned while the cursor didn't move, a gated CSV that never recovered after shrinking below the limit, and a transient failure shown as "Not committed" forever. The sibling consumer (BlameProvider) got a repository-operation hook in the same series; the status bar didn't — a fix applied to one consumer but not its siblings just moves the bug.
+
+**Fix**: Arm the skip only on the one definitive outcome (successful render), let every other path re-evaluate (they're cheap — config reads/cache hits, no subprocess), and reset it from the same `BLAME_INVALIDATING_OPERATIONS` hook the provider uses.
+
+**Rule**: Any memo/skip/early-return keyed on X must enumerate the inputs NOT in X and either fold them into the key or reset on their change events. Default to arming such guards only on definitive success. And when adding an invalidation hook to one consumer of shared data, grep for its siblings — they have the same bug.
+
+---
+
+### 71. Hand-Mirrored Private Fields in Test Fakes Drift Into False Greens
+
+**Lesson**: Three test files hand-rolled the same `Object.create(prototype)` fake of SvnRepository, each mirroring its private cache fields. One copy omitted `_blameGeneration`; `clearBlameCache()` then did `undefined++ → NaN`, `generation === this._blameGeneration` compared `undefined === NaN`, and every post-clear cache write was silently skipped — making a "post-clear blame must re-fetch" assertion pass for the wrong reason (exec count matched, cache state was wrong). The fixture exercised a constructor state that cannot exist in production.
+
+**Fix**: One shared `makeFakeSvnRepo()` helper owning the full field set, with a comment naming the failure mode; assertions extended to check the positive post-condition (cache repopulated), not just call counts.
+
+**Rule**: Prototype-swap fakes that mirror private fields must live in exactly one helper module per faked class. When a test asserts "X was cleared/re-fetched", also assert the state that should exist AFTER recovery — absence-only assertions pass equally well when the mechanism is broken.
 
 ---
 
