@@ -118,6 +118,11 @@ function shouldShowProgress(operation: Operation): boolean {
     case Operation.CurrentBranch:
     case Operation.Show:
     case Operation.Info:
+    // Blame and List are background reads fired by cursor movement and
+    // quickdiff stats - flashing the SCM spinner for them reads as
+    // "extension permanently busy"
+    case Operation.Blame:
+    case Operation.List:
       return false;
     default:
       return true;

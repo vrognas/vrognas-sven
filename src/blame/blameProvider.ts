@@ -409,7 +409,7 @@ export class BlameProvider implements Disposable {
     const fetchPromise = (async () => {
       try {
         // Fetch all messages
-        await this.prefetchMessages(uniqueRevisions);
+        await this.prefetchMessages(uniqueRevisions, uri);
 
         // Check if blame still enabled and editor still active
         if (!blameStateManager.isBlameEnabled(uri)) {
@@ -813,13 +813,9 @@ export class BlameProvider implements Disposable {
       }
     }
 
-    // Fallback: check with svn info for files not in index (shallow checkout edge case)
-    try {
-      await this.repository.getInfo(uri.fsPath);
-    } catch {
-      // File not under version control - skip blame silently
-      return undefined;
-    }
+    // No svn info pre-check: blame's own error handling already skips
+    // unversioned files silently (W155010/E200009 below), so the extra
+    // subprocess per clean file bought nothing.
 
     // Fetch from repository
     try {
@@ -982,7 +978,7 @@ export class BlameProvider implements Disposable {
       ] as string[];
 
       if (uniqueRevisions.length > 0 && uniqueRevisions.length <= 100) {
-        await this.prefetchMessages(uniqueRevisions);
+        await this.prefetchMessages(uniqueRevisions, editor.document.uri);
       }
     }
 
@@ -1343,7 +1339,10 @@ export class BlameProvider implements Disposable {
   /**
    * Get commit message for revision (cached)
    */
-  private async getCommitMessage(revision: string): Promise<string> {
+  private async getCommitMessage(
+    revision: string,
+    target?: Uri
+  ): Promise<string> {
     if (this.messageCache.has(revision)) {
       return this.messageCache.get(revision)!;
     }
@@ -1353,7 +1352,12 @@ export class BlameProvider implements Disposable {
     }
 
     try {
-      const log = await this.repository.log(revision, revision, 1);
+      const log = await this.repository.log(
+        revision,
+        revision,
+        1,
+        target?.fsPath
+      );
       const message = log[0]?.msg || "";
       this.messageCache.set(revision, message);
 
@@ -1371,7 +1375,10 @@ export class BlameProvider implements Disposable {
    * Prefetch messages for multiple revisions (batch)
    * Uses single SVN log command for all revisions instead of N sequential calls
    */
-  private async prefetchMessages(revisions: string[]): Promise<void> {
+  private async prefetchMessages(
+    revisions: string[],
+    target?: Uri
+  ): Promise<void> {
     if (!blameConfiguration.isLogsEnabled()) {
       return;
     }
@@ -1383,10 +1390,13 @@ export class BlameProvider implements Disposable {
     }
 
     try {
-      // Batch fetch: single SVN command for all revisions
-      // Example: svn log -r 100:200 --xml -v
-      // This is ~50x faster than 50 sequential calls
-      const logEntries = await this.repository.logBatch(uncached);
+      // Batch fetch: single SVN command for all revisions, targeted at the
+      // blamed file so the server filters to its history. Without a target
+      // this spanned every revision in the checkout between min and max.
+      const logEntries = await this.repository.logBatch(
+        uncached,
+        target?.fsPath
+      );
 
       // Cache all fetched messages
       for (const entry of logEntries) {
@@ -1405,7 +1415,7 @@ export class BlameProvider implements Disposable {
 
       // Fallback to sequential fetching on error
       for (const revision of uncached) {
-        await this.getCommitMessage(revision);
+        await this.getCommitMessage(revision, target);
       }
     }
   }
