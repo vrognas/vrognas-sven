@@ -7,6 +7,24 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.67] - 2026-07-07
+
+The three deferred server-query proposals: immutable revision-pinned caching, blame keyed by its actual BASE revision, and history panels that stop paying for refreshes nobody sees.
+
+### Changed
+
+- **Immutable cache tier**: content and diffs pinned to a numeric revision are immutable in SVN's data model — `cat@REV` results and `svn diff -c REV` (fired per history-diff click, previously uncached) now hold for a day under LRU caps. `HEAD`/`BASE`/`PREV`/`COMMITTED`/date refs never qualify; log caches are intentionally untouched (their working-copy-path keys are branch-relative).
+- **Blame keyed by resolved BASE revision**: `BASE` resolves to the file's actual base revision (local wc.db read) and the resolved revision is **pegged into the fetch**, so cached content always matches its key by construction. Entries hold for a day; a changed BASE — including external updates — produces a new key instead of a stale hit, and mixed-revision working copies get per-file-correct keys. `clearBlameCache` now clears the whole info cache (the old `resetInfoCache` only dropped the repo-root entry) so key resolution stays coherent after mutations.
+- **History refresh deferred while hidden**: commit/update fired 2 fresh `svn log` calls even with the history panels closed — repoLog's explicit-fetch path fetched _specifically when hidden_. Both providers now defer the server refetch until reveal while still clearing the low-level log cache immediately (post-commit invariant kept).
+
+### Fixed
+
+- itemLog's "Load more" button had never paged: its command args were silently dropped and it reset the whole view instead. It now loads older history; repoLog load-more clicks bypass the hidden-defer.
+- In-flight `svn cat`/`svn diff` results no longer repopulate caches cleared by repository disposal (`withCachedInFlight` owner guard).
+- Test mock `TreeView` retains visibility listeners and exposes `_fireVisibility` (real API semantics).
+
+---
+
 ## [0.2.66] - 2026-07-07
 
 Server round-trips minimized without sacrificing freshness: the extension now keys "is my knowledge current?" on SVN's global monotonic revision number instead of wall-clock timers.
