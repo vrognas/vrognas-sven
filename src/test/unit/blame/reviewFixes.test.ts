@@ -1,7 +1,6 @@
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { EventEmitter, Uri, window } from "vscode";
-import { LRUCache } from "../../../util/lruCache";
 import { Operation, RepositoryState } from "../../../common/types";
 import { BlameProvider } from "../../../blame/blameProvider";
 import { BlameStatusBar } from "../../../blame/blameStatusBar";
@@ -10,17 +9,7 @@ import { Repository } from "../../../repository";
 import { SourceControlManager } from "../../../source_control_manager";
 import { ISvnBlameLine } from "../../../common/types";
 
-const BLAME_XML = `<?xml version="1.0"?>
-<blame>
-  <target path="file.txt">
-    <entry line-number="1">
-      <commit revision="123">
-        <author>john</author>
-        <date>2025-11-18T10:00:00.000000Z</date>
-      </commit>
-    </entry>
-  </target>
-</blame>`;
+import { BLAME_XML, makeFakeSvnRepo } from "../svn/helpers/fakeSvnRepository";
 
 const BLAME_DATA: ISvnBlameLine[] = [
   {
@@ -30,28 +19,6 @@ const BLAME_DATA: ISvnBlameLine[] = [
     date: "2025-11-18T10:00:00Z"
   }
 ];
-
-function makeSvnRepo() {
-  let execCount = 0;
-  let execImpl: () => Promise<{ stdout: string }> = async () => ({
-    stdout: BLAME_XML
-  });
-  const repo: any = Object.create(null);
-  repo.removeAbsolutePath = (p: string) => p;
-  repo.exec = async (_args: string[]) => {
-    execCount++;
-    return execImpl();
-  };
-  repo._blameCache = new LRUCache(100, 5 * 60 * 1000);
-  repo._blameInFlight = new Map();
-  repo._blameErrorCache = new LRUCache(50, 30 * 1000);
-  repo._blameGeneration = 0;
-  return {
-    repo,
-    getCount: () => execCount,
-    setExec: (impl: typeof execImpl) => (execImpl = impl)
-  };
-}
 
 suite("Blame review fixes", () => {
   let sandbox: sinon.SinonSandbox;
@@ -65,11 +32,7 @@ suite("Blame review fixes", () => {
   });
 
   test("in-flight blame cannot repopulate a cleared cache", async () => {
-    const { Repository: SvnRepository } = await import(
-      "../../../svnRepository"
-    );
-    const { repo, getCount, setExec } = makeSvnRepo();
-    Object.setPrototypeOf(repo, SvnRepository.prototype);
+    const { repo, getCount, setExec } = await makeFakeSvnRepo();
 
     let release!: () => void;
     setExec(
@@ -78,12 +41,12 @@ suite("Blame review fixes", () => {
           release = () => resolve({ stdout: BLAME_XML });
         })
     );
-    const pending = SvnRepository.prototype.blame.call(repo, "file.txt");
+    const pending = repo.blame("file.txt");
     // Let the sequentialized fetch reach exec before invalidating
     await new Promise(r => setTimeout(r, 10));
 
     // Mutating op (commit) invalidates while the fetch is in flight
-    (SvnRepository.prototype as any).clearBlameCache.call(repo);
+    repo.clearBlameCache();
 
     release();
     await pending;
@@ -95,19 +58,15 @@ suite("Blame review fixes", () => {
     );
 
     setExec(async () => ({ stdout: BLAME_XML }));
-    await SvnRepository.prototype.blame.call(repo, "file.txt");
+    await repo.blame("file.txt");
     assert.strictEqual(getCount(), 2, "post-clear blame must re-fetch");
   });
 
   test("skipCache=true forces a fresh fetch despite warm cache", async () => {
-    const { Repository: SvnRepository } = await import(
-      "../../../svnRepository"
-    );
-    const { repo, getCount } = makeSvnRepo();
-    Object.setPrototypeOf(repo, SvnRepository.prototype);
+    const { repo, getCount } = await makeFakeSvnRepo();
 
-    await SvnRepository.prototype.blame.call(repo, "file.txt");
-    await SvnRepository.prototype.blame.call(repo, "file.txt", "BASE", true);
+    await repo.blame("file.txt");
+    await repo.blame("file.txt", "BASE", true);
 
     assert.strictEqual(getCount(), 2, "skipCache must bypass the cache");
   });
