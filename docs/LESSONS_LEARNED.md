@@ -1,7 +1,27 @@
 # Lessons Learned
 
-**Version**: 0.2.59
-**Updated**: 2026-05-14
+**Version**: 0.2.63
+**Updated**: 2026-07-07
+
+---
+
+### 70. A Setting Only Exists If Something Reads It
+
+**Lesson**: `sven.blame.autoBlame` was defined in package.json, documented, written by the recommended-settings profiles ("Don't auto-blame — slow on large files") — and read by nothing. Blame auto-fetched on every file open regardless. Bonus divergence: package.json default was `true` while the code fallback said `false`, so even the intended default was ambiguous.
+
+**Fix**: Wired `isAutoBlameEnabled()` into the per-file default in `BlameStateManager`; aligned the code fallback with the package.json default.
+
+**Rule**: When adding a setting, grep for its accessor in the same PR — definition, docs, and profile writes don't make it real. Keep `get(key, fallback)` fallbacks byte-identical to the package.json default; mocks return the fallback, production returns the manifest default, and any divergence means tests validate behavior users never see.
+
+---
+
+### 69. Every Fetch Path Must Pass the Same Gates
+
+**Lesson**: `BlameProvider.updateDecorations` gated blame behind CSV/large-file limits, but two sibling paths reached the same fetch without them: the status bar (own `repository.blame` on every cursor move) and the cursor handler (`updateInlineDecorationsForCursor`). Opening a 100k-line CSV showed "blame skipped" — then one click spawned the very `svn blame` the gate refused. Errors were also never cached, so a failing huge file re-spawned per debounced cursor pause.
+
+**Fix**: Same size gates on all three entry paths; same-line skip before the debounced status-bar update; 30s negative cache for non-transient blame failures; blame cache check hoisted outside `@sequentialize` with in-flight dedup (getInfo/cat/list pattern); event-based `clearBlameCache()` on mutating ops with TTL as backstop.
+
+**Rule**: A guard on one entry path is a bug on the others. When a fetch has multiple triggers (render, cursor, status bar, command), route them through one gated helper — and audit the set whenever a new trigger is added. Cache failures too: error paths that skip the cache write turn one doomed subprocess into one per UI event.
 
 ---
 

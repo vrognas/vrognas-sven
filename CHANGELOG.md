@@ -7,6 +7,26 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.63] - 2026-07-07
+
+Blame performance overhaul: far fewer svn subprocesses, no fetches when blame isn't wanted, and post-commit blame no longer stale.
+
+### Fixed
+
+- `sven.blame.autoBlame` is now actually honored — it had zero call sites, so blame auto-fetched on every tracked-file open regardless of the setting (the "Data Science" recommended profile's `autoBlame: false` did nothing). Default behavior unchanged (`true`); with `false`, blame stays off per file until enabled via the blame commands.
+- Post-commit/update/revert/switch/merge blame is no longer stale for up to 5 minutes: the repo blame cache is cleared on mutating operations (`resetBlameCache` previously had zero callers; the 5-min TTL remains as backstop for external svn activity).
+- Blame cache entries for non-active visible editors could never hit (version pinned to `-1` from `window.activeTextEditor`), re-fetching on every selection event. Version now comes from the editor that triggered the lookup.
+
+### Changed
+
+- Status bar no longer blames files the provider refuses: over-limit CSVs and files over `largeFileLimit` are skipped, same-line selection events short-circuit before the blame pipeline, selection events from non-active editors are ignored, and the double 150ms debounce is gone. The provider's cursor path gets the same silent size gates.
+- `SvnRepository.blame`: cache check moved outside the sequentialize queue (cache hits no longer wait behind an in-flight network blame of another file), concurrent callers for the same file share one fetch, and non-transient failures (binary/unversioned/invalid revision/parse) are negative-cached for 30s — a failing huge file no longer re-spawns `svn blame` on every debounced cursor pause.
+- Cold blame of a clean file no longer pays a redundant `svn info` pre-check (blame's own error handling already skips unversioned files silently) — halves cold-path subprocess count.
+- Inline commit-message prefetch passes the blamed file to `svn log`, so the server returns only that file's history instead of every revision in the checkout between the file's min and max blamed revisions.
+- `Operation.Blame` and `Operation.List` no longer flash the SCM progress spinner (background reads triggered by cursor movement and quickdiff stats).
+
+---
+
 ## [0.2.62] - 2026-05-15
 
 CSV diff gate no longer blocks the workflow with a modal.

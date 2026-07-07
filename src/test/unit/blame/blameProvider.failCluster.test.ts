@@ -381,7 +381,7 @@ suite("BlameProvider - Fail Cluster", () => {
     assert.ok(currentLineOnlyStub.called);
   });
 
-  test("getBlameData fast-return branches for unversioned and failed info", async () => {
+  test("getBlameData fast-returns for unversioned files without svn calls", async () => {
     const uri = Uri.file("/test/branches.ts");
 
     mockRepository.getResourceFromFile.returns({
@@ -391,11 +391,7 @@ suite("BlameProvider - Fail Cluster", () => {
     const first = await (provider as any).getBlameData(uri, createEditor(uri));
     assert.strictEqual(first, undefined);
     assert.ok(mockRepository.getInfo.notCalled);
-
-    mockRepository.getResourceFromFile.returns(undefined as any);
-    mockRepository.getInfo.rejects(new Error("not versioned"));
-    const second = await (provider as any).getBlameData(uri, createEditor(uri));
-    assert.strictEqual(second, undefined);
+    assert.ok(mockRepository.blame.notCalled);
   });
 
   test("line mapping and decoration helpers cover remaining branch paths", async () => {

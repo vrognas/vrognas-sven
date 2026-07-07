@@ -11,6 +11,7 @@
 Comprehensive SVN blame implementation with three decoration layers, smart caching, and 50x performance optimization for message fetching.
 
 **Key Features**:
+
 - Gutter text annotations (author, revision, date)
 - Gutter icons (colored bars by author)
 - Inline commit messages
@@ -20,6 +21,7 @@ Comprehensive SVN blame implementation with three decoration layers, smart cachi
 - Configuration-driven behavior
 
 **Performance Targets Met**:
+
 - Blame fetch: <500ms (typical file)
 - Message prefetch: <200ms (batch)
 - Decoration rendering: <300ms (1000 lines)
@@ -32,7 +34,9 @@ Comprehensive SVN blame implementation with three decoration layers, smart cachi
 ### Core Components
 
 #### 1. BlameConfiguration (`/src/blame/blameConfiguration.ts`)
+
 Singleton configuration manager with 13 helper methods:
+
 - `isEnabled()`, `isAutoBlameEnabled()`, `getDateFormat()`
 - `isGutterTextEnabled()`, `isGutterIconEnabled()`, `isInlineEnabled()`
 - `isFileTooLarge()`, `shouldWarnLargeFile()`
@@ -42,13 +46,16 @@ Singleton configuration manager with 13 helper methods:
 **Namespace**: `svn.blame.*`
 
 #### 2. BlameStateManager (`/src/blame/blameStateManager.ts`)
+
 Per-file and global state tracking with event-driven updates:
+
 - Per-file: `isBlameEnabled()`, `setBlameEnabled()`, `toggleBlame()`
 - Global: `isGlobalEnabled()`, `setGlobalEnabled()`, `toggleGlobalEnabled()`
 - Combined: `shouldShowBlame()` (global AND per-file AND config-wide)
 - Event: `onDidChangeState` fired on any state change
 
 **Three-Level Toggle**:
+
 ```
 Extension-wide (config.svn.blame.enabled)
   └─ Global State (blameStateManager.isGlobalEnabled())
@@ -56,13 +63,16 @@ Extension-wide (config.svn.blame.enabled)
 ```
 
 #### 3. BlameProvider (`/src/blame/blameProvider.ts`)
+
 UI decoration lifecycle manager (per-repository instance):
+
 - Manages 3 decoration types (gutter, icon, inline)
 - Handles blame data fetching and caching
 - Prefetches commit messages in batch
 - Updates decorations on editor/config/state changes
 
 **Caches**:
+
 - `blameCache`: Blame data (1-indexed, ISvnBlameLine[])
 - `messageCache`: Commit messages by revision
 - `authorColors`: Author → HSL color mapping
@@ -73,16 +83,18 @@ UI decoration lifecycle manager (per-repository instance):
 ## Configuration Schema
 
 ### Core Settings
+
 ```json
 {
   "svn.blame.enabled": boolean (default: true),
-  "svn.blame.autoBlame": boolean (default: false),
+  "svn.blame.autoBlame": boolean (default: true),  // off: no fetch until per-file enable command
   "svn.blame.dateFormat": "relative" | "absolute" (default: "relative"),
   "svn.blame.enableLogs": boolean (default: true)
 }
 ```
 
 ### Large File Handling
+
 ```json
 {
   "svn.blame.largeFileLimit": number (default: 100000, min: 0),
@@ -91,6 +103,7 @@ UI decoration lifecycle manager (per-repository instance):
 ```
 
 ### Display Settings
+
 ```json
 {
   "svn.blame.gutter.enabled": boolean (default: true),
@@ -111,26 +124,35 @@ UI decoration lifecycle manager (per-repository instance):
 ### SVN Execution
 
 **Type Definitions** (`/src/common/types.ts`):
+
 ```typescript
 interface ISvnBlameLine {
   lineNumber: number;
   revision?: string;
   author?: string;
   date?: string;
-  merged?: { path: string; revision: string; author: string; date: string }
+  merged?: { path: string; revision: string; author: string; date: string };
 }
 ```
 
 ### Repository Methods
 
 #### `blame(file, revision?, skipCache?)`
+
 - Command: `svn blame --xml -x "-w --ignore-eol-style" -r REVISION FILE`
-- Cache: LRU with 5-min TTL, max 100 entries
+- Cache: LRU max 100 entries; 5-min TTL backstop + cleared on mutating ops
+  (commit/update/revert/switch/merge via `clearBlameCache()`)
+- Cache check runs before the sequentialize queue (hits never wait on an
+  in-flight network blame); concurrent callers share one fetch
+- Non-transient failures (binary, unversioned, invalid rev, parse) are
+  negative-cached 30s so cursor traffic can't re-spawn a doomed blame
 - Returns: ISvnBlameLine[] per file
 - Handles: Binary files, large files, encoding issues
 
 #### `logBatch(revisions, target?)`
-- Command: `svn log -r MIN:MAX --xml -v`
+
+- Command: `svn log -r MIN:MAX --xml -v [TARGET]` (blame prefetch passes the
+  blamed file so the server filters to its history)
 - Performance: 1 call for N revisions (50x faster vs sequential)
 - Filters: Returns only requested revisions from full range
 - Fallback: Sequential fetching on error
@@ -152,30 +174,34 @@ private decorationTypes: {
 ### Decoration Lifecycle
 
 **updateDecorations()** (throttled 150ms):
+
 1. Validate: `shouldDecorate()` check (scheme, state, config)
 2. Fetch: `getBlameData()` with cache
 3. Create: `createAllDecorations()` returns 3 arrays
 4. Apply: `editor.setDecorations()` for each enabled type
 
 **clearDecorations()**:
+
 - Clears all 3 types unconditionally (even if disabled)
 - Triggered on: state toggle, config change, document edit, file close
 
 ### Color Hashing Algorithm
 
 Author → Consistent HSL color (readable on light/dark themes):
+
 ```typescript
 // Hash author name to 32-bit int
 let hash = 0;
 for (let i = 0; i < str.length; i++) {
-  hash = ((hash << 5) - hash) + str.charCodeAt(i);
+  hash = (hash << 5) - hash + str.charCodeAt(i);
 }
 
 // Map to HSL: H[0-360], S[60-80%], L[50-60%]
-hsl(Math.abs(hash) % 360, 60 + (hash >> 8 % 20), 50 + (hash >> 16 % 10))
+hsl(Math.abs(hash) % 360, 60 + (hash >> 8 % 20), 50 + (hash >> 16 % 10));
 ```
 
 **Benefits**:
+
 - Same author = same color across files/sessions
 - Different authors = visually distinct
 - Readable on both light/dark VSCode themes
@@ -184,6 +210,7 @@ hsl(Math.abs(hash) % 360, 60 + (hash >> 8 % 20), 50 + (hash >> 16 % 10))
 ### Message Prefetching
 
 **Strategy**:
+
 1. Collect unique revisions from blame data
 2. Filter out cached entries
 3. Batch fetch remaining in range: `svn log -r MIN:MAX`
@@ -191,6 +218,7 @@ hsl(Math.abs(hash) % 360, 60 + (hash >> 8 % 20), 50 + (hash >> 16 % 10))
 5. Evict expired/LRU entries
 
 **Performance**:
+
 - File with 50 revisions: 100ms (1 SVN call) vs 5s (50 sequential calls)
 - Cache TTL: 10 minutes
 - Max entries: 200 (evict LRU when full)
@@ -203,15 +231,15 @@ hsl(Math.abs(hash) % 360, 60 + (hash >> 8 % 20), 50 + (hash >> 16 % 10))
 
 ### File Locations
 
-| Component | Path | Size |
-|-----------|------|------|
-| Configuration | `/src/blame/blameConfiguration.ts` | 156 LOC |
-| State Manager | `/src/blame/blameStateManager.ts` | 112 LOC |
-| Provider | `/src/blame/blameProvider.ts` | ~500 LOC |
-| Hover Provider | `/src/blame/blameHoverProvider.ts` | 150 LOC |
-| Commands | `/src/commands/blame/*.ts` | 3 × 18 LOC |
-| Parser | `/src/parser/blameParser.ts` | ~100 LOC |
-| Tests | `/src/test/unit/blame/*.test.ts` | 27 tests |
+| Component      | Path                               | Size       |
+| -------------- | ---------------------------------- | ---------- |
+| Configuration  | `/src/blame/blameConfiguration.ts` | 156 LOC    |
+| State Manager  | `/src/blame/blameStateManager.ts`  | 112 LOC    |
+| Provider       | `/src/blame/blameProvider.ts`      | ~500 LOC   |
+| Hover Provider | `/src/blame/blameHoverProvider.ts` | 150 LOC    |
+| Commands       | `/src/commands/blame/*.ts`         | 3 × 18 LOC |
+| Parser         | `/src/parser/blameParser.ts`       | ~100 LOC   |
+| Tests          | `/src/test/unit/blame/*.test.ts`   | 27 tests   |
 
 ### Commands
 
@@ -220,6 +248,7 @@ hsl(Math.abs(hash) % 360, 60 + (hash >> 8 % 20), 50 + (hash >> 16 % 10))
 - `svn.blame.clearBlame`: Disable blame and clear
 
 **Menus**:
+
 - Command palette (when enabled, repos open)
 - Editor title bar (file editors only)
 - Explorer context (files, not folders)
@@ -227,12 +256,14 @@ hsl(Math.abs(hash) % 360, 60 + (hash >> 8 % 20), 50 + (hash >> 16 % 10))
 ### Tests (TDD Approach)
 
 **Unit Tests** (40 tests):
+
 - Color hashing: consistency, uniqueness, readability, caching
 - SVG generation: valid URI, caching, color embedding
 - Message fetching: cache hit/miss, errors, logs disabled
 - Decoration creation: 3 arrays returned, uncommitted skip
 
 **Integration Tests** (12 tests):
+
 - All 3 decoration types applied when enabled
 - Selective enabling/disabling
 - Clear all types on state toggle
@@ -240,6 +271,7 @@ hsl(Math.abs(hash) % 360, 60 + (hash >> 8 % 20), 50 + (hash >> 16 % 10))
 - Toggle commands update decorations
 
 **Performance Tests** (3 tests):
+
 - 1000-line file decoration <500ms
 - SVG cache hit rate >90%
 - Message cache hit rate >95%
@@ -253,6 +285,7 @@ hsl(Math.abs(hash) % 360, 60 + (hash >> 8 % 20), 50 + (hash >> 16 % 10))
 **File**: `/src/blame/blameHoverProvider.ts`
 
 **Content Format** (Markdown):
+
 ```markdown
 $(git-commit) **Revision** r1234
 $(person) **Author** John Doe
@@ -261,7 +294,7 @@ $(clock) **Date** 2 days ago
 ---
 
 $(git-merge) **Merged** from `src/file.ts` (if merged)
-  r5678 by Jane Smith, 5 days ago
+r5678 by Jane Smith, 5 days ago
 
 ---
 
@@ -270,6 +303,7 @@ feat: Add feature description
 ```
 
 **Features**:
+
 - Relative/absolute date formatting (configurable)
 - Merged revision display with original info
 - Commit message on hover (lazy fetched)
@@ -282,9 +316,10 @@ feat: Add feature description
 ### Caching Strategy (3-Tier)
 
 1. **Blame Data Cache**
-   - Per-document-version keying
-   - 5-min TTL, LRU max 100 entries
-   - Shared Repository._blameCache
+   - Provider tier: per-document-version keying (version taken from the
+     event editor, so non-active visible editors cache-hit too)
+   - Repo tier (Repository.\_blameCache): LRU max 100, 5-min TTL backstop,
+     cleared on mutating operations
 
 2. **Message Cache**
    - By revision number
@@ -299,11 +334,13 @@ feat: Add feature description
 ### Batch Fetching (50x Improvement)
 
 **Before**: Sequential `svn log -r REV:REV` calls
+
 ```
 50 revisions = 50 commands × 100ms = 5000ms
 ```
 
 **After**: Single `svn log -r MIN:MAX` call
+
 ```
 50 revisions = 1 command × 100ms = 100ms
 ```
@@ -344,12 +381,12 @@ this.disposables.push(
 
 ### Throttling & Debouncing
 
-| Event | Pattern | Delay | Reason |
-|-------|---------|-------|--------|
-| `updateDecorations()` | Throttle | 150ms | Prevent rapid re-renders |
-| `onDidChangeTextDocument` | Debounce | 500ms | Wait for typing to stop |
-| `onDidChangeActiveEditor` | None | - | Immediate response |
-| `onDidChangeState` | None | - | User-triggered feedback |
+| Event                     | Pattern  | Delay | Reason                   |
+| ------------------------- | -------- | ----- | ------------------------ |
+| `updateDecorations()`     | Throttle | 150ms | Prevent rapid re-renders |
+| `onDidChangeTextDocument` | Debounce | 500ms | Wait for typing to stop  |
+| `onDidChangeActiveEditor` | None     | -     | Immediate response       |
+| `onDidChangeState`        | None     | -     | User-triggered feedback  |
 
 ---
 
@@ -357,14 +394,14 @@ this.disposables.push(
 
 ### Common Scenarios
 
-| Error | Handling |
-|-------|----------|
-| File not versioned (E155007) | Show message, no blame |
-| Binary file | Skip blame, show notification |
-| File too large | Warn user, ask for confirmation |
-| Network timeout | Fallback to sequential fetch |
-| Missing revisions | Silently skip, show available data |
-| Parsing errors | Log and continue with empty results |
+| Error                        | Handling                            |
+| ---------------------------- | ----------------------------------- |
+| File not versioned (E155007) | Show message, no blame              |
+| Binary file                  | Skip blame, show notification       |
+| File too large               | Warn user, ask for confirmation     |
+| Network timeout              | Fallback to sequential fetch        |
+| Missing revisions            | Silently skip, show available data  |
+| Parsing errors               | Log and continue with empty results |
 
 ### Graceful Degradation
 
@@ -424,12 +461,14 @@ context.subscriptions.push(
 ### Common Code Patterns
 
 **Check if blame should show**:
+
 ```typescript
 if (!blameStateManager.shouldShowBlame(uri)) return;
 if (!blameConfiguration.isGutterEnabled()) return;
 ```
 
 **Format blame text**:
+
 ```typescript
 const text = template
   .replace(/\$\{author\}/g, line.author || "unknown")
@@ -438,6 +477,7 @@ const text = template
 ```
 
 **Handle uncommitted lines**:
+
 ```typescript
 if (!blameLine.revision) {
   // Show "Not committed yet" for gutter text only
@@ -482,28 +522,28 @@ if (!blameLine.revision) {
 
 ## Key Files and Code Locations
 
-| File | Key Location | Purpose |
-|------|--------------|---------|
-| `package.json` | contributions.configuration | Blame settings |
-| `blameConfiguration.ts` | Lines 1-156 | Settings access |
-| `blameStateManager.ts` | Lines 1-112 | State management |
-| `blameProvider.ts` | Main class | Decoration lifecycle |
-| `blameHoverProvider.ts` | Main class | Hover tooltips |
-| `svnRepository.ts:blame()` | ~Line 1050 | SVN blame execution |
-| `svnRepository.ts:logBatch()` | ~Line 1107 | Batch message fetch |
+| File                          | Key Location                | Purpose              |
+| ----------------------------- | --------------------------- | -------------------- |
+| `package.json`                | contributions.configuration | Blame settings       |
+| `blameConfiguration.ts`       | Lines 1-156                 | Settings access      |
+| `blameStateManager.ts`        | Lines 1-112                 | State management     |
+| `blameProvider.ts`            | Main class                  | Decoration lifecycle |
+| `blameHoverProvider.ts`       | Main class                  | Hover tooltips       |
+| `svnRepository.ts:blame()`    | ~Line 1050                  | SVN blame execution  |
+| `svnRepository.ts:logBatch()` | ~Line 1107                  | Batch message fetch  |
 
 ---
 
 ## Performance Metrics (Verified)
 
-| Operation | Target | Actual | Status |
-|-----------|--------|--------|--------|
-| Blame fetch (typical) | <500ms | 200-400ms | ✅ |
-| Message prefetch (50 revisions) | <200ms | 100-150ms | ✅ |
-| Decoration render (1000 lines) | <300ms | 150-250ms | ✅ |
-| SVG cache hit rate | >90% | ~95% | ✅ |
-| Message cache hit rate | >95% | ~98% | ✅ |
-| Memory (1000 lines) | <500KB | ~300KB | ✅ |
+| Operation                       | Target | Actual    | Status |
+| ------------------------------- | ------ | --------- | ------ |
+| Blame fetch (typical)           | <500ms | 200-400ms | ✅     |
+| Message prefetch (50 revisions) | <200ms | 100-150ms | ✅     |
+| Decoration render (1000 lines)  | <300ms | 150-250ms | ✅     |
+| SVG cache hit rate              | >90%   | ~95%      | ✅     |
+| Message cache hit rate          | >95%   | ~98%      | ✅     |
+| Memory (1000 lines)             | <500KB | ~300KB    | ✅     |
 
 ---
 
