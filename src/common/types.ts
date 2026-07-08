@@ -211,7 +211,6 @@ export interface IFileStatus {
     props: string;
     item: string;
   };
-  [key: number]: IFileStatus;
 }
 
 export interface IEntry {
