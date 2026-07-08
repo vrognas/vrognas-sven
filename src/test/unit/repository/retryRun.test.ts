@@ -1,174 +1,159 @@
 import * as assert from "assert";
 import { svnErrorCodes } from "../../../svn";
-import { ISvnErrorData, IStoredAuth } from "../../../common/types";
+import SvnError from "../../../svnError";
+import { IStoredAuth } from "../../../common/types";
 
 /**
- * Tests for retryRun auth cycling logic
+ * Characterization tests for the REAL Repository.retryRun (the auth-retry
+ * ladder). Replaces a simulation-only suite that re-implemented the logic
+ * inline and never called retryRun — false coverage over a path that has
+ * shipped two real bugs (account-cycling index, empty first-attempt creds).
  *
- * These tests verify the fix for:
- * - Bug 1: Account cycling never worked (always used last account)
- * - Bug 2: First attempt with empty credentials
+ * Uses the Repository.prototype.call(mockThis) pattern established by
+ * blameInvalidation.test.ts, since the Repository constructor is not
+ * unit-constructible (F31).
  */
-suite("Repository retryRun Auth Logic", () => {
-  suite("Account Cycling (Bug 1 Fix)", () => {
-    test("Should use correct index for each stored account", () => {
-      // Simulates the fixed logic: index = attempt
-      const accounts: IStoredAuth[] = [
-        { account: "user1", password: "pass1" },
-        { account: "user2", password: "pass2" },
-        { account: "user3", password: "pass3" }
-      ];
 
-      // After attempt 1 fails with accounts[0], should try accounts[1]
-      let attempt = 1;
-      let index = attempt;
-      assert.strictEqual(accounts[index]?.account, "user2");
+interface MockThis {
+  username?: string;
+  password?: string;
+  credentialLock: Promise<void>;
+  loadStoredAuths: () => Promise<IStoredAuth[]>;
+  saveAuth: () => Promise<void>;
+  promptAuth: () => Promise<boolean | undefined>;
+}
 
-      // After attempt 2 fails with accounts[1], should try accounts[2]
-      attempt = 2;
-      index = attempt;
-      assert.strictEqual(accounts[index]?.account, "user3");
+function makeMockThis(overrides: Partial<MockThis> = {}): MockThis {
+  return {
+    username: undefined,
+    password: undefined,
+    credentialLock: Promise.resolve(),
+    loadStoredAuths: async () => [],
+    saveAuth: async () => {},
+    promptAuth: async () => undefined,
+    ...overrides
+  };
+}
 
-      // After attempt 3 fails, index 3 is out of bounds
-      attempt = 3;
-      index = attempt;
-      assert.strictEqual(accounts[index], undefined);
+function authError(): SvnError {
+  return new SvnError({
+    message: "Failed to execute svn",
+    svnErrorCode: svnErrorCodes.AuthorizationFailed
+  });
+}
+
+async function getRetryRun() {
+  const { Repository } = await import("../../../repository");
+  return (Repository.prototype as unknown as Record<string, unknown>)
+    .retryRun as (runOperation: () => Promise<unknown>) => Promise<unknown>;
+}
+
+suite("Repository retryRun (real implementation)", () => {
+  test("pre-sets first stored account, cycles through accounts on auth failure", async () => {
+    const retryRun = await getRetryRun();
+    const accounts: IStoredAuth[] = [
+      { account: "alice", password: "a1" },
+      { account: "bob", password: "b2" },
+      { account: "carol", password: "c3" }
+    ];
+    const mockThis = makeMockThis({
+      loadStoredAuths: async () => accounts
     });
 
-    test("Old buggy logic always used last account", () => {
-      // Demonstrates the bug: index = accounts.length - 1
-      const accounts: IStoredAuth[] = [
-        { account: "user1", password: "pass1" },
-        { account: "user2", password: "pass2" }
-      ];
-
-      // Bug: Always used last account regardless of attempt
-      const buggyIndex = accounts.length - 1;
-      assert.strictEqual(buggyIndex, 1); // Always 1, never cycles
+    const credsPerAttempt: Array<string | undefined> = [];
+    let attempts = 0;
+    const result = await retryRun.call(mockThis, async () => {
+      credsPerAttempt.push(mockThis.username);
+      attempts++;
+      if (attempts <= 2) {
+        throw authError();
+      }
+      return "committed";
     });
+
+    assert.strictEqual(result, "committed");
+    // attempt 1 pre-set to accounts[0]; failures advance to [1] then [2]
+    assert.deepStrictEqual(credsPerAttempt, ["alice", "bob", "carol"]);
+    assert.strictEqual(mockThis.password, "c3");
   });
 
-  suite("Pre-set Credentials (Bug 2 Fix)", () => {
-    test("Should pre-set credentials when none exist", () => {
-      const accounts: IStoredAuth[] = [{ account: "user1", password: "pass1" }];
+  test("serializes concurrent calls via the credential mutex", async () => {
+    const retryRun = await getRetryRun();
+    const mockThis = makeMockThis();
 
-      let username: string | undefined;
-      let password: string | undefined;
-
-      // Fix: Pre-set from first stored account if none set
-      if (!username && !password && accounts.length > 0) {
-        username = accounts[0]!.account;
-        password = accounts[0]!.password;
-      }
-
-      assert.strictEqual(username, "user1");
-      assert.strictEqual(password, "pass1");
+    const order: string[] = [];
+    let releaseFirst!: () => void;
+    const firstBlocked = new Promise<void>(resolve => {
+      releaseFirst = resolve;
     });
 
-    test("Should not override existing credentials", () => {
-      const accounts: IStoredAuth[] = [{ account: "user1", password: "pass1" }];
-
-      let username: string | undefined = "existing";
-      let password: string | undefined = "creds";
-
-      // Fix: Don't override if credentials already set
-      if (!username && !password && accounts.length > 0) {
-        username = accounts[0]!.account;
-        password = accounts[0]!.password;
-      }
-
-      assert.strictEqual(username, "existing");
-      assert.strictEqual(password, "creds");
+    const first = retryRun.call(mockThis, async () => {
+      order.push("op1-start");
+      await firstBlocked;
+      order.push("op1-end");
+      return 1;
     });
-
-    test("Should handle empty stored accounts", () => {
-      const accounts: IStoredAuth[] = [];
-
-      let username: string | undefined;
-      let password: string | undefined;
-
-      if (!username && !password && accounts.length > 0) {
-        username = accounts[0]!.account;
-        password = accounts[0]!.password;
-      }
-
-      assert.strictEqual(username, undefined);
-      assert.strictEqual(password, undefined);
+    // Give the first call time to take the lock, then start the second
+    await new Promise(r => setTimeout(r, 20));
+    const second = retryRun.call(mockThis, async () => {
+      order.push("op2-start");
+      return 2;
     });
+    await new Promise(r => setTimeout(r, 20));
+    assert.deepStrictEqual(
+      order,
+      ["op1-start"],
+      "second operation must not run credentials while first holds the lock"
+    );
+
+    releaseFirst();
+    assert.deepStrictEqual(await Promise.all([first, second]), [1, 2]);
+    assert.deepStrictEqual(order, ["op1-start", "op1-end", "op2-start"]);
   });
 
-  suite("Auth Error Detection Integration", () => {
-    test("E170001 triggers auth retry", () => {
-      const svnError: ISvnErrorData = {
-        svnErrorCode: svnErrorCodes.AuthorizationFailed,
-        message: "Authorization failed"
-      };
+  test("retries RepositoryIsLocked with backoff, then succeeds", async () => {
+    const retryRun = await getRetryRun();
+    const mockThis = makeMockThis();
 
-      assert.strictEqual(
-        svnError.svnErrorCode,
-        svnErrorCodes.AuthorizationFailed
-      );
+    let attempts = 0;
+    const started = Date.now();
+    const result = await retryRun.call(mockThis, async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new SvnError({
+          message: "Failed to execute svn",
+          svnErrorCode: svnErrorCodes.RepositoryIsLocked
+        });
+      }
+      return "ok";
     });
 
-    test("E170013 alone does not trigger auth retry", () => {
-      const svnError: ISvnErrorData = {
-        svnErrorCode: svnErrorCodes.UnableToConnect,
-        message: "Unable to connect"
-      };
-
-      assert.notStrictEqual(
-        svnError.svnErrorCode,
-        svnErrorCodes.AuthorizationFailed
-      );
-    });
+    assert.strictEqual(result, "ok");
+    assert.strictEqual(attempts, 2);
+    // quadratic backoff: attempt 1 waits 1^2 * 50 = 50ms
+    assert.ok(Date.now() - started >= 45, "should back off before retrying");
   });
 
-  suite("Retry Flow Simulation", () => {
-    test("Complete auth retry flow with 2 stored accounts", () => {
-      const accounts: IStoredAuth[] = [
-        { account: "user1", password: "pass1" },
-        { account: "user2", password: "pass2" }
-      ];
-
-      let username: string | undefined;
-      let password: string | undefined;
-      const attemptLog: string[] = [];
-
-      // Pre-set from first account (Bug 2 fix)
-      if (!username && !password && accounts.length > 0) {
-        username = accounts[0]!.account;
-        password = accounts[0]!.password;
+  test("propagates auth failure when no accounts and prompt is declined", async () => {
+    const retryRun = await getRetryRun();
+    let prompted = 0;
+    const mockThis = makeMockThis({
+      promptAuth: async () => {
+        prompted++;
+        return false; // user declined
       }
-
-      // Simulate retry loop
-      for (let attempt = 1; attempt <= 5; attempt++) {
-        attemptLog.push(`Attempt ${attempt}: ${username}`);
-
-        // Simulate auth failure
-        const isAuthError = true;
-
-        if (isAuthError && attempt <= accounts.length) {
-          // Bug 1 fix: use attempt as index
-          const index = attempt;
-          if (typeof accounts[index] !== "undefined") {
-            username = accounts[index].account;
-            password = accounts[index].password;
-          }
-        } else if (isAuthError && attempt <= 3 + accounts.length) {
-          // Would prompt user here
-          attemptLog.push(`Prompt triggered at attempt ${attempt}`);
-          break;
-        }
-      }
-
-      // Verify flow:
-      // Attempt 1: user1 (pre-set) → fails → set user2
-      // Attempt 2: user2 → fails → index=2 out of bounds
-      // Attempt 3: user2 → fails → prompt
-      assert.strictEqual(attemptLog[0], "Attempt 1: user1");
-      assert.strictEqual(attemptLog[1], "Attempt 2: user2");
-      assert.strictEqual(attemptLog[2], "Attempt 3: user2");
-      assert.ok(attemptLog[3]!.includes("Prompt triggered"));
     });
+
+    let attempts = 0;
+    await assert.rejects(
+      retryRun.call(mockThis, async () => {
+        attempts++;
+        throw authError();
+      }),
+      (err: unknown) =>
+        (err as SvnError).svnErrorCode === svnErrorCodes.AuthorizationFailed
+    );
+    assert.strictEqual(attempts, 1, "no accounts to cycle: single attempt");
+    assert.strictEqual(prompted, 1, "falls back to prompting the user once");
   });
 });
