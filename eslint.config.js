@@ -48,13 +48,27 @@ module.exports = tseslint.config(
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       '@typescript-eslint/no-unused-expressions': 'off',
 
+      // Raw console leaks unsanitized data; route through util/errorLogger
+      // (logError/logWarning) which strips credentials/paths. warn-level so
+      // the remaining prod sites can be migrated incrementally.
+      'no-console': 'warn',
+
       // Async-safety (typed-linting; requires parserOptions.project above).
-      // Catches the "forgot to handle the promise" class of bugs without
-      // forcing a Go-style tuple wrapper at every callsite.
-      '@typescript-eslint/no-floating-promises': 'warn',
-      '@typescript-eslint/no-misused-promises': 'warn',
+      // The two promise-handling rules are the real bug class (unhandled
+      // rejections, lost errors) and currently have zero violations, so they
+      // are errors. await-thenable/require-await stay warn (existing debt).
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
       '@typescript-eslint/await-thenable': 'warn',
       '@typescript-eslint/require-await': 'warn'
+    }
+  },
+
+  // errorLogger IS the sanitized console wrapper — it must use console.
+  {
+    files: ['src/util/errorLogger.ts'],
+    rules: {
+      'no-console': 'off'
     }
   }
 );
