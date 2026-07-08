@@ -51,7 +51,7 @@ export class SvnFileDecorationProvider
   /**
    * Provide decoration for a file URI
    */
-  async provideFileDecoration(uri: Uri): Promise<FileDecoration | undefined> {
+  provideFileDecoration(uri: Uri): FileDecoration | undefined {
     // Check for commit decorations (from repo/item log)
     if (uri.scheme === "svn-commit") {
       const queryParams = new URLSearchParams(uri.query);

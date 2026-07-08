@@ -717,6 +717,9 @@ export class Repository implements IRemoteRepository {
    * probe-gated.
    */
   @debounce(500)
+  // async is the contract: command callers await it and tests pin that a
+  // rejecting implementation propagates; the poll is fire-and-forget
+  // eslint-disable-next-line @typescript-eslint/require-await
   public async updateRemoteChangedFiles() {
     void this.pollRemoteChanges(true);
   }
@@ -1690,8 +1693,8 @@ export class Repository implements IRemoteRepository {
           }
         );
       } catch (updateErr) {
-        // Log but don't fail the commit - it already succeeded
-        console.warn("Post-commit update failed:", updateErr);
+        // Log (sanitized) but don't fail the commit - it already succeeded
+        logError("Post-commit update failed", updateErr);
       }
     }
 

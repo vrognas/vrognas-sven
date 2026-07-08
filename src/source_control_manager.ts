@@ -119,13 +119,16 @@ export class SourceControlManager implements IDisposable {
    * Build the manager and run async initialization (repository discovery via
    * enable()). Replaces the old async-returning-constructor cast.
    */
-  static async create(
+  static create(
     svn: Svn,
     extensionContext: ExtensionContext
   ): Promise<SourceControlManager> {
     const manager = new SourceControlManager(svn, extensionContext);
-    await manager.enable();
-    return manager;
+    // enable() is currently synchronous (workspace scanning is backgrounded
+    // inside it); keep the Promise-shaped API so genuinely-async init can be
+    // added later without call-site churn
+    manager.enable();
+    return Promise.resolve(manager);
   }
 
   public openRepositoriesSorted(): IOpenRepository[] {
@@ -146,7 +149,7 @@ export class SourceControlManager implements IDisposable {
       : 0;
   }
 
-  private async enable() {
+  private enable() {
     const multipleFolders = configuration.get<boolean>(
       "multipleFolders.enabled",
       false
@@ -246,7 +249,7 @@ export class SourceControlManager implements IDisposable {
     this.disposables = dispose(this.disposables);
   }
 
-  private async onDidChangeWorkspaceFolders({
+  private onDidChangeWorkspaceFolders({
     added,
     removed
   }: WorkspaceFoldersChangeEvent) {
@@ -445,7 +448,7 @@ export class SourceControlManager implements IDisposable {
     return undefined;
   }
 
-  public async getRepositoryFromUri(uri: Uri): Promise<Repository | null> {
+  public getRepositoryFromUri(uri: Uri): Repository | null {
     // Phase 9.3 perf fix - use path descendant check instead of expensive info() call
     // Previously: Sequential info() SVN commands (network/IO bound) on each repo
     // Now: O(n) path checks only (8% users, changelist ops 50-300ms → <50ms)

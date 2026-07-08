@@ -16,7 +16,7 @@ export class ClearBlame extends Command {
     super("sven.blame.clearBlame");
   }
 
-  async execute(uri?: Uri): Promise<void> {
+  execute(uri?: Uri): void {
     const target = getBlameTargetUri(uri);
     if (!target) return;
 

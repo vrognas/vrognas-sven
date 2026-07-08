@@ -169,7 +169,7 @@ export class RepoLogProvider
         this
       ),
       this.sourceControlManager.onDidChangeRepository(
-        async (_e: RepositoryChangeEvent) => {
+        (_e: RepositoryChangeEvent) => {
           // Performance: Skip refresh when view is hidden
           if (!this.treeView?.visible) {
             return;
@@ -949,7 +949,7 @@ export class RepoLogProvider
     this._onDidChangeTreeData.fire(element);
   }
 
-  public async getTreeItem(element: ILogTreeItem): Promise<TreeItem> {
+  public getTreeItem(element: ILogTreeItem): TreeItem {
     let ti: TreeItem;
     if (element.kind === LogTreeItemKind.Commit) {
       const commit = element.data;
@@ -1035,9 +1035,7 @@ export class RepoLogProvider
     return element.parent;
   }
 
-  public async getChildren(
-    element: ILogTreeItem | undefined
-  ): Promise<ILogTreeItem[]> {
+  public getChildren(element: ILogTreeItem | undefined): ILogTreeItem[] {
     if (element === undefined) {
       // Show commits directly at root level (skip repo folder)
       const cached = this.getCached();

@@ -59,7 +59,7 @@ suite("ChangeList Command Tests", () => {
 
     // Mock SourceControlManager
     mockSourceControlManager = {
-      getRepositoryFromUri: async (_uri: Uri) => {
+      getRepositoryFromUri: (_uri: Uri) => {
         return mockRepository as Repository;
       }
     };
@@ -206,7 +206,7 @@ suite("ChangeList Command Tests", () => {
         Status.MODIFIED
       );
 
-      mockSourceControlManager.getRepositoryFromUri = async () => null;
+      mockSourceControlManager.getRepositoryFromUri = () => null;
 
       await changeListCmd.execute(resource);
 
@@ -233,7 +233,7 @@ suite("ChangeList Command Tests", () => {
       };
 
       let callCount = 0;
-      mockSourceControlManager.getRepositoryFromUri = async () => {
+      mockSourceControlManager.getRepositoryFromUri = () => {
         callCount++;
         return (callCount === 1 ? mockRepository : mockRepo2) as Repository;
       };
@@ -259,7 +259,7 @@ suite("ChangeList Command Tests", () => {
       );
 
       let callCount = 0;
-      mockSourceControlManager.getRepositoryFromUri = async () => {
+      mockSourceControlManager.getRepositoryFromUri = () => {
         callCount++;
         return callCount === 1 ? (mockRepository as Repository) : null;
       };
@@ -282,7 +282,7 @@ suite("ChangeList Command Tests", () => {
 
       // Return undefined on first call, then mockRepository
       let callCount = 0;
-      mockSourceControlManager.getRepositoryFromUri = async () => {
+      mockSourceControlManager.getRepositoryFromUri = () => {
         callCount++;
         return callCount === 1 ? null : (mockRepository as Repository);
       };
@@ -582,7 +582,7 @@ suite("ChangeList Command Tests", () => {
         Status.MODIFIED
       );
 
-      mockSourceControlManager.getRepositoryFromUri = async () => {
+      mockSourceControlManager.getRepositoryFromUri = () => {
         throw new Error("Repository not found");
       };
 
@@ -598,7 +598,7 @@ suite("ChangeList Command Tests", () => {
         Status.MODIFIED
       );
 
-      mockSourceControlManager.getRepositoryFromUri = async () => null;
+      mockSourceControlManager.getRepositoryFromUri = () => null;
 
       await changeListCmd.execute(resource);
 

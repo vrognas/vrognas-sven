@@ -519,6 +519,7 @@ export class Repository {
     if (params.checkRemoteChanges && !params.fetchLockStatus) {
       const probe = await this.hasRemoteChanges();
       if (!probe.hasChanges) {
+        // eslint-disable-next-line no-console -- lifecycle diagnostic, no user data
         console.log("Remote poll: No new revisions, skipping status");
         return [];
       }
@@ -1350,7 +1351,9 @@ export class Repository {
               ) {
                 return allFiles(abspath);
               }
-              return [];
+              // Uniform Promise return: Promise.all should not aggregate
+              // a mix of promises and plain arrays (await-thenable)
+              return Promise.resolve<string[]>([]);
             })
           )
         ).reduce<string[]>((acc, cur) => acc.concat(cur), [file]);

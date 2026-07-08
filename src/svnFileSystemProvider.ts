@@ -301,7 +301,7 @@ export class SvnFileSystemProvider implements FileSystemProvider, Disposable {
 
       // Fallback: try getRepositoryFromUri which may use different lookup
       if (!repository && fsPath) {
-        repository = await this.sourceControlManager.getRepositoryFromUri(
+        repository = this.sourceControlManager.getRepositoryFromUri(
           Uri.file(fsPath)
         );
       }

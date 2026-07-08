@@ -46,6 +46,8 @@ export class SvnFinder {
         try {
           // Quick file existence check - no process spawn needed
           await fs.access(cached.path, fs.constants.X_OK);
+          // startup diagnostic; the svn binary path is the useful part
+          // eslint-disable-next-line no-console
           console.log(
             `Sven: Using cached SVN: ${cached.path} v${cached.version}`
           );

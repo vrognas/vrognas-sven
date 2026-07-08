@@ -174,6 +174,9 @@ export function globalSequentialize(
       const repoKey = this.root ? `${name}:${this.root}` : name;
       const currentPromise =
         (_seqList[repoKey] as Promise<any>) ?? Promise.resolve(null);
+      // async is load-bearing: it converts sync throws from fn into
+      // rejections so the sequentialize chain (.then(run, run)) survives
+      // eslint-disable-next-line @typescript-eslint/require-await
       const run = async () => fn.apply(this, args);
       const resultPromise = currentPromise.then(run, run);
       _seqList[repoKey] = resultPromise;

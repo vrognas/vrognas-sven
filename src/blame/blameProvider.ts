@@ -437,7 +437,7 @@ export class BlameProvider implements Disposable {
         }
 
         // Re-create inline decorations with messages
-        await this.updateInlineDecorationsWithMessages(
+        this.updateInlineDecorationsWithMessages(
           blameData,
           editor,
           lineMapping
@@ -489,11 +489,11 @@ export class BlameProvider implements Disposable {
    * Update inline decorations with commit messages
    * Called after messages are fetched asynchronously
    */
-  private async updateInlineDecorationsWithMessages(
+  private updateInlineDecorationsWithMessages(
     blameData: ISvnBlameLine[],
     editor: TextEditor,
     lineMapping?: LineMapping
-  ): Promise<void> {
+  ): void {
     const inlineDecorations: DecorationOptions[] = [];
     const currentLineOnly = blameConfiguration.isInlineCurrentLineOnly();
     const inlineColor = `rgba(127, 127, 127, ${blameConfiguration.getInlineOpacity()})`;

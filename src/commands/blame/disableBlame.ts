@@ -20,7 +20,7 @@ export class DisableBlame extends Command {
     super("sven.blame.disableBlame");
   }
 
-  async execute(uri?: Uri): Promise<void> {
+  execute(uri?: Uri): void {
     const target = getBlameTargetUri(uri);
     if (!target) return;
     blameStateManager.setBlameEnabled(target, false);

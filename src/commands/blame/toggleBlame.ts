@@ -16,7 +16,7 @@ export class ToggleBlame extends Command {
     super("sven.blame.toggleBlame");
   }
 
-  async execute(uri?: Uri): Promise<void> {
+  execute(uri?: Uri): void {
     const target = getBlameTargetUri(uri);
     if (!target) return;
 

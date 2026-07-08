@@ -16,7 +16,7 @@ export class UntrackedInfo extends Command {
     super("sven.blame.untrackedInfo");
   }
 
-  async execute(_uri?: Uri): Promise<void> {
+  execute(_uri?: Uri): void {
     // Show subtle info message
     window.showInformationMessage("File not tracked by SVN");
   }

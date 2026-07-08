@@ -22,7 +22,7 @@ import SvnError from "./svnError";
 import { SvnAuthCache } from "./services/svnAuthCache";
 import { Repository } from "./svnRepository";
 import { dispose, IDisposable, toDisposable } from "./util";
-import { logError } from "./util/errorLogger";
+import { logError, logWarning } from "./util/errorLogger";
 import { showSystemKeyringAuthNotification } from "./util/nativeStoreAuthNotification";
 import * as textCodec from "./util/textCodec";
 
@@ -569,7 +569,7 @@ export class Svn {
     }
 
     if (!textCodec.encodingSupported(encoding)) {
-      console.warn(`SVN: The encoding "${encoding}" is invalid`);
+      logWarning(`SVN: The encoding "${encoding}" is invalid`);
       encoding = "utf8";
     }
 

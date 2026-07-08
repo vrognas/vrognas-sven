@@ -326,7 +326,7 @@ export class ItemLogProvider
     }
   }
 
-  public async editorChanged(te?: TextEditor) {
+  public editorChanged(te?: TextEditor) {
     // Skip refresh during rollback to prevent flashing
     if (this.isRollingBack) {
       return;
@@ -427,7 +427,7 @@ export class ItemLogProvider
     }
   }
 
-  public async getTreeItem(element: ILogTreeItem): Promise<TreeItem> {
+  public getTreeItem(element: ILogTreeItem): TreeItem {
     let ti: TreeItem;
     if (element.kind === LogTreeItemKind.Commit) {
       const commit = element.data;

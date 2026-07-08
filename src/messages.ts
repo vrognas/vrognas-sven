@@ -195,9 +195,8 @@ async function showCommitInput(message?: string, filePaths?: string[]) {
       if (filePaths && filePaths[0]) {
         const sourceControlManager = await fetchSourceControlManager();
         repository =
-          (await sourceControlManager.getRepositoryFromUri(
-            Uri.file(filePaths[0])
-          )) ?? undefined;
+          sourceControlManager.getRepositoryFromUri(Uri.file(filePaths[0])) ??
+          undefined;
       }
 
       const message = await commands.executeCommand(

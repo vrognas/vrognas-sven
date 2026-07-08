@@ -1,6 +1,7 @@
 // Copyright (c) 2017-2020 Christopher Johnston
 // Copyright (c) 2025-present Viktor Rognas
 // Licensed under MIT License
+import { logWarning } from "./errorLogger";
 
 /**
  * Lightweight encoding/decoding via Node's built-in TextDecoder + Buffer.
@@ -155,7 +156,7 @@ export function encode(text: string, encoding: string): Buffer {
   if (bufEnc) {
     return Buffer.from(text, bufEnc);
   }
-  console.warn(
+  logWarning(
     `textCodec: cannot encode in "${encoding}" (no Node Buffer support); ` +
       `writing UTF-8 instead. Set the file's encoding to utf-8/utf-16le/latin1 to avoid this.`
   );

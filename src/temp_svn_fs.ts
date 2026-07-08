@@ -203,11 +203,7 @@ class TempSvnFs implements FileSystemProvider, Disposable {
     );
   }
 
-  async createTempSvnRevisionFile(
-    svnUri: Uri,
-    revision: string,
-    content: string
-  ) {
+  createTempSvnRevisionFile(svnUri: Uri, revision: string, content: string) {
     const fname = `r${revision}_${path.basename(svnUri.fsPath)}`;
     const hash = crypto.createHash("md5");
     const filePathHash = hash.update(svnUri.path).digest("hex");

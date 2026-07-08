@@ -65,8 +65,10 @@ module.exports = tseslint.config(
   },
 
   // errorLogger IS the sanitized console wrapper — it must use console.
+  // errorSanitizer's console.warn calls are the debug-mode "sanitization is
+  // OFF" alarms; routing them through the sanitizer would be circular.
   {
-    files: ['src/util/errorLogger.ts'],
+    files: ['src/util/errorLogger.ts', 'src/security/errorSanitizer.ts'],
     rules: {
       'no-console': 'off'
     }

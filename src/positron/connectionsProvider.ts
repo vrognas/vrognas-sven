@@ -10,6 +10,7 @@
  * Quick actions: Update, Switch, Show Changes
  */
 
+import { logWarning } from "../util/errorLogger";
 import type {
   ConnectionsDriver,
   ConnectionsDriverMetadata,
@@ -69,15 +70,16 @@ export class SvnConnectionsProvider implements ConnectionsDriver {
     // Execute the generated SVN command
     // For now, show the command to user
     await commands.executeCommand("sven.showOutput");
-    console.log(`SVN Connection: Would execute: ${code}`);
+    logWarning("SVN Connection: Would execute", code);
   }
 
   /**
    * Check if SVN is installed and available
    */
-  async checkDependencies(): Promise<boolean> {
-    // SVN availability already checked during extension activation
-    return this.sourceControlManager.repositories.length > 0;
+  checkDependencies(): Promise<boolean> {
+    // Non-async (nothing to await); Positron's driver contract wants a
+    // Promise, so return one explicitly
+    return Promise.resolve(this.sourceControlManager.repositories.length > 0);
   }
 }
 

@@ -450,7 +450,7 @@ export async function openDiff(
   // For added files (r1 = undefined), create empty temp file
   const uri1 = r1
     ? await downloadFile(repo, arg1, r1)
-    : await tempSvnFs.createTempSvnRevisionFile(arg1, "empty", "");
+    : tempSvnFs.createTempSvnRevisionFile(arg1, "empty", "");
   const uri2 = await downloadFile(repo, arg2 || arg1, r2);
   const opts: TextDocumentShowOptions = {
     preview: true
@@ -473,7 +473,7 @@ export async function openFileRemote(
     window.showErrorMessage("Failed to open path");
     return;
   }
-  const localUri = await tempSvnFs.createTempSvnRevisionFile(arg, against, out);
+  const localUri = tempSvnFs.createTempSvnRevisionFile(arg, against, out);
   const opts: TextDocumentShowOptions = {
     preview: true
   };
@@ -519,7 +519,7 @@ export async function openPatch(
   }
 
   // Create temp file with patch content
-  const patchUri = await tempSvnFs.createTempSvnRevisionFile(
+  const patchUri = tempSvnFs.createTempSvnRevisionFile(
     remotePath,
     `${revision}.patch`,
     patch

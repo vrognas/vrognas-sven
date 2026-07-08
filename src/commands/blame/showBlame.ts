@@ -16,7 +16,7 @@ export class ShowBlame extends Command {
     super("sven.blame.showBlame");
   }
 
-  async execute(uri?: Uri): Promise<void> {
+  execute(uri?: Uri): void {
     const target = getBlameTargetUri(uri);
     if (!target) return;
 

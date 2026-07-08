@@ -24,7 +24,7 @@ class TestChangeList extends ChangeList {
   }
 
   protected async getSourceControlManager(): Promise<{
-    getRepositoryFromUri(uri: Uri): Promise<Repository | undefined>;
+    getRepositoryFromUri(uri: Uri): Repository | undefined;
   }> {
     return {
       getRepositoryFromUri: this.getRepositoryFromUriImpl
@@ -78,7 +78,7 @@ describe("ChangeList helper-driven behavior", () => {
 
   it("resolves uris from explorer multi-select args", async () => {
     const repo = createRepository();
-    const getRepositoryFromUri = vi.fn().mockResolvedValue(repo);
+    const getRepositoryFromUri = vi.fn().mockReturnValue(repo);
     const inputSwitchSpy = vi
       .spyOn(changelistItems, "inputSwitchChangelist")
       .mockResolvedValue(undefined);
@@ -99,7 +99,7 @@ describe("ChangeList helper-driven behavior", () => {
 
   it("resolves uri from active editor when called without args", async () => {
     const repo = createRepository();
-    const getRepositoryFromUri = vi.fn().mockResolvedValue(repo);
+    const getRepositoryFromUri = vi.fn().mockReturnValue(repo);
     const inputSwitchSpy = vi
       .spyOn(changelistItems, "inputSwitchChangelist")
       .mockResolvedValue(undefined);
@@ -122,7 +122,7 @@ describe("ChangeList helper-driven behavior", () => {
   it("shows error when selected files belong to different repositories", async () => {
     const repo1 = createRepository();
     const repo2 = createRepository();
-    const getRepositoryFromUri = vi.fn(async (uri: Uri) =>
+    const getRepositoryFromUri = vi.fn((uri: Uri) =>
       uri.fsPath.includes("repo1") ? repo1 : repo2
     );
     const inputSwitchSpy = vi
@@ -148,7 +148,7 @@ describe("ChangeList helper-driven behavior", () => {
 
   it("shows error when some selected files are not versioned", async () => {
     const repo = createRepository();
-    const getRepositoryFromUri = vi.fn(async (uri: Uri) =>
+    const getRepositoryFromUri = vi.fn((uri: Uri) =>
       uri.fsPath === "/repo/tracked.txt" ? repo : undefined
     );
     const inputSwitchSpy = vi
@@ -184,7 +184,7 @@ describe("ChangeList helper-driven behavior", () => {
       ]
     ]);
     const repo = createRepository(changelists);
-    const getRepositoryFromUri = vi.fn().mockResolvedValue(repo);
+    const getRepositoryFromUri = vi.fn().mockReturnValue(repo);
     const inputSwitchSpy = vi
       .spyOn(changelistItems, "inputSwitchChangelist")
       .mockResolvedValue(undefined);
@@ -201,7 +201,7 @@ describe("ChangeList helper-driven behavior", () => {
 
   it("shows exact success message when adding to changelist", async () => {
     const repo = createRepository();
-    const getRepositoryFromUri = vi.fn().mockResolvedValue(repo);
+    const getRepositoryFromUri = vi.fn().mockReturnValue(repo);
     vi.spyOn(changelistItems, "inputSwitchChangelist").mockResolvedValue(
       "feature-x"
     );

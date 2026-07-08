@@ -47,12 +47,14 @@ async function init(
 
   // Pass context for caching - startup optimization saves ~1-2s on subsequent launches
   const info = await svnFinder.findSvn(pathHint, extensionContext);
+  // eslint-disable-next-line no-console -- lifecycle diagnostic, no user data
   console.log(`Sven: Found SVN ${info.version} at ${info.path}`);
 
   const svn = new Svn({ svnPath: info.path, version: info.version });
 
   // Register process exit handlers for credential cleanup
   const cleanup = () => {
+    // eslint-disable-next-line no-console -- lifecycle diagnostic, no user data
     console.log("Sven: Cleaning up credentials on process exit");
     svn.getAuthCache().dispose();
   };
@@ -243,6 +245,7 @@ async function _activate(context: ExtensionContext, disposables: Disposable[]) {
 }
 
 export async function activate(context: ExtensionContext) {
+  // eslint-disable-next-line no-console -- lifecycle diagnostic, no user data
   console.log(`Sven: activating (${getEnvironmentName()})`);
 
   const disposables: Disposable[] = [];
@@ -255,6 +258,7 @@ export async function activate(context: ExtensionContext) {
     window.showErrorMessage(`Sven activation failed: ${err.message || err}`);
   });
 
+  // eslint-disable-next-line no-console -- lifecycle diagnostic, no user data
   console.log("Sven: ready");
 }
 

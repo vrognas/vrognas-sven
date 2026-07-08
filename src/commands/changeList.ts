@@ -53,14 +53,12 @@ export class ChangeList extends Command {
     uris: Uri[]
   ): Promise<Repository | undefined> {
     const sourceControlManager = await this.getSourceControlManager();
-    const repositories = (
-      await Promise.all(
-        uris.map(uri => sourceControlManager.getRepositoryFromUri(uri))
-      )
-    ).filter(
-      (repository): repository is Repository =>
-        repository !== undefined && repository !== null
-    );
+    const repositories = uris
+      .map(uri => sourceControlManager.getRepositoryFromUri(uri))
+      .filter(
+        (repository): repository is Repository =>
+          repository !== undefined && repository !== null
+      );
 
     if (repositories.length === 0) {
       window.showErrorMessage(

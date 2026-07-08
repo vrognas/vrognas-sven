@@ -51,7 +51,7 @@
     "dev": "npm run watch",
     "watch": "npm-run-all --parallel watch:ts watch:css",
     "watch:ts": "node build.js --watch",
-    "lint": "npx eslint src test scripts --ext .ts",
+    "lint": "npx eslint src test scripts --ext .ts --max-warnings 0",
     "lint:fix": "npx eslint src test scripts --ext .ts --fix",
     "organize": "node ./out/tools/organize.js",
     "package": "npx @vscode/vsce package --no-yarn",

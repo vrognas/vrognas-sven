@@ -10,7 +10,8 @@ export class GetSourceControlManager extends Command {
     super("sven.getSourceControlManager");
   }
 
-  public async execute() {
-    return this.sourceControlManager;
+  public execute() {
+    // Non-async: CommandResult requires void or a Promise, so return one
+    return Promise.resolve(this.sourceControlManager);
   }
 }
