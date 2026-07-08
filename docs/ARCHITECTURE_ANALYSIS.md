@@ -1,6 +1,6 @@
 # SVN Extension Architecture
 
-**Version**: 0.2.71
+**Version**: 0.2.72
 **Updated**: 2026-07-08
 
 ---
@@ -209,7 +209,13 @@ extracted, dependency/manifest hygiene. Phase 1 (foundations) complete as of
 0.2.71: `SvnError extends Error` + svn-aware `getErrorMessage` (fixes the
 "Unknown error" bug), shared `classifyBlameError`, async-safety lint promoted
 to errors. Deferred within Phase 1: the F63 `vi.spyOn` test-harness migration
-(large; entangled with the eslint-ignored `src/test/**`).
+(large; entangled with the eslint-ignored `src/test/**`). Phase 2 (seams)
+partial as of 0.2.72: `Resource.withLock()` (fixes the F54 propertyChanges-drop
+bug), role interfaces for the commit services (F11). Deferred to a dedicated
+construction/DI pass: `create()` factories (F13) — paired with the large
+`RepositoryDependencies` work (F31) as they touch the same construction seam —
+plus typed repo-lookup (F58), BlameProvider DI (F08), and Command-base SCM
+injection (F12).
 
 ---
 

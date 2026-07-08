@@ -1,7 +1,17 @@
 # Lessons Learned
 
-**Version**: 0.2.71
+**Version**: 0.2.72
 **Updated**: 2026-07-08
+
+---
+
+### 77. Positional Clones of Wide Constructors Silently Drop Trailing Fields
+
+**Lesson**: `Resource` has a 13-parameter positional constructor. A clone in `mergePreservedLockStatus` passed only 12 arguments, so the 13th (`propertyChanges`) defaulted to `undefined` — a file's pending property changes vanished whenever its lock status was re-applied. The compiler couldn't help: every trailing param is optional, so 12 args is valid.
+
+**Fix**: A `withLock()` copy-helper that names the fields it overrides and forwards the rest, so adding a constructor param can never again be silently missed by a clone.
+
+**Rule**: Never hand-clone an object by re-listing positional constructor args — one added field and every clone site silently loses it. Provide a copy-helper (or options-object constructor) that forwards all fields; wide positional constructors are a standing trap.
 
 ---
 

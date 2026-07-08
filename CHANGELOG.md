@@ -7,6 +7,18 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.72] - 2026-07-08
+
+Seam work (architecture review, Phase 2, partial): a latent bug fix and service decoupling. The larger construction/DI seams (F13/F31) and lookup typing (F58) are deferred to a dedicated pass.
+
+### Fixed
+
+- **Property changes dropped when re-applying lock status**: `mergePreservedLockStatus` cloned a `Resource` from 12 positional constructor arguments against a 13-parameter constructor, silently omitting `propertyChanges` — so a file with pending property changes lost them whenever its lock status was merged. Added `Resource.withLock()`, which copies all fields and overrides only the lock ones.
+
+### Changed
+
+- Internal: `CommitFlowService` and `PreCommitUpdateService` now depend on narrow role interfaces (`ICommitMessageInput`, `IPreCommitUpdateRepository`) instead of importing the concrete ~3000-line `Repository`. Pure type-level decoupling; no runtime change.
+
 ## [0.2.71] - 2026-07-08
 
 Error-handling foundations (architecture review, Phase 1): SVN failures now surface their real cause instead of "Unknown error".
