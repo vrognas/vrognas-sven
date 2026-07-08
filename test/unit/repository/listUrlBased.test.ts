@@ -15,7 +15,7 @@ describe("Repository list URL-based", () => {
 
     it("subfolder converts to relative path", () => {
       const repoRoot = "/home/user/project";
-      const filePath = "/home/user/project/src/lib";
+      const filePath: string = "/home/user/project/src/lib";
 
       const relativePath =
         filePath === repoRoot ? undefined : path.relative(repoRoot, filePath);
@@ -26,7 +26,7 @@ describe("Repository list URL-based", () => {
 
     it("Windows paths work correctly", () => {
       const repoRoot = "C:\\Projects\\MyRepo";
-      const filePath = "C:\\Projects\\MyRepo\\src\\lib";
+      const filePath: string = "C:\\Projects\\MyRepo\\src\\lib";
 
       const relativePath =
         filePath === repoRoot ? undefined : path.relative(repoRoot, filePath);

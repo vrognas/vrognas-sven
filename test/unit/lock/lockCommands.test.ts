@@ -1,10 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+import type {
+  IExecutionResult,
+  ILockOptions,
+  ISvnLockInfo,
+  IUnlockOptions
+} from "../../../src/common/types";
 
-// Mock repository for testing lock commands
+// Mock repository for testing lock commands, typed to match Repository signatures
 interface MockRepository {
-  lock: ReturnType<typeof vi.fn>;
-  unlock: ReturnType<typeof vi.fn>;
-  getLockInfo: ReturnType<typeof vi.fn>;
+  lock: Mock<
+    (files: string[], options?: ILockOptions) => Promise<IExecutionResult>
+  >;
+  unlock: Mock<
+    (files: string[], options?: IUnlockOptions) => Promise<IExecutionResult>
+  >;
+  getLockInfo: Mock<(filePath: string) => Promise<ISvnLockInfo | null>>;
 }
 
 describe("Lock Commands", () => {
@@ -152,7 +162,7 @@ describe("Lock Commands", () => {
       const result = await mockRepository.getLockInfo("data.csv");
 
       expect(result).toBeTruthy();
-      expect(result.owner).toBe("alice");
+      expect(result?.owner).toBe("alice");
     });
 
     it("returns null for unlocked file", async () => {

@@ -20,11 +20,7 @@ suite("Add Command E2E Tests", () => {
   setup(async () => {
     addCmd = new Add();
     const svn = new Svn(svnOptions);
-    repository = await new Repository(
-      svn,
-      "/test/workspace",
-      "/test/workspace"
-    );
+    repository = new Repository(svn, "/test/workspace", "/test/workspace");
     execStub = sinon.stub(repository, "exec" as any);
   });
 

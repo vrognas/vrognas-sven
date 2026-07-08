@@ -56,15 +56,16 @@ export function newTempDir(prefix: string) {
   return dir.name;
 }
 
-export function createRepoServer() {
+export async function createRepoServer() {
+  const fullpath = newTempDir("svn_server_");
+  const dirname = path.basename(fullpath);
+
+  // Must complete before svnadmin creates into the same dir (was floating)
+  if (fs.existsSync(fullpath)) {
+    await destroyPath(fullpath);
+  }
+
   return new Promise<Uri>((resolve, reject) => {
-    const fullpath = newTempDir("svn_server_");
-    const dirname = path.basename(fullpath);
-
-    if (fs.existsSync(fullpath)) {
-      destroyPath(fullpath);
-    }
-
     const proc = spawn("svnadmin", ["create", dirname], {
       cwd: path.dirname(fullpath)
     });
@@ -122,7 +123,7 @@ export async function createStandardLayout(
 
   await importToRepoServer(url, fullpath, "Created Standard Layout");
 
-  destroyPath(fullpath);
+  await destroyPath(fullpath);
 }
 
 export function createRepoCheckout(url: string) {
@@ -161,7 +162,9 @@ export async function destroyPath(fullPath: string) {
 
   const files = fs.readdirSync(fullPath);
   for (const file of files) {
-    destroyPath(path.join(fullPath, file));
+    // Children must be gone before the parent rmdir below (was floating -
+    // the Windows retry loop was compensating for the race)
+    await destroyPath(path.join(fullPath, file));
   }
 
   // Error in windows with anti-malware

@@ -204,6 +204,7 @@ export interface IFileStatus {
   reposStatus?: {
     props: string;
     item: string;
+    lock?: Record<string, unknown>;
   };
 }
 

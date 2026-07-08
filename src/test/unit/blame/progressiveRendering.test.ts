@@ -38,8 +38,18 @@ suite("Progressive Rendering", () => {
     // Arrange
     const testUri = Uri.file("/test/file.txt");
     const blameData: ISvnBlameLine[] = [
-      { lineNumber: 1, revision: "1234", author: "john", date: "2025-11-18T10:00:00Z" },
-      { lineNumber: 2, revision: "1235", author: "jane", date: "2025-11-18T11:00:00Z" }
+      {
+        lineNumber: 1,
+        revision: "1234",
+        author: "john",
+        date: "2025-11-18T10:00:00Z"
+      },
+      {
+        lineNumber: 2,
+        revision: "1235",
+        author: "jane",
+        date: "2025-11-18T11:00:00Z"
+      }
     ];
 
     mockRepository.blame.resolves(blameData);
@@ -61,17 +71,17 @@ suite("Progressive Rendering", () => {
     ] as any);
 
     // Simulate slow message fetching (500ms each)
-    let messageCallCount = 0;
     mockRepository.log.callsFake(async () => {
-      messageCallCount++;
       await new Promise(resolve => setTimeout(resolve, 500));
-      return [{
-        revision: "1234",
-        author: "john",
-        date: "2025-11-18T10:00:00Z",
-        msg: "Test message",
-        paths: []
-      }];
+      return [
+        {
+          revision: "1234",
+          author: "john",
+          date: "2025-11-18T10:00:00Z",
+          msg: "Test message",
+          paths: []
+        }
+      ];
     });
 
     provider = new BlameProvider(mockRepository as any);
@@ -105,32 +115,47 @@ suite("Progressive Rendering", () => {
     const elapsedTime = Date.now() - startTime;
 
     // Assert - Should complete quickly WITHOUT waiting for messages
-    assert.ok(elapsedTime < 800, `Should complete in <800ms, took ${elapsedTime}ms`);
+    assert.ok(
+      elapsedTime < 800,
+      `Should complete in <800ms, took ${elapsedTime}ms`
+    );
 
     // Gutter decorations should be applied immediately
-    const gutterCalls = mockEditor.setDecorations.getCalls().filter((call: any) => {
-      const decorations = call.args[1];
-      return decorations.length > 0 && decorations[0].renderOptions?.before;
-    });
+    const gutterCalls = mockEditor.setDecorations
+      .getCalls()
+      .filter((call: any) => {
+        const decorations = call.args[1];
+        return decorations.length > 0 && decorations[0].renderOptions?.before;
+      });
 
-    assert.ok(gutterCalls.length > 0, "Should have gutter decorations immediately");
+    assert.ok(
+      gutterCalls.length > 0,
+      "Should have gutter decorations immediately"
+    );
   });
 
   test("shows inline annotations without messages, then updates with messages", async () => {
     // Arrange
     const testUri = Uri.file("/test/file.txt");
     const blameData: ISvnBlameLine[] = [
-      { lineNumber: 1, revision: "1234", author: "john", date: "2025-11-18T10:00:00Z" }
+      {
+        lineNumber: 1,
+        revision: "1234",
+        author: "john",
+        date: "2025-11-18T10:00:00Z"
+      }
     ];
 
     mockRepository.blame.resolves(blameData);
-    mockRepository.log.resolves([{
-      revision: "1234",
-      author: "john",
-      date: "2025-11-18T10:00:00Z",
-      msg: "Commit message here",
-      paths: []
-    }]);
+    mockRepository.log.resolves([
+      {
+        revision: "1234",
+        author: "john",
+        date: "2025-11-18T10:00:00Z",
+        msg: "Commit message here",
+        paths: []
+      }
+    ]);
 
     provider = new BlameProvider(mockRepository as any);
     provider.activate();
@@ -142,7 +167,9 @@ suite("Progressive Rendering", () => {
     sandbox.stub(blameConfiguration, "isInlineCurrentLineOnly").returns(false);
     sandbox.stub(blameConfiguration, "shouldShowInlineMessage").returns(true);
     sandbox.stub(blameConfiguration, "isEnabled").returns(true);
-    sandbox.stub(blameConfiguration, "getInlineTemplate").returns("${author} • ${message}");
+    sandbox
+      .stub(blameConfiguration, "getInlineTemplate")
+      .returns("${author} • ${message}");
 
     const mockEditor = {
       document: {
@@ -161,15 +188,18 @@ suite("Progressive Rendering", () => {
     await provider.updateDecorations(mockEditor);
 
     // Assert - Should have inline decoration without message initially
-    const inlineCalls = mockEditor.setDecorations.getCalls().filter((call: any) => {
-      const decorations = call.args[1];
-      return decorations.length > 0 && decorations[0].renderOptions?.after;
-    });
+    const inlineCalls = mockEditor.setDecorations
+      .getCalls()
+      .filter((call: any) => {
+        const decorations = call.args[1];
+        return decorations.length > 0 && decorations[0].renderOptions?.after;
+      });
 
     assert.ok(inlineCalls.length > 0, "Should have inline decorations");
 
     const firstInlineCall = inlineCalls[0];
-    const firstContent = firstInlineCall.args[1][0].renderOptions.after.contentText;
+    const firstContent =
+      firstInlineCall.args[1][0].renderOptions.after.contentText;
 
     // Should have author
     assert.ok(firstContent.includes("john"), "Should include author");
@@ -179,7 +209,12 @@ suite("Progressive Rendering", () => {
     // Arrange
     const testUri = Uri.file("/test/file.txt");
     const blameData: ISvnBlameLine[] = [
-      { lineNumber: 1, revision: "1234", author: "john", date: "2025-11-18T10:00:00Z" }
+      {
+        lineNumber: 1,
+        revision: "1234",
+        author: "john",
+        date: "2025-11-18T10:00:00Z"
+      }
     ];
 
     mockRepository.blame.resolves(blameData);
@@ -188,7 +223,15 @@ suite("Progressive Rendering", () => {
     mockRepository.log.callsFake(async () => {
       messageFetchStarted = true;
       await new Promise(resolve => setTimeout(resolve, 1000)); // Slow fetch
-      return [{ revision: "1234", author: "john", date: "2025-11-18T10:00:00Z", msg: "Test", paths: [] }];
+      return [
+        {
+          revision: "1234",
+          author: "john",
+          date: "2025-11-18T10:00:00Z",
+          msg: "Test",
+          paths: []
+        }
+      ];
     });
 
     provider = new BlameProvider(mockRepository as any);
@@ -222,24 +265,34 @@ suite("Progressive Rendering", () => {
 
     // Assert - Message fetch should have started but may not complete
     // (We can't guarantee cancellation in this test without more infrastructure)
-    assert.ok(messageFetchStarted || !messageFetchStarted, "Test documents behavior");
+    assert.ok(
+      messageFetchStarted || !messageFetchStarted,
+      "Test documents behavior"
+    );
   });
 
   test("does not refetch messages if already cached", async () => {
     // Arrange
     const testUri = Uri.file("/test/file.txt");
     const blameData: ISvnBlameLine[] = [
-      { lineNumber: 1, revision: "1234", author: "john", date: "2025-11-18T10:00:00Z" }
+      {
+        lineNumber: 1,
+        revision: "1234",
+        author: "john",
+        date: "2025-11-18T10:00:00Z"
+      }
     ];
 
     mockRepository.blame.resolves(blameData);
-    mockRepository.log.resolves([{
-      revision: "1234",
-      author: "john",
-      date: "2025-11-18T10:00:00Z",
-      msg: "Cached message",
-      paths: []
-    }]);
+    mockRepository.log.resolves([
+      {
+        revision: "1234",
+        author: "john",
+        date: "2025-11-18T10:00:00Z",
+        msg: "Cached message",
+        paths: []
+      }
+    ]);
 
     provider = new BlameProvider(mockRepository as any);
     provider.activate();

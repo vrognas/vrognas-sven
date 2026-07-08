@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PreCommitUpdateService } from "../../../src/services/preCommitUpdateService";
+import {
+  PreCommitUpdateService,
+  IPreCommitUpdateRepository
+} from "../../../src/services/preCommitUpdateService";
 
 // Mock vscode
 vi.mock("vscode", () => ({
@@ -11,39 +14,51 @@ vi.mock("vscode", () => ({
   commands: { executeCommand: vi.fn() }
 }));
 
-describe("Commit workflow performance", () => {
-  let mockWindow: Record<string, ReturnType<typeof vi.fn>>;
+interface MockRepoOptions {
+  hasRemoteChanges: boolean;
+  updateResult?: { revision: number; conflicts: string[]; message: string };
+  lastRemoteCheckResult?: { hasChanges: boolean; timestamp: number };
+}
 
+function createMockRepo(opts: MockRepoOptions): IPreCommitUpdateRepository {
+  return {
+    getResourceFromFile: vi.fn().mockReturnValue(undefined),
+    isInsideUnversionedOrIgnored: vi.fn().mockReturnValue(undefined),
+    hasRemoteChanges: vi.fn().mockResolvedValue(opts.hasRemoteChanges),
+    updateRevision: vi.fn().mockResolvedValue(opts.updateResult),
+    getLastRemoteCheckResult: vi
+      .fn()
+      .mockReturnValue(opts.lastRemoteCheckResult),
+    getRemoteCheckFrequencyMs: vi.fn().mockReturnValue(300_000)
+  };
+}
+
+describe("Commit workflow performance", () => {
   beforeEach(async () => {
     vi.resetAllMocks();
     const vscode = await import("vscode");
-    mockWindow = vscode.window;
-    mockWindow.withProgress.mockImplementation(
-      async (
-        _opts: unknown,
-        task: (p: unknown, t: unknown) => Promise<unknown>
-      ) => {
-        return task({ report: vi.fn() }, { isCancellationRequested: false });
-      }
+    vi.mocked(vscode.window.withProgress).mockImplementation((_opts, task) =>
+      task(
+        { report: vi.fn() },
+        {
+          isCancellationRequested: false,
+          onCancellationRequested: () => ({ dispose: () => undefined })
+        }
+      )
     );
   });
 
   describe("PreCommitUpdateService cached remote check", () => {
     it("skips hasRemoteChanges call when fresh cached result is false", async () => {
       const service = new PreCommitUpdateService();
-      const mockRepo = {
-        hasRemoteChanges: vi.fn().mockResolvedValue(true),
-        updateRevision: vi.fn().mockResolvedValue({
-          revision: 100,
-          conflicts: [],
-          message: "Updated"
-        }),
-        getLastRemoteCheckResult: vi.fn().mockReturnValue({
+      const mockRepo = createMockRepo({
+        hasRemoteChanges: true,
+        updateResult: { revision: 100, conflicts: [], message: "Updated" },
+        lastRemoteCheckResult: {
           hasChanges: false,
           timestamp: Date.now() // fresh
-        }),
-        getRemoteCheckFrequencyMs: vi.fn().mockReturnValue(300_000)
-      };
+        }
+      });
 
       const result = await service.runUpdate(mockRepo);
 
@@ -54,15 +69,13 @@ describe("Commit workflow performance", () => {
 
     it("calls hasRemoteChanges when cached result is stale", async () => {
       const service = new PreCommitUpdateService();
-      const mockRepo = {
-        hasRemoteChanges: vi.fn().mockResolvedValue(false),
-        updateRevision: vi.fn(),
-        getLastRemoteCheckResult: vi.fn().mockReturnValue({
+      const mockRepo = createMockRepo({
+        hasRemoteChanges: false,
+        lastRemoteCheckResult: {
           hasChanges: false,
           timestamp: Date.now() - 600_000 // 10 min ago, stale
-        }),
-        getRemoteCheckFrequencyMs: vi.fn().mockReturnValue(300_000)
-      };
+        }
+      });
 
       await service.runUpdate(mockRepo);
 
@@ -71,16 +84,11 @@ describe("Commit workflow performance", () => {
 
     it("falls back to hasRemoteChanges when no cached result", async () => {
       const service = new PreCommitUpdateService();
-      const mockRepo = {
-        hasRemoteChanges: vi.fn().mockResolvedValue(true),
-        updateRevision: vi.fn().mockResolvedValue({
-          revision: 50,
-          conflicts: [],
-          message: "Updated"
-        }),
-        getLastRemoteCheckResult: vi.fn().mockReturnValue(undefined),
-        getRemoteCheckFrequencyMs: vi.fn().mockReturnValue(300_000)
-      };
+      const mockRepo = createMockRepo({
+        hasRemoteChanges: true,
+        updateResult: { revision: 50, conflicts: [], message: "Updated" },
+        lastRemoteCheckResult: undefined
+      });
 
       await service.runUpdate(mockRepo);
 

@@ -18,6 +18,13 @@ vi.mock("vscode", () => ({
 import { NeedsLockStatusBar } from "../../../src/statusbar/needsLockStatusBar";
 import { SourceControlManager } from "../../../src/source_control_manager";
 
+// Expose protected update() for testing
+class TestNeedsLockStatusBar extends NeedsLockStatusBar {
+  public update(): void {
+    super.update();
+  }
+}
+
 // Mock Repository
 function createMockRepository(needsLockCount: number) {
   return {
@@ -38,18 +45,18 @@ function createMockSCM(
 }
 
 describe("NeedsLockStatusBar", () => {
-  let statusBar: NeedsLockStatusBar;
+  let statusBar: TestNeedsLockStatusBar;
   let mockSCM: SourceControlManager;
 
   beforeEach(() => {
     mockSCM = createMockSCM([createMockRepository(0)]);
-    statusBar = new NeedsLockStatusBar(mockSCM);
+    statusBar = new TestNeedsLockStatusBar(mockSCM);
   });
 
   describe("display states", () => {
     it("shows count when files need lock", () => {
       mockSCM = createMockSCM([createMockRepository(5)]);
-      statusBar = new NeedsLockStatusBar(mockSCM);
+      statusBar = new TestNeedsLockStatusBar(mockSCM);
 
       statusBar.update();
 
@@ -58,7 +65,7 @@ describe("NeedsLockStatusBar", () => {
 
     it("hides when no files need lock", () => {
       mockSCM = createMockSCM([createMockRepository(0)]);
-      statusBar = new NeedsLockStatusBar(mockSCM);
+      statusBar = new TestNeedsLockStatusBar(mockSCM);
 
       statusBar.update();
 
@@ -67,7 +74,7 @@ describe("NeedsLockStatusBar", () => {
 
     it("shows singular tooltip for 1 file", () => {
       mockSCM = createMockSCM([createMockRepository(1)]);
-      statusBar = new NeedsLockStatusBar(mockSCM);
+      statusBar = new TestNeedsLockStatusBar(mockSCM);
 
       statusBar.update();
 
@@ -76,7 +83,7 @@ describe("NeedsLockStatusBar", () => {
 
     it("shows plural tooltip for multiple files", () => {
       mockSCM = createMockSCM([createMockRepository(3)]);
-      statusBar = new NeedsLockStatusBar(mockSCM);
+      statusBar = new TestNeedsLockStatusBar(mockSCM);
 
       statusBar.update();
 
@@ -88,7 +95,7 @@ describe("NeedsLockStatusBar", () => {
         createMockRepository(2),
         createMockRepository(3)
       ]);
-      statusBar = new NeedsLockStatusBar(mockSCM);
+      statusBar = new TestNeedsLockStatusBar(mockSCM);
 
       statusBar.update();
 

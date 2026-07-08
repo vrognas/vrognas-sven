@@ -6,7 +6,6 @@ module.exports = tseslint.config(
   {
     ignores: [
       '**/vscode.proposed.d.ts',
-      'src/test/**/*.ts',
       'src/tools/**/*.ts',
       'dist/**',
       'out/**',
@@ -70,6 +69,28 @@ module.exports = tseslint.config(
   {
     files: ['src/util/errorLogger.ts', 'src/security/errorSanitizer.ts'],
     rules: {
+      'no-console': 'off'
+    }
+  },
+
+  // Tests: mocks legitimately use `any` and stub shapes, and console output
+  // is fine — but the promise-safety rules stay at error (floating promises
+  // in tests are a real flake class), and reassigning vscode-module exports
+  // is banned in favor of vi.spyOn (auto-restored; see CLAUDE.md).
+  {
+    files: ['src/test/**/*.ts', 'test/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/require-await': 'off',
+      // typed `const x = require(...)` is used deliberately in a few suites
+      // to sidestep mock hoisting; not worth churning
+      '@typescript-eslint/no-require-imports': 'off',
+      // test/ files sit outside the typed src block, so restate the
+      // underscore-arg convention here
+      '@typescript-eslint/no-unused-vars': ['error', {
+        argsIgnorePattern: '^_',
+        caughtErrors: 'none'
+      }],
       'no-console': 'off'
     }
   }

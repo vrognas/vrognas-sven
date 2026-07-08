@@ -1,10 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+
+interface ExecResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
 
 // Mock repository for testing auto-props commands
 interface MockRepository {
-  getAutoProps: ReturnType<typeof vi.fn>;
-  setAutoProps: ReturnType<typeof vi.fn>;
-  removeAutoProps: ReturnType<typeof vi.fn>;
+  getAutoProps: Mock<() => Promise<string | null>>;
+  setAutoProps: Mock<(value: string) => Promise<ExecResult>>;
+  removeAutoProps: Mock<() => Promise<ExecResult>>;
 }
 
 describe("svn:auto-props Property", () => {

@@ -24,22 +24,17 @@ describe("Error Handling", () => {
     });
 
     it("unhandled rejection is caught by process handler", async () => {
-      let caughtError: Error | null = null;
+      const caughtError = await new Promise<unknown>(resolve => {
+        process.once("unhandledRejection", resolve);
 
-      const handler = (err: Error) => {
-        caughtError = err;
-      };
+        // Trigger unhandled rejection
+        void Promise.reject(new Error("Unhandled async error"));
+      });
 
-      process.once("unhandledRejection", handler);
-
-      // Trigger unhandled rejection
-      Promise.reject(new Error("Unhandled async error"));
-
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      process.removeListener("unhandledRejection", handler);
-
-      expect(caughtError?.message).toBe("Unhandled async error");
+      expect(caughtError).toBeInstanceOf(Error);
+      if (caughtError instanceof Error) {
+        expect(caughtError.message).toBe("Unhandled async error");
+      }
     });
   });
 

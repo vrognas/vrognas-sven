@@ -1,5 +1,4 @@
 import * as assert from "assert";
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const cp = require("child_process") as typeof import("child_process");
 import * as sinon from "sinon";
 import { Svn } from "../../../svn";

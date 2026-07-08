@@ -11,9 +11,12 @@ suite("Mocha Compat Harness", () => {
   });
 
   test("supports skip context api", function () {
+    // skip() is typed `never`; call via a void-typed wrapper so the
+    // reached-flag assignment below stays statically reachable
+    const invokeSkip: () => void = () => this.skip();
     let reachedAfterSkip = false;
     try {
-      this.skip();
+      invokeSkip();
       reachedAfterSkip = true;
     } finally {
       assert.strictEqual(reachedAfterSkip, false);

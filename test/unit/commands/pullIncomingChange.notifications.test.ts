@@ -21,7 +21,7 @@ describe("PullIncomingChange notifications", () => {
       command as unknown as {
         runByRepositoryPaths: (
           uris: Uri[],
-          fn: (repository: typeof repository, files: string[]) => Promise<void>
+          fn: (repo: typeof repository, files: string[]) => Promise<void>
         ) => Promise<void>;
       },
       "runByRepositoryPaths"
@@ -55,7 +55,7 @@ describe("PullIncomingChange notifications", () => {
       command as unknown as {
         runByRepositoryPaths: (
           uris: Uri[],
-          fn: (repository: typeof repository, files: string[]) => Promise<void>
+          fn: (repo: typeof repository, files: string[]) => Promise<void>
         ) => Promise<void>;
       },
       "runByRepositoryPaths"
@@ -84,7 +84,7 @@ describe("PullIncomingChange notifications", () => {
       command as unknown as {
         runByRepositoryPaths: (
           uris: Uri[],
-          fn: (repository: typeof repository, files: string[]) => Promise<void>
+          fn: (repo: typeof repository, files: string[]) => Promise<void>
         ) => Promise<void>;
       },
       "runByRepositoryPaths"
@@ -118,7 +118,7 @@ describe("PullIncomingChange notifications", () => {
       command as unknown as {
         runByRepositoryPaths: (
           uris: Uri[],
-          fn: (repository: typeof repository, files: string[]) => Promise<void>
+          fn: (repo: typeof repository, files: string[]) => Promise<void>
         ) => Promise<void>;
       },
       "runByRepositoryPaths"
@@ -148,7 +148,7 @@ describe("PullIncomingChange notifications", () => {
       command as unknown as {
         runByRepositoryPaths: (
           uris: Uri[],
-          fn: (repository: typeof repository, files: string[]) => Promise<void>
+          fn: (repo: typeof repository, files: string[]) => Promise<void>
         ) => Promise<void>;
       },
       "runByRepositoryPaths"

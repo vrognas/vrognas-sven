@@ -15,7 +15,9 @@ function mockGlobalState() {
   const store: Record<string, any> = {};
   return {
     get: (key: string) => store[key],
-    update: async (key: string, value: any) => { store[key] = value; }
+    update: async (key: string, value: any) => {
+      store[key] = value;
+    }
   };
 }
 
@@ -163,7 +165,9 @@ suite("Checkout Commands Tests", () => {
           context: {
             globalState: {
               get: (key: string) => stateStore[key],
-              update: async (key: string, value: any) => { stateStore[key] = value; }
+              update: async (key: string, value: any) => {
+                stateStore[key] = value;
+              }
             }
           }
         };
@@ -724,6 +728,7 @@ suite("Checkout Commands Tests", () => {
       (mockRepository.finishCheckout as any) = async function (
         this: Repository
       ) {
+        // eslint-disable-next-line @typescript-eslint/no-this-alias -- capturing `this` is the assertion
         receivedRepo = this;
         finishCheckoutCalls.push({});
         return "Finished";

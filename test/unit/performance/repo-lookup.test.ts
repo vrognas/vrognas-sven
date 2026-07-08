@@ -17,8 +17,8 @@ describe("Repository Lookup Optimization", () => {
     // Validate that repository lookup can use path-based checks
     // instead of expensive info() SVN commands
 
-    const workspaceRoot = "/home/user/project";
-    const filePath = "/home/user/project/src/file.ts";
+    const workspaceRoot: string = "/home/user/project";
+    const filePath: string = "/home/user/project/src/file.ts";
 
     // Simple path descendant check
     const isDescendant =
@@ -31,8 +31,8 @@ describe("Repository Lookup Optimization", () => {
    * Test 2: Non-descendant paths rejected quickly
    */
   it("rejects non-descendant paths without SVN call", () => {
-    const workspaceRoot = "/home/user/project";
-    const filePath = "/home/user/other/file.ts";
+    const workspaceRoot: string = "/home/user/project";
+    const filePath: string = "/home/user/other/file.ts";
 
     const isDescendant =
       filePath.startsWith(workspaceRoot + sep) || filePath === workspaceRoot;

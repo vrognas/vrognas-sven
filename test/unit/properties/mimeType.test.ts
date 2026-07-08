@@ -1,11 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+
+interface ExecResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
 
 // Mock repository for testing mime-type commands
 interface MockRepository {
-  getMimeType: ReturnType<typeof vi.fn>;
-  setMimeType: ReturnType<typeof vi.fn>;
-  removeMimeType: ReturnType<typeof vi.fn>;
-  getAllMimeTypeFiles: ReturnType<typeof vi.fn>;
+  getMimeType: Mock<(path: string) => Promise<string | null>>;
+  setMimeType: Mock<(path: string, mimeType: string) => Promise<ExecResult>>;
+  removeMimeType: Mock<(path: string) => Promise<ExecResult>>;
+  getAllMimeTypeFiles: Mock<() => Promise<Map<string, string>>>;
 }
 
 describe("svn:mime-type Property", () => {

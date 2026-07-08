@@ -11,10 +11,17 @@ interface ISparseItem {
   hasExcludedChildren?: boolean;
 }
 
+interface MockInfo {
+  kind: string;
+  wcInfo?: { depth?: string };
+}
+
 interface MockRepository {
   root: string;
-  getInfo: ReturnType<typeof vi.fn>;
-  list: ReturnType<typeof vi.fn>;
+  getInfo: ReturnType<
+    typeof vi.fn<(target: string, revision?: string) => Promise<MockInfo>>
+  >;
+  list: ReturnType<typeof vi.fn<(target?: string) => Promise<unknown[]>>>;
 }
 
 // Simulated provider logic for testing (matches implementation)
@@ -52,7 +59,10 @@ function mergeItems(
     depth: i.depth,
     isGhost: false
   }));
-  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  const collator = new Intl.Collator(undefined, {
+    numeric: true,
+    sensitivity: "base"
+  });
   return [...local, ...ghosts].sort((a, b) => {
     // Dirs first
     if (a.kind !== b.kind) {
@@ -89,8 +99,9 @@ describe("Sparse Checkout Provider", () => {
   beforeEach(() => {
     mockRepository = {
       root: "/home/user/project",
-      getInfo: vi.fn(),
-      list: vi.fn()
+      getInfo:
+        vi.fn<(target: string, revision?: string) => Promise<MockInfo>>(),
+      list: vi.fn<(target?: string) => Promise<unknown[]>>()
     };
   });
 

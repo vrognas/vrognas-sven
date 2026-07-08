@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false,
+    "tsBuildInfoFile": null,
+    "rootDir": ".",
+    // Tests were never typechecked before (main tsconfig covers src/ only).
+    // Goal here is the F62 class of bug — mocks whose shape drifts from the
+    // real signatures compiling green — not strict-index hygiene in
+    // fixtures, so the pedantic flags are relaxed for test code.
+    "noUncheckedIndexedAccess": false,
+    "noImplicitOverride": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["src/**/*", "test/**/*"]
+}

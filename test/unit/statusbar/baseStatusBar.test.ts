@@ -26,8 +26,6 @@ import { Repository } from "../../../src/repository";
 // Concrete implementation for testing
 class TestStatusBar extends BaseStatusBar {
   public updateCallCount = 0;
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   protected getRepoEvent(_repo: Repository): (cb: () => void) => Disposable {
     return (cb: () => void) => {
       cb(); // Call immediately for test

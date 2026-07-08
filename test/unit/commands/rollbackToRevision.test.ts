@@ -246,7 +246,7 @@ C    file.txt`;
     });
 
     it("formats string error correctly", () => {
-      const err = "Unknown failure";
+      const err: unknown = "Unknown failure";
       const message = err instanceof Error ? err.message : String(err);
       expect(message).toBe("Unknown failure");
     });

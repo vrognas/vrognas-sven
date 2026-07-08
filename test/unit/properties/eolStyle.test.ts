@@ -1,11 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+import type { IExecutionResult } from "../../../src/common/types";
 
-// Mock repository for testing eol-style commands
+// Mock repository for testing eol-style commands (mirrors Repository signatures)
 interface MockRepository {
-  getEolStyle: ReturnType<typeof vi.fn>;
-  setEolStyle: ReturnType<typeof vi.fn>;
-  removeEolStyle: ReturnType<typeof vi.fn>;
-  getAllEolStyleFiles: ReturnType<typeof vi.fn>;
+  getEolStyle: Mock<(filePath: string) => Promise<string | null>>;
+  setEolStyle: Mock<
+    (
+      filePath: string,
+      value: string,
+      recursive?: boolean
+    ) => Promise<IExecutionResult>
+  >;
+  removeEolStyle: Mock<
+    (filePath: string, recursive?: boolean) => Promise<IExecutionResult>
+  >;
+  getAllEolStyleFiles: Mock<() => Promise<Map<string, string>>>;
 }
 
 describe("svn:eol-style Property", () => {

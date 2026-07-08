@@ -1,7 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+import { IExecutionResult, SvnDepth } from "../../../src/common/types";
 
 interface MockRepository {
-  setDepth: ReturnType<typeof vi.fn>;
+  setDepth: Mock<
+    (
+      folderPath: string,
+      depth: keyof typeof SvnDepth,
+      options?: { parents?: boolean; timeout?: number }
+    ) => Promise<IExecutionResult>
+  >;
 }
 
 describe("Sparse Checkout - setDepth", () => {

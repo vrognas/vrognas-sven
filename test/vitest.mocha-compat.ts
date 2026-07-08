@@ -14,11 +14,11 @@ type Runnable =
   | ((this: MochaContext, done: (err?: unknown) => void) => void);
 type WrappedTestFn = ((
   name: string,
-  fn?: () => unknown,
+  fn?: Runnable,
   timeout?: number
 ) => unknown) &
   Record<string, unknown>;
-type WrappedSuiteFn = ((name: string, fn?: () => unknown) => unknown) &
+type WrappedSuiteFn = ((name: string, fn?: Runnable) => unknown) &
   Record<string, unknown>;
 type MochaCompatGlobals = {
   setup: (hook: Runnable) => void;
@@ -107,11 +107,17 @@ const wrapSuiteFunction = (base: WrappedSuiteFn) => {
   return wrapped;
 };
 
-const wrappedTest = wrapTestFunction(vitestTest as WrappedTestFn);
-const wrappedIt = wrapTestFunction(vitestIt as WrappedTestFn);
-const wrappedSuite = wrapSuiteFunction(vitestDescribe as WrappedSuiteFn);
+// Deliberate framework bridge: vitest's API objects are reshaped to the
+// mocha-style call signatures the legacy suites use
+const wrappedTest = wrapTestFunction(vitestTest as unknown as WrappedTestFn);
+const wrappedIt = wrapTestFunction(vitestIt as unknown as WrappedTestFn);
+const wrappedSuite = wrapSuiteFunction(
+  vitestDescribe as unknown as WrappedSuiteFn
+);
 
-const mochaGlobals = globalThis as typeof globalThis & MochaCompatGlobals;
+// Bind as MochaCompatGlobals alone: @types/mocha already declares these
+// globals with its own signatures, and the intersection would demand both
+const mochaGlobals = globalThis as unknown as MochaCompatGlobals;
 mochaGlobals.setup = wrapHook(beforeEach);
 mochaGlobals.teardown = wrapHook(afterEach);
 mochaGlobals.suiteSetup = wrapHook(beforeAll);

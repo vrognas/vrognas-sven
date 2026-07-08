@@ -1,8 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 
+type RefreshMock = ReturnType<
+  typeof vi.fn<(...args: unknown[]) => Promise<undefined>>
+>;
+
 type Harness = {
   treeView: { visible: boolean };
-  refresh: ReturnType<typeof vi.fn>;
+  refresh: RefreshMock;
   editorChanged?: ReturnType<typeof vi.fn>;
   pendingExplicitRefresh?: boolean;
   sourceControlManager?: { repositories: { clearLogCache: () => void }[] };
@@ -28,7 +32,9 @@ describe("History refresh visibility gating", () => {
     const { RepoLogProvider } = await import(
       "../../../src/historyView/repoLogProvider"
     );
-    const refresh = vi.fn(async () => undefined);
+    const refresh: RefreshMock = vi.fn(
+      async (..._args: unknown[]) => undefined
+    );
     const mockThis: Harness = {
       treeView: { visible: false },
       refresh,
@@ -54,7 +60,9 @@ describe("History refresh visibility gating", () => {
     const { RepoLogProvider } = await import(
       "../../../src/historyView/repoLogProvider"
     );
-    const refresh = vi.fn(async () => undefined);
+    const refresh: RefreshMock = vi.fn(
+      async (..._args: unknown[]) => undefined
+    );
     const mockThis: Harness = {
       treeView: { visible: true },
       refresh
@@ -69,7 +77,9 @@ describe("History refresh visibility gating", () => {
       "../../../src/historyView/repoLogProvider"
     );
     const clearLogCache = vi.fn();
-    const refresh = vi.fn(async () => undefined);
+    const refresh: RefreshMock = vi.fn(
+      async (..._args: unknown[]) => undefined
+    );
     const mockThis: Harness = {
       treeView: { visible: false },
       refresh,
@@ -86,7 +96,9 @@ describe("History refresh visibility gating", () => {
     const { RepoLogProvider } = await import(
       "../../../src/historyView/repoLogProvider"
     );
-    const refresh = vi.fn(async () => undefined);
+    const refresh: RefreshMock = vi.fn(
+      async (..._args: unknown[]) => undefined
+    );
     const mockThis: Harness = {
       treeView: { visible: false },
       refresh
@@ -104,7 +116,9 @@ describe("History refresh visibility gating", () => {
     const { ItemLogProvider } = await import(
       "../../../src/historyView/itemLogProvider"
     );
-    const refresh = vi.fn(async () => undefined);
+    const refresh: RefreshMock = vi.fn(
+      async (..._args: unknown[]) => undefined
+    );
     const element = { kind: 1 };
     const mockThis: Harness = {
       treeView: { visible: true },
@@ -129,7 +143,9 @@ describe("History refresh visibility gating", () => {
     const { ItemLogProvider } = await import(
       "../../../src/historyView/itemLogProvider"
     );
-    const refresh = vi.fn(async () => undefined);
+    const refresh: RefreshMock = vi.fn(
+      async (..._args: unknown[]) => undefined
+    );
     const mockThis: Harness = {
       treeView: { visible: false },
       refresh,

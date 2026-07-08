@@ -35,7 +35,8 @@ vi.mock("vscode", () => ({
 
 import { SvnFileDecorationProvider } from "../../src/fileDecorationProvider";
 import { Repository } from "../../src/repository";
-import { PropStatus, Status } from "../../src/common/types";
+import { Resource } from "../../src/resource";
+import { LockStatus, PropStatus, Status } from "../../src/common/types";
 
 // Mock Repository
 function createMockRepository(): Repository {
@@ -52,19 +53,25 @@ function createMockRepository(): Repository {
   } as unknown as Repository;
 }
 
-// Mock Resource
+// Real Resource instance (keeps mock aligned with production class)
 function createMockResource(
   type: Status,
   props?: PropStatus,
-  lockStatus?: string
-) {
-  return {
+  lockStatus?: LockStatus
+): Resource {
+  return new Resource(
+    Uri.file("/workspace/test.txt"),
     type,
+    undefined,
     props,
+    false,
+    false,
+    undefined,
+    false,
     lockStatus,
-    kind: "file",
-    resourceUri: Uri.file("/workspace/test.txt")
-  };
+    undefined,
+    "file"
+  );
 }
 
 describe("SvnFileDecorationProvider", () => {
@@ -79,9 +86,7 @@ describe("SvnFileDecorationProvider", () => {
   describe("badge logic", () => {
     it("shows PM badge for modified content + property", async () => {
       const resource = createMockResource(Status.MODIFIED, PropStatus.MODIFIED);
-      vi.mocked(mockRepository.getResourceFromFile).mockReturnValue(
-        resource as ReturnType<typeof createMockResource>
-      );
+      vi.mocked(mockRepository.getResourceFromFile).mockReturnValue(resource);
 
       const uri = Uri.file("/workspace/test.txt");
       const decoration = await provider.provideFileDecoration(
@@ -93,9 +98,7 @@ describe("SvnFileDecorationProvider", () => {
 
     it("shows P badge for property-only change", async () => {
       const resource = createMockResource(Status.NORMAL, PropStatus.MODIFIED);
-      vi.mocked(mockRepository.getResourceFromFile).mockReturnValue(
-        resource as ReturnType<typeof createMockResource>
-      );
+      vi.mocked(mockRepository.getResourceFromFile).mockReturnValue(resource);
 
       const uri = Uri.file("/workspace/test.txt");
       const decoration = await provider.provideFileDecoration(
@@ -107,9 +110,7 @@ describe("SvnFileDecorationProvider", () => {
 
     it("shows M badge for content-only change (no property)", async () => {
       const resource = createMockResource(Status.MODIFIED, PropStatus.NONE);
-      vi.mocked(mockRepository.getResourceFromFile).mockReturnValue(
-        resource as ReturnType<typeof createMockResource>
-      );
+      vi.mocked(mockRepository.getResourceFromFile).mockReturnValue(resource);
 
       const uri = Uri.file("/workspace/test.txt");
       const decoration = await provider.provideFileDecoration(
@@ -137,9 +138,7 @@ describe("SvnFileDecorationProvider", () => {
 
     it("does NOT prefix badge with L for needs-lock modified files", async () => {
       const resource = createMockResource(Status.MODIFIED);
-      vi.mocked(mockRepository.getResourceFromFile).mockReturnValue(
-        resource as ReturnType<typeof createMockResource>
-      );
+      vi.mocked(mockRepository.getResourceFromFile).mockReturnValue(resource);
       vi.mocked(mockRepository.hasNeedsLockCached).mockReturnValue(true);
 
       const uri = Uri.file("/workspace/test.txt");
@@ -155,16 +154,12 @@ describe("SvnFileDecorationProvider", () => {
 
     it("does NOT append lock to PM badge (would exceed 2 char limit)", async () => {
       // PM is already 2 chars, adding lock letter would make PMK (3 chars)
-      const resource = {
-        type: Status.MODIFIED,
-        props: PropStatus.MODIFIED,
-        lockStatus: "K", // Locked by us
-        kind: "file",
-        resourceUri: Uri.file("/workspace/test.txt")
-      };
-      vi.mocked(mockRepository.getResourceFromFile).mockReturnValue(
-        resource as ReturnType<typeof createMockResource>
+      const resource = createMockResource(
+        Status.MODIFIED,
+        PropStatus.MODIFIED,
+        LockStatus.K // Locked by us
       );
+      vi.mocked(mockRepository.getResourceFromFile).mockReturnValue(resource);
 
       const uri = Uri.file("/workspace/test.txt");
       const decoration = await provider.provideFileDecoration(
@@ -179,16 +174,12 @@ describe("SvnFileDecorationProvider", () => {
     });
 
     it("appends lock to single-char badge (MK is 2 chars)", async () => {
-      const resource = {
-        type: Status.MODIFIED,
-        props: PropStatus.NONE,
-        lockStatus: "K",
-        kind: "file",
-        resourceUri: Uri.file("/workspace/test.txt")
-      };
-      vi.mocked(mockRepository.getResourceFromFile).mockReturnValue(
-        resource as ReturnType<typeof createMockResource>
+      const resource = createMockResource(
+        Status.MODIFIED,
+        PropStatus.NONE,
+        LockStatus.K
       );
+      vi.mocked(mockRepository.getResourceFromFile).mockReturnValue(resource);
 
       const uri = Uri.file("/workspace/test.txt");
       const decoration = await provider.provideFileDecoration(

@@ -47,7 +47,7 @@ describe("File Watcher Throttle Performance", () => {
 
     it("should NOT skip file watcher during normal operations", () => {
       const mockOperations = {
-        isRunning: vi.fn(() => false)
+        isRunning: vi.fn((_op: string) => false)
       };
 
       const bulkOps = ["Update", "SwitchBranch", "Merge"];

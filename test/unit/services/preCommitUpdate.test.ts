@@ -1,12 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PreCommitUpdateService } from "../../../src/services/preCommitUpdateService";
+import type { Mocked } from "vitest";
+import {
+  PreCommitUpdateService,
+  IPreCommitUpdateRepository
+} from "../../../src/services/preCommitUpdateService";
+
+// Hoisted so the vi.mock factory and tests share the same mock instances,
+// with a concrete type instead of casting the real vscode module shape.
+const mockWindow = vi.hoisted(() => ({
+  withProgress: vi.fn(),
+  showWarningMessage: vi.fn()
+}));
 
 // Mock vscode
 vi.mock("vscode", () => ({
-  window: {
-    withProgress: vi.fn(),
-    showWarningMessage: vi.fn()
-  },
+  window: mockWindow,
   ProgressLocation: { Notification: 15 },
   CancellationTokenSource: vi.fn().mockImplementation(() => ({
     token: { isCancellationRequested: false },
@@ -17,15 +25,12 @@ vi.mock("vscode", () => ({
 
 describe("PreCommitUpdateService", () => {
   let service: PreCommitUpdateService;
-  let mockRepository: Record<string, unknown>;
-  let mockWindow: Record<string, ReturnType<typeof vi.fn>>;
+  let mockRepository: Mocked<IPreCommitUpdateRepository>;
 
-  beforeEach(async () => {
-    const vscode = await import("vscode");
-    mockWindow = vscode.window;
-
+  beforeEach(() => {
     mockRepository = {
-      root: "/test/repo",
+      getResourceFromFile: vi.fn(),
+      isInsideUnversionedOrIgnored: vi.fn(),
       hasRemoteChanges: vi.fn().mockResolvedValue(true),
       updateRevision: vi.fn(),
       getLastRemoteCheckResult: vi.fn().mockReturnValue(undefined),

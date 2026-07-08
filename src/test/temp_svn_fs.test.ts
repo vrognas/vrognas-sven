@@ -7,7 +7,7 @@ suite("Test temp svn fs", () => {
   test("Temp files matches expected", async () => {
     const svnUri = Uri.parse("http://example.com/svn/test/trunk/test.js");
 
-    const revisionUri = await tempSvnFs.createTempSvnRevisionFile(
+    const revisionUri = tempSvnFs.createTempSvnRevisionFile(
       svnUri,
       "30",
       "test content"
@@ -20,7 +20,7 @@ suite("Test temp svn fs", () => {
   test("Temp file is created", async () => {
     const svnUri = Uri.parse("http://example.com/svn/test/trunk/test.js");
 
-    const uri = await tempSvnFs.createTempSvnRevisionFile(
+    const uri = tempSvnFs.createTempSvnRevisionFile(
       svnUri,
       "30",
       "test content"
@@ -32,7 +32,7 @@ suite("Test temp svn fs", () => {
   test("Temp contents are correct", async () => {
     const svnUri = Uri.parse("http://example.com/svn/test/trunk/test.js");
 
-    const revisionUri = await tempSvnFs.createTempSvnRevisionFile(
+    const revisionUri = tempSvnFs.createTempSvnRevisionFile(
       svnUri,
       "30",
       "test content"

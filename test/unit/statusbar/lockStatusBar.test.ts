@@ -18,6 +18,13 @@ vi.mock("vscode", () => ({
 import { LockStatusBar } from "../../../src/statusbar/lockStatusBar";
 import { SourceControlManager } from "../../../src/source_control_manager";
 
+// Expose protected update() for direct invocation in tests
+class TestLockStatusBar extends LockStatusBar {
+  public override update(): void {
+    super.update();
+  }
+}
+
 // Mock Repository
 function createMockRepository(lockedCount: number) {
   return {
@@ -38,18 +45,18 @@ function createMockSCM(
 }
 
 describe("LockStatusBar", () => {
-  let statusBar: LockStatusBar;
+  let statusBar: TestLockStatusBar;
   let mockSCM: SourceControlManager;
 
   beforeEach(() => {
     mockSCM = createMockSCM([createMockRepository(0)]);
-    statusBar = new LockStatusBar(mockSCM);
+    statusBar = new TestLockStatusBar(mockSCM);
   });
 
   describe("display states", () => {
     it("shows count when files are locked", () => {
       mockSCM = createMockSCM([createMockRepository(3)]);
-      statusBar = new LockStatusBar(mockSCM);
+      statusBar = new TestLockStatusBar(mockSCM);
 
       statusBar.update();
 
@@ -58,7 +65,7 @@ describe("LockStatusBar", () => {
 
     it("hides when no files are locked", () => {
       mockSCM = createMockSCM([createMockRepository(0)]);
-      statusBar = new LockStatusBar(mockSCM);
+      statusBar = new TestLockStatusBar(mockSCM);
 
       statusBar.update();
 
@@ -67,7 +74,7 @@ describe("LockStatusBar", () => {
 
     it("shows singular tooltip for 1 file", () => {
       mockSCM = createMockSCM([createMockRepository(1)]);
-      statusBar = new LockStatusBar(mockSCM);
+      statusBar = new TestLockStatusBar(mockSCM);
 
       statusBar.update();
 
@@ -76,7 +83,7 @@ describe("LockStatusBar", () => {
 
     it("shows plural tooltip for multiple files", () => {
       mockSCM = createMockSCM([createMockRepository(5)]);
-      statusBar = new LockStatusBar(mockSCM);
+      statusBar = new TestLockStatusBar(mockSCM);
 
       statusBar.update();
 
@@ -88,7 +95,7 @@ describe("LockStatusBar", () => {
         createMockRepository(2),
         createMockRepository(4)
       ]);
-      statusBar = new LockStatusBar(mockSCM);
+      statusBar = new TestLockStatusBar(mockSCM);
 
       statusBar.update();
 

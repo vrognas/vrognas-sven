@@ -471,7 +471,9 @@ const extensionMock = {
   activate: vi.fn(async () => {
     const extensionModule = await import("../../src/extension");
     const api = await extensionModule.activate(
-      extensionContext as Parameters<typeof extensionModule.activate>[0]
+      extensionContext as unknown as Parameters<
+        typeof extensionModule.activate
+      >[0]
     );
     extensionMock.isActive = true;
     return api;

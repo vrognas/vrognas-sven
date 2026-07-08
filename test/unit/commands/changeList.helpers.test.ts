@@ -13,22 +13,20 @@ import * as changelistItems from "../../../src/changelistItems";
 import { ChangeList } from "../../../src/commands/changeList";
 import { Repository } from "../../../src/repository";
 import { Resource } from "../../../src/resource";
+import { SourceControlManager } from "../../../src/source_control_manager";
 
 class TestChangeList extends ChangeList {
   constructor(
-    private readonly getRepositoryFromUriImpl: (
-      uri: Uri
-    ) => Promise<Repository | undefined>
+    private readonly getRepositoryFromUriImpl: (uri: Uri) => Repository | null
   ) {
     super();
   }
 
-  protected async getSourceControlManager(): Promise<{
-    getRepositoryFromUri(uri: Uri): Repository | undefined;
-  }> {
-    return {
+  protected async getSourceControlManager(): Promise<SourceControlManager> {
+    const partial: Partial<SourceControlManager> = {
       getRepositoryFromUri: this.getRepositoryFromUriImpl
     };
+    return partial as SourceControlManager;
   }
 }
 
@@ -149,7 +147,7 @@ describe("ChangeList helper-driven behavior", () => {
   it("shows error when some selected files are not versioned", async () => {
     const repo = createRepository();
     const getRepositoryFromUri = vi.fn((uri: Uri) =>
-      uri.fsPath === "/repo/tracked.txt" ? repo : undefined
+      uri.fsPath === "/repo/tracked.txt" ? repo : null
     );
     const inputSwitchSpy = vi
       .spyOn(changelistItems, "inputSwitchChangelist")

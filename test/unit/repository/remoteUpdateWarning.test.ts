@@ -7,9 +7,13 @@ vi.mock("vscode", () => ({
   }
 }));
 
+interface MockResource {
+  resourceUri: { fsPath: string };
+}
+
 describe("hasRemoteChangeForFile", () => {
   it("returns true when file has remote changes", () => {
-    const mockResource = {
+    const mockResource: MockResource = {
       resourceUri: { fsPath: "/workspace/src/test.ts" }
     };
     const mockRepo = {
@@ -45,7 +49,7 @@ describe("hasRemoteChangeForFile", () => {
     const mockRepo = {
       groupManager: {
         remoteChanges: {
-          resourceStates: []
+          resourceStates: [] as MockResource[]
         }
       }
     };

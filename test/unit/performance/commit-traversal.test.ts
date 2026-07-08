@@ -57,7 +57,7 @@ describe("Performance - Commit parent traversal (Phase 21.A)", () => {
 
     // Build flat map once
     const buildStart = Date.now();
-    const resourceMap = new Map<string, unknown>();
+    const resourceMap = new Map<string, { fsPath: string; type: string }>();
     resources.forEach(r => resourceMap.set(r.fsPath, r));
     const buildTime = Date.now() - buildStart;
 

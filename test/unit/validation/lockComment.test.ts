@@ -13,11 +13,9 @@ describe("validateLockComment", () => {
   });
 
   it("rejects non-string input", () => {
-    /* eslint-disable @typescript-eslint/no-explicit-any */
     expect(validateLockComment(null as any)).toBe(false);
     expect(validateLockComment(undefined as any)).toBe(false);
     expect(validateLockComment(123 as any)).toBe(false);
-    /* eslint-enable @typescript-eslint/no-explicit-any */
   });
 
   it("rejects shell metacharacters", () => {

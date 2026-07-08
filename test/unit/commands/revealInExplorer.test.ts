@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { RevealInExplorer } from "../../../src/commands/reveal";
-import { Uri } from "vscode";
+import { SourceControlResourceState, Uri } from "vscode";
 
 /**
  * Reveal In Explorer Command Tests (Code Review Fixes)
@@ -25,12 +25,12 @@ describe("Reveal In Explorer Command", () => {
    */
   it("returns early when resource has no URI", async () => {
     const command = new RevealInExplorer();
-    const mockResource = {
+    const mockResource: Partial<SourceControlResourceState> = {
       resourceUri: undefined
-    } as unknown;
+    };
 
     // Should not throw when resourceUri is undefined
-    await command.execute(mockResource);
+    await command.execute(mockResource as SourceControlResourceState);
 
     expect(true).toBeTruthy();
   });
@@ -43,10 +43,10 @@ describe("Reveal In Explorer Command", () => {
     const uri1 = Uri.file("/workspace/file1.ts");
     const uri2 = Uri.file("/workspace/file2.ts");
 
-    const mockResources = [
+    const mockResources: SourceControlResourceState[] = [
       { resourceUri: uri1 },
       { resourceUri: uri2 }
-    ] as unknown[];
+    ];
 
     // Should process first resource (validation: no throw)
     try {

@@ -1,47 +1,71 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { CommitFlowService } from "../../../src/services/commitFlowService";
+import {
+  CommitFlowService,
+  ICommitMessageInput
+} from "../../../src/services/commitFlowService";
 import { ConventionalCommitService } from "../../../src/services/conventionalCommitService";
+import { IPreCommitUpdateRepository } from "../../../src/services/preCommitUpdateService";
+import type { Resource } from "../../../src/resource";
+
+const mockWindow = vi.hoisted(() => ({
+  showQuickPick: vi.fn(),
+  showInputBox: vi.fn(),
+  withProgress: vi.fn(),
+  showWarningMessage: vi.fn(),
+  showInformationMessage: vi.fn(),
+  showErrorMessage: vi.fn()
+}));
 
 // Mock vscode
 vi.mock("vscode", () => ({
-  window: {
-    showQuickPick: vi.fn(),
-    showInputBox: vi.fn(),
-    withProgress: vi.fn(),
-    showWarningMessage: vi.fn(),
-    showInformationMessage: vi.fn(),
-    showErrorMessage: vi.fn()
-  },
+  window: mockWindow,
   ProgressLocation: { Notification: 15 },
   QuickPickItemKind: { Separator: -1 }
 }));
 
-describe("CommitFlowService", () => {
-  let service: CommitFlowService;
-  let mockRepository: Record<string, unknown>;
-  let mockWindow: Record<string, ReturnType<typeof vi.fn>>;
+/** Partial Resource stub — only `type` is read by PreCommitUpdateService. */
+function resourceStub(type: string): Resource {
+  const stub: Partial<Resource> = { type };
+  return stub as Resource;
+}
 
-  beforeEach(async () => {
-    // Reset ALL mock state before each test (including implementations)
-    vi.resetAllMocks();
-
-    const vscode = await import("vscode");
-    mockWindow = vscode.window;
-
-    mockRepository = {
-      inputBox: { value: "" },
-      getRecentScopes: vi.fn().mockReturnValue(["ui", "api"]),
-      hasRemoteChanges: vi.fn().mockResolvedValue(true),
-      updateRevision: vi.fn().mockResolvedValue({
+function createMockRepository() {
+  return {
+    inputBox: { value: "" },
+    hasRemoteChanges: vi
+      .fn<IPreCommitUpdateRepository["hasRemoteChanges"]>()
+      .mockResolvedValue(true),
+    updateRevision: vi
+      .fn<IPreCommitUpdateRepository["updateRevision"]>()
+      .mockResolvedValue({
         revision: 100,
         conflicts: [],
         message: "Updated to revision 100"
       }),
-      commitFiles: vi.fn().mockResolvedValue("Committed revision 42"),
-      getLastRemoteCheckResult: vi.fn().mockReturnValue(undefined),
-      getRemoteCheckFrequencyMs: vi.fn().mockReturnValue(300_000),
-      getResourceFromFile: vi.fn().mockReturnValue({ type: "modified" })
-    };
+    getLastRemoteCheckResult: vi
+      .fn<IPreCommitUpdateRepository["getLastRemoteCheckResult"]>()
+      .mockReturnValue(undefined),
+    getRemoteCheckFrequencyMs: vi
+      .fn<IPreCommitUpdateRepository["getRemoteCheckFrequencyMs"]>()
+      .mockReturnValue(300_000),
+    getResourceFromFile: vi
+      .fn<IPreCommitUpdateRepository["getResourceFromFile"]>()
+      .mockReturnValue(resourceStub("modified")),
+    isInsideUnversionedOrIgnored: vi
+      .fn<IPreCommitUpdateRepository["isInsideUnversionedOrIgnored"]>()
+      .mockReturnValue(undefined)
+  } satisfies ICommitMessageInput & IPreCommitUpdateRepository;
+}
+
+describe("CommitFlowService", () => {
+  let service: CommitFlowService;
+  let mockRepository: ReturnType<typeof createMockRepository>;
+
+  beforeEach(() => {
+    // Reset ALL mock state before each test (including implementations)
+    vi.resetAllMocks();
+
+    mockRepository = createMockRepository();
 
     service = new CommitFlowService(new ConventionalCommitService());
   });
@@ -81,9 +105,11 @@ describe("CommitFlowService", () => {
         .mockResolvedValueOnce("ui")
         .mockResolvedValueOnce("add button");
 
-      const result = await service.runCommitFlow(mockRepository, [
-        "/path/file.txt"
-      ], { conventionalCommits: true });
+      const result = await service.runCommitFlow(
+        mockRepository,
+        ["/path/file.txt"],
+        { conventionalCommits: true }
+      );
 
       expect(result.message).toBe("feat(ui): add button");
     });
@@ -96,9 +122,11 @@ describe("CommitFlowService", () => {
         .mockResolvedValueOnce("")
         .mockResolvedValueOnce("resolve crash");
 
-      const result = await service.runCommitFlow(mockRepository, [
-        "/path/file.txt"
-      ], { conventionalCommits: true });
+      const result = await service.runCommitFlow(
+        mockRepository,
+        ["/path/file.txt"],
+        { conventionalCommits: true }
+      );
 
       expect(result.message).toBe("fix: resolve crash");
     });
@@ -151,12 +179,16 @@ describe("CommitFlowService", () => {
     });
 
     it("skips update when all files are unversioned/added", async () => {
-      mockRepository.getResourceFromFile.mockReturnValue({ type: "added" });
+      mockRepository.getResourceFromFile.mockReturnValue(resourceStub("added"));
       mockWindow.showInputBox.mockResolvedValueOnce("add new files");
 
-      const result = await service.runCommitFlow(mockRepository, ["/path/new.txt"], {
-        updateBeforeCommit: true
-      });
+      const result = await service.runCommitFlow(
+        mockRepository,
+        ["/path/new.txt"],
+        {
+          updateBeforeCommit: true
+        }
+      );
 
       expect(mockRepository.updateRevision).not.toHaveBeenCalled();
       expect(result.message).toBe("add new files");
@@ -341,11 +373,11 @@ describe("CommitFlowService", () => {
         .mockResolvedValueOnce("")
         .mockResolvedValueOnce("add files");
 
-      await service.runCommitFlow(mockRepository, [
-        "/a.txt",
-        "/b.txt",
-        "/c.txt"
-      ], { conventionalCommits: true });
+      await service.runCommitFlow(
+        mockRepository,
+        ["/a.txt", "/b.txt", "/c.txt"],
+        { conventionalCommits: true }
+      );
 
       // Index 2: file picker (0) -> type (1) -> confirm (2)
       const confirmCall = mockWindow.showQuickPick.mock.calls[2];
@@ -368,9 +400,11 @@ describe("CommitFlowService", () => {
         .mockResolvedValueOnce("first attempt") // Description 1
         .mockResolvedValueOnce("corrected message"); // Description 2 (after edit)
 
-      const result = await service.runCommitFlow(mockRepository, [
-        "/path/file.txt"
-      ], { conventionalCommits: true });
+      const result = await service.runCommitFlow(
+        mockRepository,
+        ["/path/file.txt"],
+        { conventionalCommits: true }
+      );
 
       expect(result.message).toBe("feat: corrected message");
     });
