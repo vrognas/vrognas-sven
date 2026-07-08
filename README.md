@@ -4,9 +4,9 @@
 ![Visual Studio Marketplace Downloads](https://img.shields.io/visual-studio-marketplace/d/vrognas.sven)
 ![GitHub License](https://img.shields.io/github/license/vrognas/vrognas-sven)
 
-**Note:** This extension is currently in active development. While stable for daily use, expect occasional breaking changes. Please report any issues to help improve the extension.
-
 Git-like SVN experience with staging, inline blame, file locking, and sparse checkout. Zero telemetry.
+
+**Note:** This extension is in active development. Stable for daily use, but expect occasional breaking changes — please [report issues](https://github.com/vrognas/vrognas-sven/issues).
 
 > **Requires:** [SVN](https://subversion.apache.org) installed. Windows users: enable **Command Line Tools** when installing [TortoiseSVN](https://tortoisesvn.net/).
 
@@ -22,16 +22,22 @@ Git-like SVN experience with staging, inline blame, file locking, and sparse che
 
 ## Quick Start
 
+**Install:** search **Sven** (publisher `vrognas`) in the Extensions view — available on the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=vrognas.sven) and [Open VSX](https://open-vsx.org/extension/vrognas/sven) (Positron installs from Open VSX).
+
 **Open existing repo:** File → Open Folder → select folder with `.svn`
 
 **Checkout new repo:** `Ctrl+Shift+P` → **SVN: Checkout** → enter URL → choose folder
 
+**Guided tour:** `Ctrl+Shift+P` → **Welcome: Open Walkthrough** → *Getting Started with SVN* (4 more walkthroughs cover the daily workflow, history, large repos, and locking)
+
 **Daily workflow:**
 ```
 1. Make changes        → Files appear in "Changes"
-2. Click + to stage    → Files move to "Staged"
+2. Click + to stage    → Files move to "Staged for Commit"
 3. Ctrl+Enter          → Commit staged files
 ```
+
+> In Positron, commit via `Ctrl+Shift+P` → **SVN: Commit Staged** (the commit-box `Ctrl+Enter` shortcut is VS Code-only — see [Positron notes](docs/POSITRON_SCM_LIMITATIONS.md)).
 
 ## Features
 
@@ -51,16 +57,16 @@ See who changed each line, when, and why.
 
 - **Gutter**: Colored revision indicators
 - **Inline**: Author + date at line end
-- **Hover**: Full commit message
+- **Hover**: Revision and author details
 
-Toggle: `Ctrl+Shift+P` → **SVN: Toggle Annotations**
+Toggle: `Ctrl+Shift+P` → **SVN Blame: Toggle Annotations (Blame)**
 
 ### Repository History
 
 Browse commits with file changes and diffs.
 
 - **Repo History** view: Full commit log with filtering (author, date, text)
-- **File History** view: Per-file revisions (right-click file → **Show Log**)
+- **File History** view: per-file revisions, follows the active editor automatically
 - **B badge**: Your BASE revision
 - Explorer rename/delete auto-converts to `svn move`/`svn delete` (preserves history)
 
@@ -75,9 +81,9 @@ Prevent conflicts on binary files (CSVs, images, models).
 
 Status bar shows `$(unlock) N` when N files need locking.
 
-Setup: right-click file → **Set Needs-Lock Property**
+Setup: right-click file → **SVN Properties** → **Toggle Require Lock (needs-lock)**
 
-Commands: **Lock**, **Unlock**, **Manage Locks**, **Break Lock**
+Commands: **Lock**, **Unlock**, **Steal Lock**, **Break Lock**
 
 [Full locking guide →](docs/FILE_LOCKING.md)
 
@@ -87,18 +93,18 @@ Download only specific folders from large repos.
 
 1. Open **Selective Download** panel in SCM sidebar
 2. Click ghost folders to download
-3. Choose depth: Full, Shallow, Files Only, Empty
+3. Choose depth: Full, Shallow, Files Only, Folder Only
 
 ## How To
 
 | Task | How |
 |------|-----|
-| Compare with server | Right-click → **Open Changes with HEAD** |
-| Resolve conflicts | Fix markers in file → right-click → **Resolve** |
+| Compare with server | Right-click → **Open Changes with HEAD (Server Latest)** |
+| Resolve conflicts | Fix markers in file → right-click file in Source Control → **Resolve conflicts for selected** |
 | Switch branches | `Ctrl+Shift+P` → **SVN: Switch Branch** |
-| Create patch | Right-click files → **Show Changes (Patch)** |
-| Set line endings | Right-click → **Set Line Ending Style (EOL)** |
-| Ignore files | Right-click → **Add to Ignore List** |
+| Create patch | Right-click files → **Show Changes (Patch) for Selected** |
+| Set line endings | Right-click → **SVN Properties** → **Set Line Ending Style (EOL)** |
+| Ignore files | Right-click → **Add to Ignore List (svn:ignore)** |
 | External diff | Set `sven.diff.tool` to tool path |
 | Merge branches | `Ctrl+Shift+P` → **SVN: Merge** |
 | Cleanup | `Ctrl+Shift+P` → **SVN: Cleanup** |
@@ -114,14 +120,14 @@ Open Settings (`Ctrl+,`) and search `sven`.
 | `sven.blame.autoBlame` | `true` | Show blame when opening files |
 | `sven.blame.csvLineLimit` | `500` | Skip blame for CSV-like files over this line count |
 | `sven.commit.types` | `[]` | Custom commit types for guided flow |
-| `sven.commit.autoUpdate` | `none` | Run update before/after commit |
+| `sven.commit.autoUpdate` | `both` | Run update before/after commit (`both`/`before`/`after`/`none`) |
 | `sven.diff.tool` | `null` | External diff tool path |
 | `sven.diff.csvSizeLimitMB` | `1` | Prompt before diffing CSV-like files over this size |
 | `sven.remoteChanges.checkFrequency` | `300` | Remote check interval (seconds) |
 | `sven.sourceControl.hideUnversioned` | `false` | Hide unversioned files |
 | `sven.log.length` | `50` | Commits shown in history |
 
-[All 70+ settings →](docs/SETTINGS.md)
+[All 80 settings →](docs/SETTINGS.md)
 
 ### Troubleshooting
 
@@ -131,11 +137,11 @@ Open Settings (`Ctrl+,`) and search `sven`.
 
 **Slow on large repos** → Enable sparse checkout, reduce `sven.log.length`
 
-[Full troubleshooting →](.github/SECURITY.md)
+Still stuck? [Open an issue →](https://github.com/vrognas/vrognas-sven/issues)
 
 ## More Info
 
-**Positron IDE:** Works automatically with Connections pane integration.
+**Positron IDE:** Fully supported — SCM views, blame, history, and the Connections pane (repositories appear with branch/revision/quick actions) work out of the box. Known platform limitations are documented in [Positron notes](docs/POSITRON_SCM_LIMITATIONS.md); integration details in [Positron guide](docs/POSITRON_INTEGRATION.md).
 
 **Links:**
 [Settings](docs/SETTINGS.md) ·

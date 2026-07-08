@@ -23,18 +23,18 @@ svn propset svn:needs-lock '*' path/to/file.xlsx
 svn propset svn:needs-lock '*' -R --targets <(find . -name "*.xlsx")
 ```
 
-Or in VS Code: right-click file → **Set Needs-Lock Property**
+Or in VS Code: right-click file → **SVN Properties** → **Toggle Require Lock (needs-lock)**
 
 ## Commands
 
-| Command               | Use Case                       |
-| --------------------- | ------------------------------ |
-| **Lock**              | Claim exclusive edit rights    |
-| **Unlock**            | Release when done              |
-| **Manage Locks**      | View all locked files          |
-| **Manage Needs-Lock** | View files requiring lock      |
-| **Break Lock**        | Admin override (use carefully) |
-| **Steal Lock**        | Take lock from someone else    |
+| Command                                   | Use Case                       |
+| ----------------------------------------- | ------------------------------ |
+| **Lock**                                  | Claim exclusive edit rights    |
+| **Unlock**                                | Release when done              |
+| **Manage Locks** (lock status bar)        | View all locked files          |
+| **Manage Needs-Lock** (unlock status bar) | View files requiring lock      |
+| **Break Lock**                            | Admin override (use carefully) |
+| **Steal Lock**                            | Take lock from someone else    |
 
 ## Visual Indicators
 
@@ -44,7 +44,10 @@ Or in VS Code: right-click file → **Set Needs-Lock Property**
 | ----- | --------------------------------------- |
 | `K`   | Locked by you (you hold the lock token) |
 | `O`   | Locked by someone else                  |
-| `L`   | Needs lock (read-only until locked)     |
+| `B`   | Lock broken                             |
+| `T`   | Lock stolen                             |
+
+Needs-lock files have no badge - shown in tooltip and status bar count instead.
 
 ### Status Bar
 
@@ -66,7 +69,7 @@ Click the status bar items to manage locks.
 
 **"File is locked by another user"**
 
-- Check who has the lock: right-click → **Manage Locks**
+- Check who has the lock: click the lock status bar item (**Manage Locks**)
 - Contact the lock owner or use **Break Lock** (admin only)
 
 **"File is read-only"**

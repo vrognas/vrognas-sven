@@ -1,28 +1,30 @@
 # Documentation Index
 
-**Version**: 0.2.28
+**Version**: 0.2.75
 
 ## User Documentation
 
-| Document                                                   | Purpose                          |
-| ---------------------------------------------------------- | -------------------------------- |
-| [SETTINGS.md](SETTINGS.md)                                 | All 70+ configuration options    |
-| [SECURITY.md](../.github/SECURITY.md) | Security & privacy policy |
+| Document                              | Purpose                      |
+| ------------------------------------- | ---------------------------- |
+| [SETTINGS.md](SETTINGS.md)            | All 80 configuration options |
+| [SECURITY.md](../.github/SECURITY.md) | Security & privacy policy    |
 
 ## Developer Documentation
 
-| Document                                             | Purpose                               |
-| ---------------------------------------------------- | ------------------------------------- |
-| [ARCHITECTURE_ANALYSIS.md](ARCHITECTURE_ANALYSIS.md) | System architecture, layers, patterns |
-| [LESSONS_LEARNED.md](LESSONS_LEARNED.md)             | Development patterns, anti-patterns   |
-| [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)                 | UI/UX conventions, colors, icons      |
-| [PERFORMANCE.md](PERFORMANCE.md)                     | Optimization strategies, benchmarks   |
+| Document                                               | Purpose                               |
+| ------------------------------------------------------ | ------------------------------------- |
+| [ARCHITECTURE_ANALYSIS.md](ARCHITECTURE_ANALYSIS.md)   | System architecture, layers, patterns |
+| [LESSONS_LEARNED.md](LESSONS_LEARNED.md)               | Development patterns, anti-patterns   |
+| [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)                   | UI/UX conventions, colors, icons      |
+| [PERFORMANCE.md](PERFORMANCE.md)                       | Optimization strategies, benchmarks   |
+| [MAINTAINABILITY_REVIEW.md](MAINTAINABILITY_REVIEW.md) | Codebase maintainability review       |
 
 ## Feature Documentation
 
 | Document                                                   | Purpose                         |
 | ---------------------------------------------------------- | ------------------------------- |
 | [BLAME_SYSTEM.md](BLAME_SYSTEM.md)                         | Blame feature architecture      |
+| [FILE_LOCKING.md](FILE_LOCKING.md)                         | File locking feature            |
 | [POSITRON_INTEGRATION.md](POSITRON_INTEGRATION.md)         | Positron IDE support            |
 | [POSITRON_SCM_LIMITATIONS.md](POSITRON_SCM_LIMITATIONS.md) | SCM API constraints in Positron |
 

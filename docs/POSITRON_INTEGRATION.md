@@ -1,8 +1,8 @@
 # Positron Integration Documentation
 
-**Version**: 2.17.236
-**Status**: Implemented (Phase 23.P1)
-**Updated**: 2025-11-21
+**Version**: 0.2.75
+**Status**: Implemented
+**Updated**: 2026-07-08
 
 ---
 
@@ -26,7 +26,7 @@ This extension provides Positron-specific features while maintaining full compat
 - **Purpose**: IDE optimized for data science workflows (R, Python, Julia)
 - **Developer**: Posit PBC (creators of RStudio)
 - **License**: Elastic License 2.0 (source-available)
-- **Status**: Stable releases available (2025.08.0+)
+- **Status**: Stable releases available (extension requires Positron `^2026.04.0`, VS Code `^1.109.0`)
 - **Target Users**: Data scientists, researchers, analysts
 
 ### Key Features
@@ -79,7 +79,7 @@ export function getPositronApi(): PositronApi | undefined {
 ### Activation Flow
 
 ```typescript
-// src/extension.ts (lines 113-120)
+// src/extension.ts
 if (isPositron()) {
   console.log("SVN Extension: Registering Positron connections provider");
   const connectionsDisposable =
@@ -197,24 +197,9 @@ export function registerSvnConnectionsProvider(
 
 ### Optional External Requests
 
-#### Gravatar (User-Configurable)
-
-**Only external request in entire extension**:
-
-- **Purpose**: Display commit author avatars in log viewers
-- **URL**: `https://www.gravatar.com/avatar/<MD5>.jpg`
-- **Default**: Enabled
-- **Configuration**: `svn.gravatars.enabled: false` to disable
-- **Data sent**: MD5 hash of SVN commit author email (irreversible)
-- **Privacy note**: Gravatar can track IP addresses (standard HTTP request)
-
-**Disable gravatars**:
-
-```json
-{
-  "svn.gravatars.enabled": false
-}
-```
+**None.** Gravatar avatar support was removed; the extension makes no HTTP
+requests of its own. The only network traffic is SVN commands talking to your
+configured repository via the system SVN client.
 
 ### What Data Stays Local
 
@@ -251,7 +236,7 @@ Positron integration does **not** change credential handling:
 - **Passwords**: Stored in SVN credential cache (`~/.subversion/auth/`, mode 600)
 - **Error sanitization**: All logs sanitized (credentials redacted)
 
-See [README.md Authentication & Security](../README.md#authentication--security) for details.
+See [SECURITY.md](../.github/SECURITY.md) for details.
 
 ### Positron-Specific Risks
 
@@ -360,19 +345,12 @@ All extension operations are local:
 
 ## Optional External Requests
 
-### Gravatar (Default: Enabled)
-
-- **Purpose**: Display commit author avatars
-- **URL**: `https://www.gravatar.com/avatar/<MD5>.jpg`
-- **Data sent**: MD5 hash of commit author email
-- **Disable**: Set `svn.gravatars.enabled: false`
-
-### SVN Repository Access
+### SVN Repository Access (only network traffic)
 
 - **Purpose**: Fetch commits, push changes
 - **URL**: Your configured SVN repository URL
 - **Data sent**: SVN commands (update, commit, etc.)
-- **Control**: Configure via `svn.path` setting
+- **Control**: Configure via `sven.path` setting
 
 ## Positron Integration
 
@@ -384,7 +362,7 @@ When running in Positron IDE:
 
 ## Credential Storage
 
-See [README.md Authentication & Security](./README.md#authentication--security)
+See [SECURITY.md](./.github/SECURITY.md)
 
 ## Questions?
 
@@ -393,32 +371,16 @@ File issue: https://github.com/vrognas/vrognas-sven/issues
 
 #### 3. package.json - Extension Description
 
-**Priority**: MEDIUM
-**Current**: "Integrated Subversion source control - Positron fork with enhanced features"
+**Status**: DONE
+**Current**: "Integrated Subversion source control with Positron IDE support. Privacy-focused: zero telemetry, local-only operations."
 
-**Recommended update**:
-
-```json
-{
-  "description": "Integrated Subversion source control with Positron IDE support. Privacy-focused: zero telemetry, local-only operations.",
-  "keywords": [
-    "multi-root ready",
-    "scm",
-    "svn",
-    "subversion",
-    "positron",
-    "data-science"
-  ]
-}
-```
-
-#### 4. CHANGELOG.md - v2.17.236 Entry
+#### 4. CHANGELOG.md Entry
 
 **Priority**: MEDIUM
 **Add section**:
 
 ```markdown
-### Documentation: Positron Integration (Phase 23.P2)
+### Documentation: Positron Integration
 
 - **POSITRON_INTEGRATION.md**: Comprehensive integration documentation (300+ lines)
   - What Positron is (Posit's data science IDE)
@@ -453,24 +415,7 @@ File issue: https://github.com/vrognas/vrognas-sven/issues
 5. Click "New Connection" → "Subversion Repository"
 6. Test checkout wizard
 
-**Automated testing**:
-
-```typescript
-// test/unit/positron/connectionsProvider.test.ts
-describe("Positron Connections Provider", () => {
-  it("provides SVN driver metadata", () => {
-    // Tests metadata structure
-  });
-
-  it("generates SVN checkout code from inputs", () => {
-    // Tests code generation
-  });
-
-  it("displays repository connection metadata", () => {
-    // Tests connection display
-  });
-});
-```
+**Automated testing**: None yet (manual testing only).
 
 ### Debugging
 
@@ -499,8 +444,6 @@ if (!api) {
 - Quick actions (Update, Switch Branch, Show Changes)
 - Data science file decorations (R, Python, Jupyter notebooks)
 - Enhanced commit message templates for data analysis
-
-See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) Phase 23.P2-P3 for roadmap.
 
 ---
 
@@ -532,15 +475,15 @@ See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) Phase 23.P2-P3 for roadma
 
 **A**: No. Credentials are stored locally in SVN credential cache (`~/.subversion/auth/`) with mode 600. Never transmitted to external services.
 
-### Q: What data does Gravatar receive?
+### Q: Does the extension make any external requests?
 
-**A**: Only the MD5 hash of the commit author's email address (irreversible). Your IP address is also visible (standard HTTP request). Disable with `svn.gravatars.enabled: false`.
+**A**: No. Gravatar avatar support was removed, so the extension makes no HTTP requests of its own. Only network traffic is SVN commands to your repository.
 
 ### Q: How do I verify no telemetry?
 
 **A**: Audit the source code:
 
-1. Search for `fetch|http.get|axios|request`: Only Gravatar requests found
+1. Search for `fetch|http.get|axios|request`: No extension-initiated HTTP requests found
 2. Search for `telemetry|analytics`: Only planning docs (not implemented)
 3. Check `package.json` dependencies: No analytics libraries
 4. Review `src/positron/`: Local API calls only
@@ -564,6 +507,6 @@ See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) Phase 23.P2-P3 for roadma
 
 ---
 
-**Last updated**: 2025-11-21 (v2.17.236)
+**Last updated**: 2026-07-08 (v0.2.75)
 **Contributors**: Viktor Rognas
 **License**: MIT

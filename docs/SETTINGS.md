@@ -8,7 +8,6 @@ All configuration options for Sven. Open Settings (`Ctrl+,`) and search `sven`.
 
 | Setting            | Default | Description                  |
 | ------------------ | ------- | ---------------------------- |
-| `sven.enabled`     | `true`  | Enable extension             |
 | `sven.path`        | `null`  | Path to SVN executable       |
 | `sven.autorefresh` | `true`  | Auto-refresh on file changes |
 | `sven.showOutput`  | `false` | Show output panel on startup |
@@ -18,8 +17,8 @@ All configuration options for Sven. Open Settings (`Ctrl+,`) and search `sven`.
 | Setting                           | Default | Description                                      |
 | --------------------------------- | ------- | ------------------------------------------------ |
 | `sven.commit.useQuickPick`        | `true`  | Multi-step quick-pick commit dialog              |
-| `sven.commit.types`              | `[]`    | Custom commit types (type picker when non-empty) |
-| `sven.commit.autoUpdate`          | `none`  | Update timing: `both`, `before`, `after`, `none` |
+| `sven.commit.types`               | `[]`    | Custom commit types (type picker when non-empty) |
+| `sven.commit.autoUpdate`          | `both`  | Update timing: `both`, `before`, `after`, `none` |
 | `sven.commit.checkEmptyMessage`   | `true`  | Warn on empty message                            |
 | `sven.commit.changes.selectedAll` | `true`  | Select all by default                            |
 
@@ -32,48 +31,51 @@ All configuration options for Sven. Open Settings (`Ctrl+,`) and search `sven`.
 | `sven.sourceControl.hideUnversioned`             | `false`                | Hide unversioned files            |
 | `sven.sourceControl.ignore`                      | `[]`                   | Glob patterns to hide             |
 | `sven.sourceControl.ignoreOnCommit`              | `["ignore-on-commit"]` | Excluded changelists              |
+| `sven.sourceControl.ignoreOnStatusCount`         | `["ignore-on-commit"]` | Changelists excluded from badge   |
 | `sven.sourceControl.combineExternalIfSameServer` | `false`                | Combine externals                 |
 
 ## Blame
 
 ### Master Settings
 
-| Setting                             | Default    | Description                         |
-| ----------------------------------- | ---------- | ----------------------------------- |
-| `sven.blame.enabled`                | `true`     | Master toggle for blame             |
-| `sven.blame.autoBlame`              | `true`     | Auto-show when opening files        |
-| `sven.blame.enableLogs`             | `true`     | Fetch commit messages for tooltips  |
-| `sven.blame.dateFormat`             | `relative` | Date format: `relative`, `absolute` |
-| `sven.blame.showWorkingCopyChanges` | `true`     | Highlight uncommitted changes       |
-| `sven.blame.largeFileWarning`       | `true`     | Warn for large files                |
-| `sven.blame.largeFileLimit`         | `5000`     | Line threshold for warning          |
+| Setting                             | Default           | Description                         |
+| ----------------------------------- | ----------------- | ----------------------------------- |
+| `sven.blame.enabled`                | `true`            | Master toggle for blame             |
+| `sven.blame.autoBlame`              | `true`            | Auto-show when opening files        |
+| `sven.blame.enableLogs`             | `true`            | Fetch commit messages for tooltips  |
+| `sven.blame.dateFormat`             | `relative`        | Date format: `relative`, `absolute` |
+| `sven.blame.showWorkingCopyChanges` | `true`            | Highlight uncommitted changes       |
+| `sven.blame.largeFileWarning`       | `true`            | Warn for large files                |
+| `sven.blame.largeFileLimit`         | `3000`            | Line threshold for warning (0 off)  |
+| `sven.blame.csvExtensions`          | `[".csv",".tsv"]` | Extensions treated as CSV-like      |
+| `sven.blame.csvLineLimit`           | `500`             | Line limit for CSV-like files       |
 
 ### Gutter
 
-| Setting                        | Default                | Description            |
-| ------------------------------ | ---------------------- | ---------------------- |
-| `sven.blame.gutter.enabled`    | `true`                 | Show gutter indicators |
-| `sven.blame.gutter.showIcons`  | `true`                 | Show colored icons     |
-| `sven.blame.gutter.showText`   | `true`                 | Show author/date text  |
-| `sven.blame.gutter.template`   | `"${author}, ${date}"` | Gutter text template   |
-| `sven.blame.gutter.dateFormat` | `relative`             | Date format            |
+| Setting                        | Default                             | Description            |
+| ------------------------------ | ----------------------------------- | ---------------------- |
+| `sven.blame.gutter.enabled`    | `true`                              | Show gutter indicators |
+| `sven.blame.gutter.showIcons`  | `true`                              | Show colored icons     |
+| `sven.blame.gutter.showText`   | `false`                             | Show author/date text  |
+| `sven.blame.gutter.template`   | `"${author} (${revision}) ${date}"` | Gutter text template   |
+| `sven.blame.gutter.dateFormat` | `relative`                          | Date format            |
 
 ### Inline Annotations
 
-| Setting                             | Default                             | Description             |
-| ----------------------------------- | ----------------------------------- | ----------------------- |
-| `sven.blame.inline.enabled`         | `true`                              | Show inline annotations |
-| `sven.blame.inline.currentLineOnly` | `true`                              | Only on current line    |
-| `sven.blame.inline.showMessage`     | `true`                              | Include commit message  |
-| `sven.blame.inline.opacity`         | `0.5`                               | Transparency (0.0-1.0)  |
-| `sven.blame.inline.template`        | `"${author}, ${date} • ${message}"` | Template                |
+| Setting                             | Default                                              | Description                     |
+| ----------------------------------- | ---------------------------------------------------- | ------------------------------- |
+| `sven.blame.inline.enabled`         | `true`                                               | Show inline annotations         |
+| `sven.blame.inline.currentLineOnly` | `true`                                               | Only on current line            |
+| `sven.blame.inline.showMessage`     | `false`                                              | Include commit message (slower) |
+| `sven.blame.inline.opacity`         | `0.5`                                                | Transparency (0.0-1.0)          |
+| `sven.blame.inline.template`        | `"  ${author}, ${date} (r${revision}) • ${message}"` | Template                        |
 
 ### Status Bar
 
-| Setting                         | Default                                    | Description              |
-| ------------------------------- | ------------------------------------------ | ------------------------ |
-| `sven.blame.statusBar.enabled`  | `true`                                     | Show blame in status bar |
-| `sven.blame.statusBar.template` | `"$(git-commit) ${revision} by ${author}"` | Template                 |
+| Setting                         | Default                                                | Description              |
+| ------------------------------- | ------------------------------------------------------ | ------------------------ |
+| `sven.blame.statusBar.enabled`  | `true`                                                 | Show blame in status bar |
+| `sven.blame.statusBar.template` | `"$(person) ${author}, $(clock) ${date} - ${message}"` | Template                 |
 
 ### Template Placeholders
 
@@ -81,12 +83,12 @@ Use in `template` settings: `${author}`, `${date}`, `${revision}`, `${message}`
 
 ## Sparse Checkout
 
-| Setting                              | Default | Description                 |
-| ------------------------------------ | ------- | --------------------------- |
-| `sven.sparse.confirmExclude`         | `true`  | Confirm before excluding    |
-| `sven.sparse.largeFileWarningMb`     | `100`   | Warn for large downloads    |
-| `sven.sparse.downloadTimeoutMinutes` | `30`    | Timeout for downloads       |
-| `sven.sparse.preScanTimeoutSeconds`  | `10`    | Timeout for size estimation |
+| Setting                              | Default | Description                          |
+| ------------------------------------ | ------- | ------------------------------------ |
+| `sven.sparse.confirmExclude`         | `true`  | Confirm before excluding             |
+| `sven.sparse.largeFileWarningMb`     | `10`    | Warn for large downloads (MB, 0 off) |
+| `sven.sparse.downloadTimeoutMinutes` | `10`    | Timeout for downloads                |
+| `sven.sparse.preScanTimeoutSeconds`  | `30`    | Timeout for size estimation          |
 
 ## Remote Changes
 
@@ -104,17 +106,20 @@ Use in `template` settings: `${author}`, `${date}`, `${revision}`, `${message}`
 
 ## Diff
 
-| Setting              | Default | Description                 |
-| -------------------- | ------- | --------------------------- |
-| `sven.diff.withHead` | `true`  | Compare with HEAD (vs BASE) |
-| `sven.diff.tool`     | `null`  | External diff tool path     |
+| Setting                    | Default           | Description                             |
+| -------------------------- | ----------------- | --------------------------------------- |
+| `sven.diff.withHead`       | `true`            | Compare with HEAD (vs BASE)             |
+| `sven.diff.tool`           | `null`            | External diff tool path                 |
+| `sven.diff.csvExtensions`  | `[".csv",".tsv"]` | Extensions treated as CSV-like          |
+| `sven.diff.csvSizeLimitMB` | `1`               | Size limit (MB) before CSV diff prompts |
 
 ## History/Log
 
-| Setting                 | Default | Description         |
-| ----------------------- | ------- | ------------------- |
-| `sven.log.length`       | `50`    | Commits to show     |
-| `sven.log.authorColors` | `true`  | Colored author dots |
+| Setting                    | Default | Description                       |
+| -------------------------- | ------- | --------------------------------- |
+| `sven.log.length`          | `50`    | Commits to show                   |
+| `sven.log.authorColors`    | `true`  | Colored author dots               |
+| `sven.previousCommitsUser` | `null`  | Filter history to user (SVN 1.8+) |
 
 ## Delete Handling
 
@@ -150,11 +155,17 @@ Use in `template` settings: `${author}`, `${date}`, `${revision}`, `${message}`
 
 ## Multi-Folder / Monorepo
 
-| Setting                        | Default                                  | Description               |
-| ------------------------------ | ---------------------------------------- | ------------------------- |
-| `sven.multipleFolders.enabled` | `false`                                  | Scan subfolders for repos |
-| `sven.multipleFolders.depth`   | `4`                                      | Max scan depth            |
-| `sven.multipleFolders.ignore`  | `[".git",".hg","vendor","node_modules"]` | Skip folders              |
+| Setting                        | Default                                              | Description               |
+| ------------------------------ | ---------------------------------------------------- | ------------------------- |
+| `sven.multipleFolders.enabled` | `false`                                              | Scan subfolders for repos |
+| `sven.multipleFolders.depth`   | `4`                                                  | Max scan depth            |
+| `sven.multipleFolders.ignore`  | `["**/.git","**/.hg","**/vendor","**/node_modules"]` | Skip folders              |
+
+## Performance
+
+| Setting                       | Default  | Description                                        |
+| ----------------------------- | -------- | -------------------------------------------------- |
+| `sven.performance.maxXmlTags` | `500000` | Max XML tags to parse (raise for 100k+ file repos) |
 
 ## Detection
 
@@ -177,13 +188,6 @@ Use in `template` settings: `${author}`, `${date}`, `${revision}`, `${message}`
 | `sven.experimental.detect_encoding`   | `false` | Auto-detect encoding                  |
 | `sven.experimental.encoding_priority` | `[]`    | Encoding detection priority           |
 
-## Gravatars
-
-| Setting                  | Default                    | Description                   |
-| ------------------------ | -------------------------- | ----------------------------- |
-| `sven.gravatars.enabled` | `true`                     | Use Gravatar icons in history |
-| `sven.gravatar.icon_url` | `https://gravatar.com/...` | Gravatar URL template         |
-
 ## Warnings
 
 | Setting                          | Default | Description                  |
@@ -203,6 +207,7 @@ Use in `template` settings: `${author}`, `${date}`, `${revision}`, `${message}`
 
 ## Decorators
 
-| Setting                    | Default  | Description          |
-| -------------------------- | -------- | -------------------- |
-| `sven.decorator.baseColor` | `purple` | Color for BASE badge |
+| Setting                          | Default        | Description                      |
+| -------------------------------- | -------------- | -------------------------------- |
+| `sven.decorator.baseColor`       | `charts.blue`  | Color for BASE badge (B) in log  |
+| `sven.decorator.serverOnlyColor` | `charts.green` | Color for server-only badges (S) |

@@ -25,9 +25,9 @@ Visual and UX patterns for the Sven VS Code extension.
 
 ### Repository Log Colors
 
-| Badge      | Color Setting              | Default       |
-| ---------- | -------------------------- | ------------- |
-| B (BASE)   | `sven.decorator.baseColor` | `charts.blue` |
+| Badge      | Color Setting                    | Default        |
+| ---------- | -------------------------------- | -------------- |
+| B (BASE)   | `sven.decorator.baseColor`       | `charts.blue`  |
 | S (Server) | `sven.decorator.serverOnlyColor` | `charts.green` |
 
 ## Badge System
@@ -110,7 +110,7 @@ Use `{ modal: true }` only for **destructive** or **irreversible** operations:
 - Deleting files from disk (`deleteUnversioned`)
 - Breaking/stealing locks (`breakLock`, `stealLock`)
 - Removing unversioned files (`removeUnversioned`)
-- Rollback to previous revision (`rollback`)
+- Rollback to previous revision (`itemlog.rollbackToRevision`)
 - Revert changes (`revert`)
 - Cleanup operations (`cleanup`)
 - Changing checkout depth (`setDepth`)

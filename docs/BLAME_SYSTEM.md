@@ -1,7 +1,7 @@
 # SVN Blame System - Comprehensive Reference
 
-**Version**: 2.17.210
-**Last Updated**: 2025-11-19
+**Version**: 0.2.75
+**Last Updated**: 2026-07-08
 **Status**: Complete & Implemented
 
 ---
@@ -13,7 +13,7 @@ Comprehensive SVN blame implementation with three decoration layers, smart cachi
 **Key Features**:
 
 - Gutter text annotations (author, revision, date)
-- Gutter icons (colored bars by author)
+- Gutter icons (colored bars by revision age)
 - Inline commit messages
 - Batch SVN log fetching (50x faster)
 - Intelligent caching (blame, messages, SVGs)
@@ -35,15 +35,15 @@ Comprehensive SVN blame implementation with three decoration layers, smart cachi
 
 #### 1. BlameConfiguration (`/src/blame/blameConfiguration.ts`)
 
-Singleton configuration manager with 13 helper methods:
+Singleton configuration manager with ~20 helper methods:
 
 - `isEnabled()`, `isAutoBlameEnabled()`, `getDateFormat()`
 - `isGutterTextEnabled()`, `isGutterIconEnabled()`, `isInlineEnabled()`
-- `isFileTooLarge()`, `shouldWarnLargeFile()`
+- `isFileTooLarge()`, `shouldWarnLargeFile()`, `getCsvLineLimit()`, `isCsvLike()`
 - `getStatusBarTemplate()`, `getGutterTemplate()`, `getInlineTemplate()`
 - `isLogsEnabled()`, `shouldShowWorkingCopyChanges()`
 
-**Namespace**: `svn.blame.*`
+**Namespace**: `sven.blame.*`
 
 #### 2. BlameStateManager (`/src/blame/blameStateManager.ts`)
 
@@ -51,13 +51,13 @@ Per-file and global state tracking with event-driven updates:
 
 - Per-file: `isBlameEnabled()`, `setBlameEnabled()`, `toggleBlame()`
 - Global: `isGlobalEnabled()`, `setGlobalEnabled()`, `toggleGlobalEnabled()`
-- Combined: `shouldShowBlame()` (global AND per-file AND config-wide)
+- Combined: `shouldShowBlame()` (global AND per-file)
 - Event: `onDidChangeState` fired on any state change
 
 **Three-Level Toggle**:
 
 ```
-Extension-wide (config.svn.blame.enabled)
+Extension-wide (config sven.blame.enabled)
   └─ Global State (blameStateManager.isGlobalEnabled())
       └─ Per-File State (blameStateManager.isBlameEnabled(uri))
 ```
@@ -75,7 +75,7 @@ UI decoration lifecycle manager (per-repository instance):
 
 - `blameCache`: Blame data (1-indexed, ISvnBlameLine[])
 - `messageCache`: Commit messages by revision
-- `authorColors`: Author → HSL color mapping
+- `revisionColors`: Revision position → color mapping
 - `svgCache`: Color → data URI SVG mapping
 
 ---
@@ -86,10 +86,10 @@ UI decoration lifecycle manager (per-repository instance):
 
 ```json
 {
-  "svn.blame.enabled": boolean (default: true),
-  "svn.blame.autoBlame": boolean (default: true),  // off: no fetch until per-file enable command
-  "svn.blame.dateFormat": "relative" | "absolute" (default: "relative"),
-  "svn.blame.enableLogs": boolean (default: true)
+  "sven.blame.enabled": boolean (default: true),
+  "sven.blame.autoBlame": boolean (default: true),  // off: no fetch until per-file enable command
+  "sven.blame.dateFormat": "relative" | "absolute" (default: "relative"),
+  "sven.blame.enableLogs": boolean (default: true)
 }
 ```
 
@@ -97,8 +97,10 @@ UI decoration lifecycle manager (per-repository instance):
 
 ```json
 {
-  "svn.blame.largeFileLimit": number (default: 100000, min: 0),
-  "svn.blame.largeFileWarning": boolean (default: true)
+  "sven.blame.largeFileLimit": number (default: 3000, min: 0),
+  "sven.blame.largeFileWarning": boolean (default: true),
+  "sven.blame.csvExtensions": string[] (default: [".csv", ".tsv"]),
+  "sven.blame.csvLineLimit": number (default: 500)
 }
 ```
 
@@ -106,12 +108,17 @@ UI decoration lifecycle manager (per-repository instance):
 
 ```json
 {
-  "svn.blame.gutter.enabled": boolean (default: true),
-  "svn.blame.gutter.template": string (default: "${author} (${revision}) ${date}"),
-  "svn.blame.gutter.icon.enabled": boolean (default: true),
-  "svn.blame.inline.enabled": boolean (default: false),
-  "svn.blame.inline.template": string (default: "${author}, ${message}"),
-  "svn.blame.inline.maxLength": number (default: 50)
+  "sven.blame.gutter.enabled": boolean (default: true),
+  "sven.blame.gutter.template": string (default: "${author} (${revision}) ${date}"),
+  "sven.blame.gutter.showIcons": boolean (default: true),
+  "sven.blame.gutter.showText": boolean (default: false),
+  "sven.blame.inline.enabled": boolean (default: true),
+  "sven.blame.inline.currentLineOnly": boolean (default: true),
+  "sven.blame.inline.showMessage": boolean (default: false),
+  "sven.blame.inline.opacity": number (default: 0.5),
+  "sven.blame.inline.template": string (default: "  ${author}, ${date} (r${revision}) • ${message}"),
+  "sven.blame.statusBar.enabled": boolean (default: true),
+  "sven.blame.statusBar.template": string (default: "$(person) ${author}, $(clock) ${date} - ${message}")
 }
 ```
 
@@ -166,14 +173,14 @@ interface ISvnBlameLine {
 ```typescript
 private decorationTypes: {
   gutter: TextEditorDecorationType;   // Text: "${author} (r123) 2d ago"
-  icon: TextEditorDecorationType;     // Colored 2px vertical bar
-  inline: TextEditorDecorationType;   // End-of-line: "john, Fix bug..."
+  icon: TextEditorDecorationType;     // Placeholder; icons use per-line types (3px colored bar)
+  inline: TextEditorDecorationType;   // End-of-line: "john, 2d ago (r123) • Fix bug..."
 }
 ```
 
 ### Decoration Lifecycle
 
-**updateDecorations()** (throttled 150ms):
+**updateDecorations()** (throttled: concurrent calls queue, no fixed delay):
 
 1. Validate: `shouldDecorate()` check (scheme, state, config)
 2. Fetch: `getBlameData()` with cache
@@ -185,27 +192,26 @@ private decorationTypes: {
 - Clears all 3 types unconditionally (even if disabled)
 - Triggered on: state toggle, config change, document edit, file close
 
-### Color Hashing Algorithm
+### Revision Age Color Algorithm
 
-Author → Consistent HSL color (readable on light/dark themes):
+Revision → color by age within the file (hybrid categorical + gradient):
 
 ```typescript
-// Hash author name to 32-bit int
-let hash = 0;
-for (let i = 0; i < str.length; i++) {
-  hash = (hash << 5) - hash + str.charCodeAt(i);
-}
+// 5 newest unique revisions: categorical hues (red→orange→yellow→green→blue)
+const categoricalHues = [0, 30, 60, 120, 200];
 
-// Map to HSL: H[0-360], S[60-80%], L[50-60%]
-hsl(Math.abs(hash) % 360, 60 + (hash >> 8 % 20), 50 + (hash >> 16 % 10));
+// Older revisions: blue→purple gradient, quantized to 8 buckets
+const hue = 200 + quantizedNormalized * 80;
+
+// Saturation 45%, lightness theme-aware (40 light / 60 dark), HSL→hex
 ```
 
 **Benefits**:
 
-- Same author = same color across files/sessions
-- Different authors = visually distinct
+- Newest changes stand out with distinct colors
+- Older code fades into a cool gradient
 - Readable on both light/dark VSCode themes
-- Cached: O(1) lookup after first hash
+- Cached: `revisionColors` keyed by revision position + theme (cleared at 2000 entries)
 
 ### Message Prefetching
 
@@ -220,8 +226,8 @@ hsl(Math.abs(hash) % 360, 60 + (hash >> 8 % 20), 50 + (hash >> 16 % 10));
 **Performance**:
 
 - File with 50 revisions: 100ms (1 SVN call) vs 5s (50 sequential calls)
-- Cache TTL: 10 minutes
-- Max entries: 200 (evict LRU when full)
+- Skipped when file has >100 unique revisions
+- Max entries: 500 (evict oldest 25% when full)
 
 **Fallback**: Empty messages show if fetch fails (graceful degradation)
 
@@ -231,27 +237,31 @@ hsl(Math.abs(hash) % 360, 60 + (hash >> 8 % 20), 50 + (hash >> 16 % 10));
 
 ### File Locations
 
-| Component      | Path                               | Size       |
-| -------------- | ---------------------------------- | ---------- |
-| Configuration  | `/src/blame/blameConfiguration.ts` | 156 LOC    |
-| State Manager  | `/src/blame/blameStateManager.ts`  | 112 LOC    |
-| Provider       | `/src/blame/blameProvider.ts`      | ~500 LOC   |
-| Hover Provider | `/src/blame/blameHoverProvider.ts` | 150 LOC    |
-| Commands       | `/src/commands/blame/*.ts`         | 3 × 18 LOC |
-| Parser         | `/src/parser/blameParser.ts`       | ~100 LOC   |
-| Tests          | `/src/test/unit/blame/*.test.ts`   | 27 tests   |
+| Component         | Path                               | Size       |
+| ----------------- | ---------------------------------- | ---------- |
+| Configuration     | `/src/blame/blameConfiguration.ts` | ~260 LOC   |
+| State Manager     | `/src/blame/blameStateManager.ts`  | ~130 LOC   |
+| Provider          | `/src/blame/blameProvider.ts`      | ~1500 LOC  |
+| Status Bar        | `/src/blame/blameStatusBar.ts`     | ~430 LOC   |
+| Template Compiler | `/src/blame/templateCompiler.ts`   | ~125 LOC   |
+| Error Classifier  | `/src/blame/classifyBlameError.ts` | ~50 LOC    |
+| Commands          | `/src/commands/blame/*.ts`         | 6 files    |
+| Parser            | `/src/parser/blameParser.ts`       | ~80 LOC    |
+| Tests             | `/src/test/unit/blame/*.test.ts`   | unit suite |
 
 ### Commands
 
-- `svn.blame.toggleBlame`: Toggle blame for active file
-- `svn.blame.showBlame`: Enable blame and display
-- `svn.blame.clearBlame`: Disable blame and clear
+- `sven.blame.toggleBlame`: Toggle Annotations (Blame) for active file
+- `sven.blame.showBlame`: Show Annotations
+- `sven.blame.clearBlame`: Clear Annotations
+- `sven.blame.enableBlame` / `sven.blame.disableBlame`: Editor title toggle pair
+- `sven.blame.untrackedInfo`: Editor title info for untracked files
+- `sven.blameFile`: Show Annotations (Blame), optional revision arg
 
 **Menus**:
 
 - Command palette (when enabled, repos open)
-- Editor title bar (file editors only)
-- Explorer context (files, not folders)
+- Editor title bar (file editors only, not diff editors)
 
 ### Tests (TDD Approach)
 
@@ -280,34 +290,23 @@ hsl(Math.abs(hash) % 360, 60 + (hash >> 8 % 20), 50 + (hash >> 16 % 10));
 
 ## Hover Tooltip System
 
-### HoverProvider Implementation
+### Implementation
 
-**File**: `/src/blame/blameHoverProvider.ts`
+**File**: `/src/blame/blameProvider.ts` (`buildInlineDecoration()`)
 
-**Content Format** (Markdown):
+**Content Format** (plain text on inline annotations):
 
-```markdown
-$(git-commit) **Revision** r1234
-$(person) **Author** John Doe
-$(clock) **Date** 2 days ago
-
----
-
-$(git-merge) **Merged** from `src/file.ts` (if merged)
-r5678 by Jane Smith, 5 days ago
-
----
-
-**Message** (if logs enabled)
-feat: Add feature description
+```
+SVN: r1234 by John Doe
 ```
 
 **Features**:
 
-- Relative/absolute date formatting (configurable)
-- Merged revision display with original info
-- Commit message on hover (lazy fetched)
-- Graceful fallback for missing data
+- Attached via `hoverMessage` on each inline decoration
+- One shared builder for all three inline render paths (message refresh,
+  cursor move, full render) so shape can't drift
+- Status bar shows richer per-line info (author, date, message) via
+  `blameStatusBar.ts` with configurable template
 
 ---
 
@@ -323,7 +322,7 @@ feat: Add feature description
 
 2. **Message Cache**
    - By revision number
-   - 10-min TTL, LRU max 200 entries
+   - Max 500 entries, oldest 25% evicted when full
    - Provider-scoped messageCache
 
 3. **SVG Cache**
@@ -349,7 +348,7 @@ feat: Add feature description
 
 ### Large File Handling
 
-- Configurable line limit (default 100K)
+- Configurable line limit (default 3000; CSV-like files capped at 500)
 - Warning dialog before processing
 - Graceful fallback to no blame if cancelled
 - Visible range optimization (Phase 2.6)
@@ -383,8 +382,9 @@ this.disposables.push(
 
 | Event                     | Pattern  | Delay | Reason                   |
 | ------------------------- | -------- | ----- | ------------------------ |
-| `updateDecorations()`     | Throttle | 150ms | Prevent rapid re-renders |
+| `updateDecorations()`     | Throttle | queue | Prevent rapid re-renders |
 | `onDidChangeTextDocument` | Debounce | 500ms | Wait for typing to stop  |
+| Cursor move (inline)      | Debounce | 150ms | Smooth current-line lens |
 | `onDidChangeActiveEditor` | None     | -     | Immediate response       |
 | `onDidChangeState`        | None     | -     | User-triggered feedback  |
 
@@ -429,19 +429,11 @@ context.subscriptions.push(
   blameConfiguration.onDidChange(...),
   blameStateManager.onDidChangeState(...)
 );
-
-// Hover provider
-context.subscriptions.push(
-  languages.registerHoverProvider(
-    { scheme: 'file' },
-    new BlameHoverProvider(repo)
-  )
-);
 ```
 
 ### Version Management
 
-- Version bump: 2.17.185 → 2.17.196 (Phase 2.5)
+- Current version: 0.2.75 (semver 0.2.x line)
 - CHANGELOG.md: Entry per release
 - ARCHITECTURE_ANALYSIS.md: Updated stats
 
@@ -510,9 +502,9 @@ if (!blameLine.revision) {
 
 ## Unresolved Design Questions
 
-1. Heatmap colors by commit age?
+1. ~~Heatmap colors by commit age?~~ Implemented (revision-age colors)
 2. Diff view blame support?
-3. Status bar line blame integration?
+3. ~~Status bar line blame integration?~~ Implemented (`blameStatusBar.ts`)
 4. Merged revision inline support?
 5. Visible range lazy loading for huge files?
 
@@ -522,15 +514,15 @@ if (!blameLine.revision) {
 
 ## Key Files and Code Locations
 
-| File                          | Key Location                | Purpose              |
-| ----------------------------- | --------------------------- | -------------------- |
-| `package.json`                | contributions.configuration | Blame settings       |
-| `blameConfiguration.ts`       | Lines 1-156                 | Settings access      |
-| `blameStateManager.ts`        | Lines 1-112                 | State management     |
-| `blameProvider.ts`            | Main class                  | Decoration lifecycle |
-| `blameHoverProvider.ts`       | Main class                  | Hover tooltips       |
-| `svnRepository.ts:blame()`    | ~Line 1050                  | SVN blame execution  |
-| `svnRepository.ts:logBatch()` | ~Line 1107                  | Batch message fetch  |
+| File                          | Key Location              | Purpose              |
+| ----------------------------- | ------------------------- | -------------------- |
+| `package.json`                | contributes.configuration | Blame settings       |
+| `blameConfiguration.ts`       | Main class                | Settings access      |
+| `blameStateManager.ts`        | Main class                | State management     |
+| `blameProvider.ts`            | Main class                | Decoration lifecycle |
+| `blameStatusBar.ts`           | Main class                | Status bar line info |
+| `svnRepository.ts:blame()`    | ~Line 756                 | SVN blame execution  |
+| `svnRepository.ts:logBatch()` | ~Line 1911                | Batch message fetch  |
 
 ---
 
@@ -550,9 +542,6 @@ if (!blameLine.revision) {
 ## See Also
 
 - ARCHITECTURE_ANALYSIS.md (system-wide architecture)
-- BLAME_CONFIG_DESIGN.md (detailed configuration spec)
-- BLAME_PHASE_2.5_INTEGRATION_PLAN.md (multi-decoration design)
-- BLAME_PHASE_2.5_MESSAGE_FETCH_DESIGN.md (batch fetching spec)
 
 ---
 

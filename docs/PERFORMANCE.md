@@ -565,20 +565,15 @@ constructor(private sourceControlManager: SourceControlManager) {
 
 ## File References
 
-All analysis contained in this document consolidates:
-
-- `/home/user/sven/DECORATION_PERFORMANCE_ANALYSIS.md` (545 lines)
-- `/home/user/sven/DECORATION_PERFORMANCE_SUMMARY.md` (106 lines)
-- `/home/user/sven/DECORATION_COLOR_QUANTIZATION_EXAMPLE.md` (273 lines)
-- `/home/user/sven/CURSOR_TRACKING_PERFORMANCE_ANALYSIS.md` (772 lines)
-- `/home/user/sven/REPOLOG_PERFORMANCE_ANALYSIS.md` (450 lines)
-- `/home/user/sven/PERFORMANCE_RECOMMENDATION.md` (138 lines)
+All analysis contained in this document consolidates six standalone analysis
+documents (decoration performance, color quantization, cursor tracking,
+repolog performance, recommendations) that were removed after consolidation.
 
 Code files to modify:
 
-- `/home/user/sven/src/blame/blameProvider.ts` (decoration quantization)
-- `/home/user/sven/src/historyView/repoLogProvider.ts` (cache optimization)
-- `/home/user/sven/src/blame/blameStatusBar.ts` (reference implementation for patterns)
+- `src/blame/blameProvider.ts` (decoration quantization)
+- `src/historyView/repoLogProvider.ts` (cache optimization)
+- `src/blame/blameStatusBar.ts` (reference implementation for patterns)
 
 ---
 

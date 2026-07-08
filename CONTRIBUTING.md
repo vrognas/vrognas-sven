@@ -1,14 +1,14 @@
-# Contributing to Positron-SVN
+# Contributing to Sven
 
-Welcome! Positron-SVN is a VS Code extension providing Subversion source control with Positron IDE integration. We follow TDD, strict TypeScript, and incremental commits.
+Welcome! Sven is a VS Code extension providing Subversion source control with Positron IDE integration. We follow TDD, strict TypeScript, and incremental commits.
 
 ## Quick Start
 
 ### Prerequisites
 
-- **Node.js** 18+ and npm 9+
+- **Node.js** 22+ and npm 9+
 - **SVN** 1.6+ installed and in PATH
-- **VS Code** 1.74+ or **Positron** 2025.6+
+- **VS Code** 1.109+ or **Positron** 2026.04+
 - **Git** (for source control)
 
 ### Setup
@@ -34,24 +34,29 @@ npm test
 ### Development Workflow
 
 ```bash
-# Watch mode (auto-compile TypeScript)
+# Watch mode (TypeScript + CSS in parallel)
+npm run watch
+
+# One-shot build (esbuild bundle + CSS)
 npm run compile
 
-# Watch CSS changes (separate terminal)
-npm run watch:css
-
-# Run unit tests (no coverage)
+# Run unit tests (Vitest, no coverage)
 npm run test:unit
 
 # Run with coverage report
 npm run test:coverage
 
-# Lint code
+# Typecheck tests (tsconfig.test.json)
+npm run typecheck:test
+
+# Lint code (fails on any warning: --max-warnings 0)
 npm run lint
 
 # Fix lint issues
 npm run lint:fix
 ```
+
+Note: `npm test` runs `pretest` first (`build:ts` + `typecheck:test` + `lint` in parallel), then unit tests; e2e tests (`test:e2e`) run additionally when `CI=true`.
 
 ### Debug Extension
 
@@ -117,7 +122,7 @@ describe("Feature Name", () => {
 [optional body]
 ```
 
-**Types:**
+**Types** (enforced by commitlint):
 
 - `feat`: New feature
 - `fix`: Bug fix
@@ -125,10 +130,16 @@ describe("Feature Name", () => {
 - `refactor`: Code restructure (no behavior change)
 - `perf`: Performance improvement
 - `docs`: Documentation only
-- `chore`: Build, deps, tooling
+- `chore`: Maintenance
+- `style`: Code style (formatting)
+- `ci`: CI/CD changes
+- `build`: Build system changes
+- `revert`: Revert previous commit
 
 **Rules:**
 
+- Header max 50 chars, body lines max 72 chars (commitlint, enforced via husky `commit-msg` hook)
+- Pre-commit hook runs lint-staged (eslint --fix + prettier on staged files; staged files may be rewritten)
 - Small, focused commits (one concern per commit)
 - Version bump per commit (semantic versioning)
 - 10-50 lines ideal
@@ -225,7 +236,7 @@ Brief description of changes
 ## Testing
 
 - 3 e2e tests added: [test names]
-- All 930+ tests passing
+- All tests passing
 - Coverage: [before]% → [after]%
 
 ## Checklist
@@ -265,17 +276,18 @@ Reviewers check:
 sven/
 ├── src/
 │   ├── extension.ts          # Entry point
-│   ├── commands/              # 54 command implementations
-│   ├── repository/            # Core repository logic
-│   ├── svn/                   # SVN CLI wrapper
-│   ├── services/              # Extracted services
-│   ├── parsers/               # SVN output parsers
-│   └── util/                  # Utilities (logging, types)
-├── test/                      # 930+ tests
-├── docs/                      # Architecture, lessons learned
-├── CLAUDE.md                  # AI development guidelines
-├── README.md                  # User documentation
-└── package.json               # Extension manifest
+│   ├── commands/             # Command implementations (104 contributed commands)
+│   ├── repository.ts         # Core repository logic
+│   ├── svnRepository.ts      # SVN CLI wrapper
+│   ├── services/             # Extracted services
+│   ├── parser/               # SVN output parsers
+│   ├── util/                 # Utilities (logging, types)
+│   └── test/                 # E2E tests (vscode-test) + unit tests (src/test/unit/)
+├── test/                     # Vitest root: unit/, integration/, scripts/, __mocks__/
+├── docs/                     # Architecture, lessons learned
+├── CLAUDE.md                 # AI development guidelines
+├── README.md                 # User documentation
+└── package.json              # Extension manifest
 ```
 
 ## Testing Deep Dive
@@ -286,42 +298,42 @@ sven/
 # All tests with coverage (HTML report in coverage/)
 npm run test:coverage
 
-# Unit tests only (no coverage)
+# Unit tests only (Vitest, no coverage)
 npm run test:unit
 
-# Single test file
-npm run build:ts
-npx vscode-test --files=out/test/specific.test.js
+# Single unit test file
+npx vitest run test/unit/specific.test.ts
+
+# E2E tests (vscode-test)
+npm run test:e2e
 ```
 
 ### Coverage Targets
 
-- **Current**: 60-65% (930+ tests)
-- **Target**: 50-60% (met and exceeded)
+- **Target**: 50-60%
 - **Focus**: Critical paths, services, commands
 
 ### Test Types
 
-**E2E Tests** (primary):
+**E2E Tests** (in `src/test/`, run via vscode-test):
 
 - Real SVN repositories
 - Real file system operations
 - Integration with VS Code API
-- Examples: `add.test.ts`, `commit.test.ts`
+- Examples: `src/test/commands/add.test.ts`, `src/test/commands/commitAll.test.ts`
 
-**Unit Tests** (secondary):
+**Unit Tests** (in `test/unit/`, `test/integration/`, `test/scripts/`, `src/test/unit/`, run via Vitest):
 
-- Parsers (statusParser, logParser)
-- Utilities (glob matching, encoding)
-- Examples: `statusParser.test.ts`
+- Parsers, services, commands, utilities
+- VS Code API mocked via `test/__mocks__/vscode.ts`
 
 ### Test Infrastructure
 
-- **Framework**: Mocha
-- **Runner**: @vscode/test-cli
-- **Coverage**: c8 (configured for HTML/text/lcov)
-- **Mock**: Sinon (minimal usage)
-- **Helpers**: Test repository creation in `test/helpers/`
+- **Unit runner**: Vitest (with mocha-compat shim; typechecked via `tsconfig.test.json`)
+- **E2E runner**: @vscode/test-cli (Mocha, targets in `.vscode-test.mjs`)
+- **Coverage**: Vitest v8 provider (unit) + c8 (e2e), HTML/text/lcov
+- **Mock**: `test/__mocks__/vscode.ts`; Sinon (minimal usage)
+- **Helpers**: `src/test/testUtil.ts`, `test/integration/helpers/`, `src/test/unit/helpers/`
 
 ## Resources
 
@@ -351,7 +363,7 @@ Before contributing, review:
 ### Adding New Command
 
 1. Write plan (numbered steps)
-2. Write 3 tests in `test/commands/newCommand.test.ts`
+2. Write 3 tests in `src/test/commands/newCommand.test.ts`
 3. Create `src/commands/newCommand.ts` extending `Command`
 4. Register in `src/commands.ts`
 5. Add to `package.json` contributions
@@ -418,4 +430,4 @@ By contributing, you agree that your contributions will be licensed under the sa
 
 **Ready to contribute?** Start with issues labeled `good-first-issue` or `help-wanted`.
 
-Thank you for contributing to Positron-SVN! 🚀
+Thank you for contributing to Sven! 🚀

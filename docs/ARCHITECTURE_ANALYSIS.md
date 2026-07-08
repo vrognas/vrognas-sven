@@ -11,10 +11,10 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 
 **Stats**:
 
-- ~13,200 source lines
-- 54 commands (+3 blame)
-- 1700+ tests, ~50% global coverage
-- Targets: vscode ^1.108.0, positron ^2025.11.0
+- ~34,300 source lines (non-test src/\*_/_.ts)
+- 104 contributed commands, 80 settings
+- 1891 tests
+- Targets: vscode ^1.109.0, positron ^2026.04.0
 
 ---
 
@@ -35,7 +35,7 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 │  SVN Execution (svn.ts)                         │
 │  Process spawn, encoding, auth management       │
 ├─────────────────────────────────────────────────┤
-│  Command Pattern (command.ts + 54 subclasses)   │
+│  Command Pattern (command.ts + ~72 subclasses)  │
 │  Repository resolution, diff/show infrastructure│
 └─────────────────────────────────────────────────┘
 ```
@@ -47,7 +47,7 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 | Entry    | extension.ts, source_control_manager.ts                           |
 | Core     | repository.ts, svnRepository.ts, svn.ts                           |
 | Services | StatusService.ts, ResourceGroupManager.ts, RemoteChangeService.ts |
-| Commands | command.ts (base), commands/\*.ts (54 total)                      |
+| Commands | command.ts (base), commands/\*.ts (73 files)                      |
 | Parsing  | statusParser.ts, logParser.ts, infoParser.ts, blameParser.ts      |
 | Blame    | blameConfiguration.ts, blameStateManager.ts, blameProvider.ts     |
 
@@ -55,7 +55,7 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 
 ## Design Patterns
 
-1. **Command Pattern**: Base class + 54+ subclasses with DRY helpers
+1. **Command Pattern**: Base class + ~72 subclasses with DRY helpers
 2. **Observer/Event**: EventEmitter throughout for loose coupling
 3. **Decorator**: @memoize, @throttle, @debounce, @sequentialize
 4. **Strategy**: Multiple parsers (status, log, info, diff, list)
@@ -196,8 +196,8 @@ External: vscode, @posit-dev/positron
 
 ## Technical Debt
 
-- Repository.ts still ~2746 lines (auth + property-cache blocks extractable)
-- ~46 command files after consolidation (reveal, ignore, patch, commit merged)
+- Repository.ts still ~2980 lines (auth + property-cache blocks extractable)
+- 73 command files in src/commands/ (incl. base) after consolidation (reveal, ignore, patch, commit merged)
 - ~248 `any` types remaining across 25 files (mostly test files; production ~5 files)
 - fs/ wrappers use `promisify(original-fs)` — could use `original-fs.promises`
 
