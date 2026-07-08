@@ -1,6 +1,6 @@
 # SVN Extension Architecture
 
-**Version**: 0.2.74
+**Version**: 0.2.75
 **Updated**: 2026-07-08
 
 ---
@@ -229,8 +229,9 @@ against current code and executed the worth-it subset (F19-rescoped, F10, F52,
 F06-slice, F07, F35, real retryRun tests, lint ratchet with
 `--max-warnings 0`). ~75% of the backlog was dropped with reasons — F12 is a
 non-issue in practice, F50 would reintroduce a fixed flake, F31/F18 stay
-parked as a pair. See MAINTAINABILITY_REVIEW.md §5. Remaining scheduled item:
-the F17 lint slice (un-ignore `src/test/**`).
+parked as a pair. See MAINTAINABILITY_REVIEW.md §5. F17 landed in 0.2.75
+(test dirs now lint- and type-gated via tsconfig.test.json + pretest);
+the review backlog is fully closed.
 
 ---
 

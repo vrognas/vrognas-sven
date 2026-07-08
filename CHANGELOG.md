@@ -7,6 +7,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.75] - 2026-07-08
+
+Test code is now inside the quality gates (review finding F17 — the last scheduled item from the architecture review; the backlog is closed).
+
+### Internal
+
+- `src/test/**` is no longer eslint-ignored (a tests-only override relaxes mock idioms but keeps promise-safety at error), and the previously never-typechecked `test/` root (89 files) is covered by a new `tsconfig.test.json`, wired into `pretest` so CI gates it.
+- Fixed what the new gates surfaced: 3 real floating promises in the test harness (including an unawaited recursive temp-dir deletion that a Windows retry loop had been compensating for), 141 accumulated type errors across 27 test files (mocks now typed against real production signatures — no `as any` escape hatches added), and 25 stale `await`s.
+- One production type fix fell out: `IFileStatus.reposStatus` was missing the `lock` field that the status parser has always copied through from `IEntry`.
+
 ## [0.2.74] - 2026-07-08
 
 Deferred-backlog triage executed: dead code removed, real bugs in error surfaces fixed, false test coverage replaced, lint now gates CI. A second review pass re-verified all deferred findings against current code; ~75% were dropped as not worth doing (documented in docs/MAINTAINABILITY_REVIEW.md §5).

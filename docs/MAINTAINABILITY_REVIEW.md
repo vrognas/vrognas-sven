@@ -289,13 +289,16 @@ scheduled effort for a solo maintainer on stable, freshly-audited code.**
   now gates CI. The one real leak (raw svn error via `console.warn` in the
   post-commit path) routes through sanitized `logError`.
 
-### Still scheduled (one item)
+### Still scheduled
 
-- **F17 lint slice** (~half day): un-ignore `src/test/**` in eslint with a
-  tests-only override, fix the ~13 surfaced errors (3 floating promises in
-  `testUtil.ts` are real flake risk), add a lint ban on vscode-mock export
-  reassignment (enforces the CLAUDE.md `vi.spyOn` rule). The two-test-roots
-  merge is skipped (churn, no payoff).
+None — **F17 landed in 0.2.75** (bigger than estimated: beyond the eslint
+slice, the never-typechecked `test/` root gained `tsconfig.test.json`
+coverage, 141 accumulated type errors were fixed with zero new escape
+hatches, and CI now gates lint + both typechecks). The vscode-mock
+reassignment lint ban was deferred — it would flag ~120 existing sites and
+belongs with the F63 migration if that's ever done. The two-test-roots merge
+stays skipped (churn, no payoff). **The review backlog is closed**: every
+finding is either shipped or documented as dropped.
 
 ### Dropped with reasons (headline items)
 
