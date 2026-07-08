@@ -2674,37 +2674,12 @@ export class Repository implements IRemoteRepository {
   }
 
   /**
-   * Update lock status cache with info from --show-updates status call.
-   * Called when fetchLockStatus=true in updateModelState.
-   */
-  public updateLockCache(
-    relativePath: string,
-    lockStatus: LockStatus,
-    lockOwner?: string,
-    hasLockToken: boolean = false
-  ): void {
-    this.lockStatusCache.set(relativePath, {
-      lockStatus,
-      lockOwner,
-      hasLockToken
-    });
-  }
-
-  /**
-   * Get cached lock status for a file (by relative path).
-   * Returns undefined if not in cache.
-   */
-  public getCachedLockStatus(
-    relativePath: string
-  ):
-    | { lockStatus: LockStatus; lockOwner?: string; hasLockToken: boolean }
-    | undefined {
-    return this.lockStatusCache.get(relativePath);
-  }
-
-  /**
    * Get cached lock status for a file (by absolute path).
    * Sync method for use in decorators. Returns undefined if not in cache.
+   *
+   * All lockStatusCache access goes through toCacheKey/normalizeRelativePath
+   * derived keys; raw-relative-path accessors were removed as dead API to
+   * keep a single key derivation (the old dual-key hazard).
    */
   public getLockStatusCached(
     filePath: string
@@ -2714,13 +2689,6 @@ export class Repository implements IRemoteRepository {
     // Use same normalization as property caches for consistency
     const cacheKey = this.toCacheKey(filePath);
     return this.lockStatusCache.get(cacheKey);
-  }
-
-  /**
-   * Clear lock cache for a specific file (after unlock).
-   */
-  public clearLockCacheEntry(relativePath: string): void {
-    this.lockStatusCache.delete(relativePath);
   }
 
   /**
