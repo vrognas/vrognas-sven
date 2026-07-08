@@ -15,11 +15,7 @@ import {
   Uri,
   window
 } from "vscode";
-import {
-  RepositoryChangeEvent,
-  ISvnLogEntry,
-  ISvnLogEntryPath
-} from "../common/types";
+import { RepositoryChangeEvent, ISvnLogEntry } from "../common/types";
 import { SourceControlManager } from "../source_control_manager";
 import { Repository } from "../repository";
 import { dispose } from "../util";
@@ -228,7 +224,10 @@ export class RepoLogProvider
   }
 
   public async openFileRemoteCmd(element: ILogTreeItem) {
-    const commit = element.data as ISvnLogEntryPath;
+    if (element.kind !== LogTreeItemKind.CommitDetail) {
+      return;
+    }
+    const commit = element.data;
     const item = this.getCached(element);
     if (!item) {
       return;
@@ -242,7 +241,10 @@ export class RepoLogProvider
   }
 
   public async openFileLocal(element: ILogTreeItem) {
-    const commit = element.data as ISvnLogEntryPath;
+    if (element.kind !== LogTreeItemKind.CommitDetail) {
+      return;
+    }
+    const commit = element.data;
     const item = this.getCached(element);
     if (!item) {
       return;
@@ -257,7 +259,10 @@ export class RepoLogProvider
   }
 
   public async openDiffCmd(element: ILogTreeItem) {
-    const commit = element.data as ISvnLogEntryPath;
+    if (element.kind !== LogTreeItemKind.CommitDetail) {
+      return;
+    }
+    const commit = element.data;
     const item = this.getCached(element);
     if (!item) {
       return;
@@ -313,7 +318,7 @@ export class RepoLogProvider
     }
 
     try {
-      const commit = element.data as ISvnLogEntryPath;
+      const commit = element.data;
       const item = this.getCached(element);
       if (!item) {
         return;
@@ -338,7 +343,7 @@ export class RepoLogProvider
     }
 
     try {
-      const commit = element.data as ISvnLogEntryPath;
+      const commit = element.data;
       const item = this.getCached(element);
       if (!item) {
         return;
@@ -947,7 +952,7 @@ export class RepoLogProvider
   public async getTreeItem(element: ILogTreeItem): Promise<TreeItem> {
     let ti: TreeItem;
     if (element.kind === LogTreeItemKind.Commit) {
-      const commit = element.data as ISvnLogEntry;
+      const commit = element.data;
       ti = new TreeItem(
         getCommitLabel(commit),
         TreeItemCollapsibleState.Collapsed
@@ -968,7 +973,7 @@ export class RepoLogProvider
       }
     } else if (element.kind === LogTreeItemKind.CommitDetail) {
       // TODO optional tree-view instead of flat
-      const pathElem = element.data as ISvnLogEntryPath;
+      const pathElem = element.data;
       const basename = path.basename(pathElem._);
       const dirname = path.dirname(pathElem._);
       const cached = this.getCached(element);
@@ -1017,7 +1022,7 @@ export class RepoLogProvider
         arguments: [element]
       };
     } else if (element.kind === LogTreeItemKind.TItem) {
-      ti = element.data as TreeItem;
+      ti = element.data;
     } else {
       throw new Error("Unknown tree elem");
     }
@@ -1082,7 +1087,7 @@ export class RepoLogProvider
       }
       return result;
     } else if (element.kind === LogTreeItemKind.Commit) {
-      const commit = element.data as ISvnLogEntry;
+      const commit = element.data;
       // Filter out root "/" path - occurs in property-only commits and cannot be parsed
       const paths = commit.paths.filter(p => p._ !== "/");
       return transform(paths, LogTreeItemKind.CommitDetail, element);

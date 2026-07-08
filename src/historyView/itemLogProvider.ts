@@ -17,7 +17,6 @@ import {
   Uri,
   window
 } from "vscode";
-import { ISvnLogEntry } from "../common/types";
 import { confirmRollback } from "../ui/confirm";
 import { SourceControlManager } from "../source_control_manager";
 import { dispose } from "../util";
@@ -132,7 +131,7 @@ export class ItemLogProvider
     if (element.kind !== LogTreeItemKind.Commit) {
       return;
     }
-    const commit = element.data as ISvnLogEntry;
+    const commit = element.data;
     const revision = parseInt(commit.revision, 10);
     await commands.executeCommand("sven.repolog.goToRevision", revision);
   }
@@ -146,7 +145,7 @@ export class ItemLogProvider
       return;
     }
 
-    const commit = element.data as ISvnLogEntry;
+    const commit = element.data;
     const targetRevision = parseInt(commit.revision, 10);
 
     // Check if already at this revision (no-op)
@@ -214,10 +213,10 @@ export class ItemLogProvider
   }
 
   public async openFileRemoteCmd(element: ILogTreeItem) {
-    if (!this.currentItem) {
+    if (!this.currentItem || element.kind !== LogTreeItemKind.Commit) {
       return;
     }
-    const commit = element.data as ISvnLogEntry;
+    const commit = element.data;
     await openFileRemote(
       this.currentItem.repo,
       this.currentItem.svnTarget,
@@ -238,10 +237,10 @@ export class ItemLogProvider
   }
 
   public async openDiffBaseCmd(element: ILogTreeItem) {
-    if (!this.currentItem) {
+    if (!this.currentItem || element.kind !== LogTreeItemKind.Commit) {
       return;
     }
-    const commit = element.data as ISvnLogEntry;
+    const commit = element.data;
     return openDiff(
       this.currentItem.repo,
       this.currentItem.svnTarget,
@@ -251,10 +250,10 @@ export class ItemLogProvider
   }
 
   public async openDiffCmd(element: ILogTreeItem) {
-    if (!this.currentItem) {
+    if (!this.currentItem || element.kind !== LogTreeItemKind.Commit) {
       return;
     }
-    const commit = element.data as ISvnLogEntry;
+    const commit = element.data;
     const pos = this.currentItem.entries.findIndex(e => e === commit);
     if (pos === this.currentItem.entries.length - 1) {
       // First revision - no previous to diff against, show file content instead
@@ -431,7 +430,7 @@ export class ItemLogProvider
   public async getTreeItem(element: ILogTreeItem): Promise<TreeItem> {
     let ti: TreeItem;
     if (element.kind === LogTreeItemKind.Commit) {
-      const commit = element.data as ISvnLogEntry;
+      const commit = element.data;
       ti = new TreeItem(getCommitLabel(commit), TreeItemCollapsibleState.None);
       ti.description = getCommitDescription(commit);
       ti.iconPath = getCommitIcon(commit.author);
@@ -449,7 +448,7 @@ export class ItemLogProvider
         );
       }
     } else if (element.kind === LogTreeItemKind.TItem) {
-      ti = element.data as TreeItem;
+      ti = element.data;
     } else {
       throw new Error("Shouldn't happen");
     }

@@ -76,23 +76,46 @@ export interface ICachedLog {
   filter?: IHistoryFilter;
 }
 
-type TreeItemData = ISvnLogEntry | ISvnLogEntryPath | TreeItem;
+/** Maps each tree-item kind to the data shape it carries. */
+type DataFor<K extends LogTreeItemKind> = K extends LogTreeItemKind.Commit
+  ? ISvnLogEntry
+  : K extends LogTreeItemKind.CommitDetail
+    ? ISvnLogEntryPath
+    : TreeItem;
 
-export interface ILogTreeItem {
-  readonly kind: LogTreeItemKind;
-  data: TreeItemData;
+interface ILogTreeItemBase {
   readonly parent?: ILogTreeItem;
   isBase?: boolean; // True if this commit is the BASE revision
   isServerOnly?: boolean; // True if revision > BASE (not synced yet)
 }
 
-export function transform(
-  array: TreeItemData[],
-  kind: LogTreeItemKind,
+/**
+ * Discriminated on `kind`: checking it narrows `data` to the matching shape,
+ * so handlers don't need (and can't mis-state) `as` casts.
+ */
+export type ILogTreeItem =
+  | (ILogTreeItemBase & {
+      readonly kind: LogTreeItemKind.Commit;
+      data: ISvnLogEntry;
+    })
+  | (ILogTreeItemBase & {
+      readonly kind: LogTreeItemKind.CommitDetail;
+      data: ISvnLogEntryPath;
+    })
+  | (ILogTreeItemBase & {
+      readonly kind: LogTreeItemKind.TItem;
+      data: TreeItem;
+    });
+
+export function transform<K extends LogTreeItemKind>(
+  array: DataFor<K>[],
+  kind: K,
   parent?: ILogTreeItem
 ): ILogTreeItem[] {
   return array.map(data => {
-    return { kind, data, parent };
+    // Safe: K correlates data with kind at every call site; TS can't prove
+    // the correlated pair inside a generic, hence the single cast here
+    return { kind, data, parent } as ILogTreeItem;
   });
 }
 
@@ -119,7 +142,7 @@ export async function copyCommitToClipboard(what: string, item: ILogTreeItem) {
     return;
   }
   if (item.kind === LogTreeItemKind.Commit) {
-    const commit = item.data as ISvnLogEntry;
+    const commit = item.data;
     switch (what) {
       case "msg":
       case "revision":
@@ -165,7 +188,7 @@ export function insertBaseMarker(
     if (logItem?.kind !== LogTreeItemKind.Commit) {
       continue;
     }
-    const commit = logItem.data as ISvnLogEntry;
+    const commit = logItem.data;
     const rev = parseInt(commit.revision, 10);
     if (rev === baseRev) {
       // Mark this commit as BASE
