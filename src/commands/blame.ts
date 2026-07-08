@@ -7,6 +7,7 @@ import { Command } from "./command";
 import { Repository } from "../repository";
 import { Resource } from "../resource";
 import { Status } from "../common/types";
+import { blameStateManager } from "../blame/blameStateManager";
 import { logError } from "../util/errorLogger";
 
 /**
@@ -71,21 +72,21 @@ export class Blame extends Command {
         }
       }
 
-      // Execute blame
       try {
-        const blameLines = await repository.blame(
-          uri.fsPath,
-          revision || "HEAD"
-        );
+        if (revision) {
+          // Programmatic path: explicit revision, direct fetch
+          const blameLines = await repository.blame(uri.fsPath, revision);
+          window.showInformationMessage(
+            `Blame loaded: ${blameLines.length} lines from ${uri.fsPath}`
+          );
+          return;
+        }
 
-        // For now, just show success message
-        // BlameProvider will handle actual UI display
-        window.showInformationMessage(
-          `Blame loaded: ${blameLines.length} lines from ${uri.fsPath}`
-        );
-
-        // TODO: Trigger BlameProvider to display results
-        // This will be wired up when BlameProvider is implemented
+        // UI path ("Show Annotations"): enable blame for the file - the
+        // BlameProvider reacts to the state change and fetches through the
+        // shared caches. The previous implementation ran a remote HEAD
+        // blame here and threw the result away (toast only).
+        blameStateManager.setBlameEnabled(uri, true);
       } catch (err) {
         logError("Blame command failed", err);
         throw err; // handleRepositoryOperation will catch and show to user

@@ -135,7 +135,13 @@ export class SourceControlManager implements IDisposable {
   }
 
   private onDidChangeConfiguration(): void {
-    this.maxDepth = configuration.get<number>("multipleFolders.depth", 0);
+    // Depth only applies while multipleFolders is enabled. Unconditional
+    // assignment let ANY config change flip maxDepth from 0 to the
+    // package.json default (4), enabling recursive directory walks the
+    // disabled mode is documented to prevent.
+    this.maxDepth = configuration.get<boolean>("multipleFolders.enabled", false)
+      ? configuration.get<number>("multipleFolders.depth", 0)
+      : 0;
   }
 
   private async enable() {

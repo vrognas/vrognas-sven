@@ -1146,28 +1146,38 @@ export class BlameProvider implements Disposable {
     revision: string,
     range: { min: number; max: number; uniqueRevisions: number[] }
   ): string {
-    if (this.revisionColors.has(revision)) {
-      return this.revisionColors.get(revision)!;
-    }
-
     const revNum = parseInt(revision, 10);
-    if (isNaN(revNum) || range.uniqueRevisions.length === 0) {
-      // Fallback for invalid or empty: mid-point blue-purple
-      const color = this.hslToHex(240, 45, this.getThemeAwareLightness());
-      this.revisionColors.set(revision, color);
-      return color;
-    }
-
     const saturation = 45; // Increased for better distinction
     const lightness = this.getThemeAwareLightness();
 
     // Find index of this revision in the file's unique revisions (sorted newest first)
     const revisionIndex = range.uniqueRevisions.indexOf(revNum);
 
+    // The color is a function of the revision's POSITION in this file's
+    // range (index + range size) and the theme lightness - a revision-only
+    // key would freeze the first-blamed file's palette for every other
+    // file sharing the revision (and across theme switches)
+    const cacheKey = `${revision}@${revisionIndex}/${range.uniqueRevisions.length}L${lightness}`;
+    const cached = this.revisionColors.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+    // Bound growth: keys are per (revision, position, range size, theme)
+    if (this.revisionColors.size > 2000) {
+      this.revisionColors.clear();
+    }
+
+    if (isNaN(revNum) || range.uniqueRevisions.length === 0) {
+      // Fallback for invalid or empty: mid-point blue-purple
+      const color = this.hslToHex(240, 45, lightness);
+      this.revisionColors.set(cacheKey, color);
+      return color;
+    }
+
     if (revisionIndex === -1) {
       // Not found (shouldn't happen), fallback
       const color = this.hslToHex(240, saturation, lightness);
-      this.revisionColors.set(revision, color);
+      this.revisionColors.set(cacheKey, color);
       return color;
     }
 
@@ -1177,7 +1187,7 @@ export class BlameProvider implements Disposable {
       const categoricalHues = [0, 30, 60, 120, 200]; // Red→orange→yellow→green→blue
       const hue = categoricalHues[revisionIndex]!;
       const color = this.hslToHex(hue, saturation, lightness);
-      this.revisionColors.set(revision, color);
+      this.revisionColors.set(cacheKey, color);
       return color;
     } else {
       // Older revisions: gradient heatmap (blue → purple)
@@ -1187,7 +1197,7 @@ export class BlameProvider implements Disposable {
       if (olderRevisions.length === 1) {
         // Only one older revision, use blue
         const color = this.hslToHex(200, saturation, lightness);
-        this.revisionColors.set(revision, color);
+        this.revisionColors.set(cacheKey, color);
         return color;
       }
 
@@ -1201,7 +1211,7 @@ export class BlameProvider implements Disposable {
       // Interpolate hue: 200 (blue) → 280 (purple)
       const hue = Math.round(200 + quantizedNormalized * 80);
       const color = this.hslToHex(hue, saturation, lightness);
-      this.revisionColors.set(revision, color);
+      this.revisionColors.set(cacheKey, color);
       return color;
     }
   }
