@@ -847,6 +847,12 @@ export class RepoLogProvider
       // Determine if we should clear or preserve cache
       const shouldClearCache = explicitRefresh === true;
 
+      // Snapshot BEFORE the delete loop below: the at-newest skip needs
+      // the previous entries even for auto-added repos (which get deleted)
+      const prevSnapshot = shouldClearCache
+        ? new Map(this.logCache)
+        : undefined;
+
       // Save entries before modifying cache (if preserving)
       const savedEntries = new Map<string, ISvnLogEntry[]>();
       if (!shouldClearCache) {
@@ -884,21 +890,52 @@ export class RepoLogProvider
           prev?.persisted.baseRevision !== undefined &&
           prev.persisted.baseRevision !== currentRevision;
 
+        // At-newest skip for explicit refresh: history <= the WC revision
+        // is immutable, so a cache whose newest entry already reaches the
+        // current revision can only re-download identical data (common
+        // case: incoming revisions were already fetched from HEAD, then
+        // the user pressed Update). Keep the entries; just move the BASE
+        // marker. Post-commit the WC revision jumps past the cache, so
+        // that path still refetches.
+        const snap = prevSnapshot?.get(repoUrl);
+        const newestCached =
+          snap && !snap.isLoading && snap.entries.length
+            ? parseInt(snap.entries[0]!.revision, 10)
+            : NaN;
+        const alreadyCurrent =
+          !isNaN(newestCached) &&
+          !isNaN(currentRevision) &&
+          newestCached >= currentRevision;
+
         let persisted: ICachedLog["persisted"] = {
           commitFrom: "HEAD",
           baseRevision: currentRevision
         };
         // Preserve persisted ONLY if: no explicit refresh AND no revision change
         // Explicit refresh (shouldClearCache) should always update baseRevision
-        if (prev && !shouldClearCache && !revisionChanged) {
+        if (alreadyCurrent && snap) {
+          persisted = { ...snap.persisted, baseRevision: currentRevision };
+        } else if (prev && !shouldClearCache && !revisionChanged) {
           persisted = prev.persisted;
         }
 
-        // Clear entries if explicit refresh OR revision changed
-        const clearEntries = shouldClearCache || revisionChanged;
-        const entries = clearEntries ? [] : savedEntries.get(repoUrl) || [];
+        // Clear entries if explicit refresh OR revision changed - unless
+        // the cache already covers the current revision
+        const clearEntries =
+          !alreadyCurrent && (shouldClearCache || revisionChanged);
+        const entries =
+          alreadyCurrent && snap
+            ? snap.entries
+            : clearEntries
+              ? []
+              : savedEntries.get(repoUrl) || [];
         // Preserve isComplete if we're keeping entries
-        const isComplete = clearEntries ? false : (prev?.isComplete ?? false);
+        const isComplete =
+          alreadyCurrent && snap
+            ? snap.isComplete
+            : clearEntries
+              ? false
+              : (prev?.isComplete ?? false);
 
         // LRU eviction before adding (if not updating existing)
         if (

@@ -2243,8 +2243,26 @@ export class Repository implements IRemoteRepository {
         this.lastForceRefresh = Date.now();
       }
 
+      // Post-mutation invalidation: blame caches + branch-changes cache
+      const clearMutationCaches = () => {
+        this.repository.clearBlameCache();
+        this._changesCache = undefined;
+        this._changesGeneration++;
+      };
+
       try {
         const result = await this.retryRun(runOperation);
+
+        // Mutating ops can change BASE content - drop the repo blame cache
+        // so blame doesn't show pre-op data for up to 5 min. Must run
+        // BEFORE updateModelState: its forced `svn info` seeds the info
+        // cache, and clearing afterwards (the old finally-block placement)
+        // wiped that fresh entry, forcing a redundant info re-exec on the
+        // next getInfo. Also runs before onDidRunOperation fires so
+        // subscribers see a clean cache.
+        if (BLAME_INVALIDATING_OPERATIONS.has(operation)) {
+          clearMutationCaches();
+        }
 
         const checkRemote = operation === Operation.StatusRemote;
 
@@ -2266,6 +2284,13 @@ export class Repository implements IRemoteRepository {
 
         return result;
       } catch (err) {
+        // A FAILED commit/update can still have partially mutated the WC -
+        // same invalidation as the success path, before the recovery
+        // status refresh below
+        if (BLAME_INVALIDATING_OPERATIONS.has(operation)) {
+          clearMutationCaches();
+        }
+
         // Lock/Unlock: refresh status even on error (e.g., "already locked")
         // to show correct lock state regardless of command success
         if (operation === Operation.Lock || operation === Operation.Unlock) {
@@ -2288,15 +2313,6 @@ export class Repository implements IRemoteRepository {
 
         throw err;
       } finally {
-        // Mutating ops can change BASE content - drop the repo blame cache
-        // so blame doesn't show pre-op data for up to 5 min. In finally:
-        // a FAILED commit/update can still have partially mutated the WC.
-        // Runs before onDidRunOperation so subscribers see a clean cache.
-        if (BLAME_INVALIDATING_OPERATIONS.has(operation)) {
-          this.repository.clearBlameCache();
-          this._changesCache = undefined;
-          this._changesGeneration++;
-        }
         this._operations.end(operation);
         this._onDidRunOperation.fire(operation);
       }

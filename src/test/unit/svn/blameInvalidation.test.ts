@@ -89,4 +89,67 @@ suite("Blame cache invalidation on mutating operations", () => {
     await run.call(mockThis, Operation.Blame, async () => "ok");
     assert.strictEqual(cleared, 1, "read-only ops must not clear it");
   });
+
+  test("Repository.run clears caches BEFORE the post-op status refresh", async () => {
+    const { Repository } = await import("../../../repository");
+
+    const order: string[] = [];
+    const mockThis: any = {
+      state: RepositoryState.Idle,
+      repository: {
+        clearBlameCache: () => order.push("clear")
+      },
+      _operations: { start: () => {}, end: () => {} },
+      _onRunOperation: { fire: () => {} },
+      _onDidRunOperation: { fire: () => order.push("event") },
+      retryRun: async (fn: () => Promise<unknown>) => fn(),
+      updateModelState: async () => {
+        order.push("status");
+      },
+      lastForceRefresh: 0,
+      _changesGeneration: 0
+    };
+
+    const run = (Repository.prototype as any).run;
+    await run.call(mockThis, Operation.Update, async () => "ok");
+    assert.deepStrictEqual(
+      order,
+      ["clear", "status", "event"],
+      "clear must precede updateModelState so its seeded info cache survives"
+    );
+  });
+
+  test("Repository.run still clears caches when the operation fails", async () => {
+    const { Repository } = await import("../../../repository");
+
+    let cleared = 0;
+    const mockThis: any = {
+      state: RepositoryState.Idle,
+      workspaceRoot: process.cwd(),
+      repository: {
+        clearBlameCache: () => {
+          cleared++;
+        }
+      },
+      _operations: { start: () => {}, end: () => {} },
+      _onRunOperation: { fire: () => {} },
+      _onDidRunOperation: { fire: () => {} },
+      retryRun: async (fn: () => Promise<unknown>) => fn(),
+      updateModelState: async () => {},
+      lastForceRefresh: 0,
+      _changesGeneration: 0
+    };
+
+    const run = (Repository.prototype as any).run;
+    await assert.rejects(
+      run.call(mockThis, Operation.Update, async () => {
+        throw new Error("E170013 connection refused");
+      })
+    );
+    assert.strictEqual(
+      cleared,
+      1,
+      "a failed update may have partially mutated the WC - caches must drop"
+    );
+  });
 });

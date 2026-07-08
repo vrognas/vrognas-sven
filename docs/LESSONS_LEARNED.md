@@ -1,7 +1,27 @@
 # Lessons Learned
 
-**Version**: 0.2.68
-**Updated**: 2026-07-07
+**Version**: 0.2.69
+**Updated**: 2026-07-08
+
+---
+
+### 74. Invalidate Between the Mutation and the Refresh — `finally` Runs Too Late
+
+**Lesson**: `run()` cleared blame/info caches in `finally` — i.e. after the post-op `updateModelState` had already executed a forced `svn info` and seeded the info cache. The invalidation silently discarded data fresher than anything it was guarding against, forcing a redundant `svn info` on the next `getInfo`. The `finally` placement was chosen for a real reason (failed ops must also invalidate), but it conflated "always runs" with "runs at the right time".
+
+**Fix**: Invalidation moved to immediately after the mutation resolves (before the model refresh) plus an explicit clear at the top of `catch` for the failure leg. Order-pinned by a test asserting `["clear", "status", "event"]`.
+
+**Rule**: In do → invalidate → refresh pipelines, `finally` sequences the invalidation AFTER the refresh that repopulates. Place invalidation between mutation and refresh; cover the failure leg in `catch`, not by moving everything to `finally`. Pin the ordering with a test — placement bugs like this survive because "cache cleared: yes" assertions pass at any position.
+
+---
+
+### 73. Version History Is Immutable — an Explicit Refresh Can Prove Itself Redundant
+
+**Lesson**: The repo-history panel's explicit refresh always cleared and refetched `svn log`, including right after `svn update`. But history at or below the working-copy revision cannot change; when the panel's newest cached entry already reached the post-update revision (typical: user watched incoming revisions arrive, then pressed Update), the refetch could only re-download identical data. The refresh conflated two different needs: "my entries may be stale" (refetch) and "my BASE marker moved" (re-render only).
+
+**Fix**: At-newest skip in `refresh()`: on explicit refresh, if the previous cache's newest entry revision ≥ the current WC revision (and no load is in flight), keep entries and only move `persisted.baseRevision`. Post-commit still refetches — the new revision is above any cache.
+
+**Rule**: Before forcing a refetch of monotonic/append-only data, compare the cache's high-water mark against the authoritative counter (SVN's revision number); refetch only below it. Keep display-state updates (markers, badges) decoupled from data refetches so skipping one doesn't skip the other.
 
 ---
 

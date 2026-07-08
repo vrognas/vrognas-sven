@@ -7,6 +7,20 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.69] - 2026-07-08
+
+Update-button cascade trimmed: the two remaining audit items scoped to the repo-history Update flow.
+
+### Changed
+
+- **History at-newest skip**: pressing Update when the history panel already shows the revisions being pulled (the common "watch incoming, then update" flow) no longer refetches `svn log` — history at or below the working-copy revision is immutable, so the panel keeps its entries and just moves the BASE marker. Post-commit refreshes still refetch (the revision jumps past the cache), as do filtered views, stale caches, and in-flight loads.
+
+### Fixed
+
+- Mutating operations wiped the per-file info cache _after_ the post-operation status refresh had just seeded it with fresh `svn info` data, so the next consumer (branch indicator, blame BASE-key resolution) re-executed `svn info` for nothing. Invalidation now runs between the mutation and the refresh — on both success and failure paths, still before `onDidRunOperation` subscribers observe the operation.
+
+---
+
 ## [0.2.68] - 2026-07-08
 
 Audit leftovers: three defects confirmed in earlier review passes but parked as out of scope.
