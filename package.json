@@ -1081,15 +1081,15 @@
         },
         {
           "command": "sven.blame.clearBlame",
-          "when": "config.svn.blame.enabled && svnOpenRepositoryCount != 0"
+          "when": "config.sven.blame.enabled && svnOpenRepositoryCount != 0"
         },
         {
           "command": "sven.blame.showBlame",
-          "when": "config.svn.blame.enabled && svnOpenRepositoryCount != 0"
+          "when": "config.sven.blame.enabled && svnOpenRepositoryCount != 0"
         },
         {
           "command": "sven.blame.toggleBlame",
-          "when": "config.svn.blame.enabled && svnOpenRepositoryCount != 0"
+          "when": "config.sven.blame.enabled && svnOpenRepositoryCount != 0"
         },
         {
           "command": "sven.branchchanges.openDiff",
@@ -1771,17 +1771,17 @@
         {
           "command": "sven.blame.disableBlame",
           "group": "navigation",
-          "when": "config.svn.blame.enabled && svnOpenRepositoryCount != 0 && !isInDiffEditor && resourceScheme == file && svnBlameActiveForFile && !svnBlameUntrackedFile"
+          "when": "config.sven.blame.enabled && svnOpenRepositoryCount != 0 && !isInDiffEditor && resourceScheme == file && svnBlameActiveForFile && !svnBlameUntrackedFile"
         },
         {
           "command": "sven.blame.enableBlame",
           "group": "navigation",
-          "when": "config.svn.blame.enabled && svnOpenRepositoryCount != 0 && !isInDiffEditor && resourceScheme == file && !svnBlameActiveForFile && !svnBlameUntrackedFile"
+          "when": "config.sven.blame.enabled && svnOpenRepositoryCount != 0 && !isInDiffEditor && resourceScheme == file && !svnBlameActiveForFile && !svnBlameUntrackedFile"
         },
         {
           "command": "sven.blame.untrackedInfo",
           "group": "navigation",
-          "when": "config.svn.blame.enabled && svnOpenRepositoryCount != 0 && !isInDiffEditor && resourceScheme == file && svnBlameUntrackedFile"
+          "when": "config.sven.blame.enabled && svnOpenRepositoryCount != 0 && !isInDiffEditor && resourceScheme == file && svnBlameUntrackedFile"
         },
         {
           "command": "sven.openFile",
