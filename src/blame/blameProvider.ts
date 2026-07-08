@@ -455,6 +455,37 @@ export class BlameProvider implements Disposable {
   }
 
   /**
+   * Build one end-of-line inline blame decoration. Shared by the three
+   * inline render paths (message refresh, cursor move, full render) so the
+   * range/renderOptions/hover shape can't drift between them - the copies
+   * had already diverged once before this was extracted.
+   */
+  private buildInlineDecoration(
+    editor: TextEditor,
+    lineIndex: number,
+    blameLine: ISvnBlameLine,
+    inlineText: string,
+    inlineColor: string
+  ): DecorationOptions {
+    const line = editor.document.lineAt(lineIndex);
+    return {
+      range: new Range(
+        lineIndex,
+        line.range.end.character,
+        lineIndex,
+        line.range.end.character
+      ),
+      renderOptions: {
+        after: {
+          contentText: inlineText,
+          color: inlineColor
+        }
+      },
+      hoverMessage: `SVN: r${blameLine.revision} by ${blameLine.author}`
+    };
+  }
+
+  /**
    * Update inline decorations with commit messages
    * Called after messages are fetched asynchronously
    */
@@ -491,22 +522,15 @@ export class BlameProvider implements Disposable {
       const message = this.messageCache.get(blameLine.revision) || "";
       const inlineText = this.formatInlineText(blameLine, message);
 
-      const line = editor.document.lineAt(lineIndex);
-      inlineDecorations.push({
-        range: new Range(
+      inlineDecorations.push(
+        this.buildInlineDecoration(
+          editor,
           lineIndex,
-          line.range.end.character,
-          lineIndex,
-          line.range.end.character
-        ),
-        renderOptions: {
-          after: {
-            contentText: inlineText,
-            color: inlineColor
-          }
-        },
-        hoverMessage: `SVN: r${blameLine.revision} by ${blameLine.author}`
-      });
+          blameLine,
+          inlineText,
+          inlineColor
+        )
+      );
     }
 
     // Apply updated inline decorations with messages
@@ -591,22 +615,15 @@ export class BlameProvider implements Disposable {
       const message = this.messageCache.get(blameLine.revision) || "";
       const inlineText = this.formatInlineText(blameLine, message);
 
-      const line = editor.document.lineAt(lineIndex);
-      inlineDecorations.push({
-        range: new Range(
+      inlineDecorations.push(
+        this.buildInlineDecoration(
+          editor,
           lineIndex,
-          line.range.end.character,
-          lineIndex,
-          line.range.end.character
-        ),
-        renderOptions: {
-          after: {
-            contentText: inlineText,
-            color: inlineColor
-          }
-        },
-        hoverMessage: `SVN: r${blameLine.revision} by ${blameLine.author}`
-      });
+          blameLine,
+          inlineText,
+          inlineColor
+        )
+      );
 
       break; // Found current line, done
     }
@@ -1033,22 +1050,15 @@ export class BlameProvider implements Disposable {
 
           const inlineText = this.formatInlineText(blameLine, message);
 
-          const line = editor.document.lineAt(lineIndex);
-          inlineDecorations.push({
-            range: new Range(
+          inlineDecorations.push(
+            this.buildInlineDecoration(
+              editor,
               lineIndex,
-              line.range.end.character,
-              lineIndex,
-              line.range.end.character
-            ),
-            renderOptions: {
-              after: {
-                contentText: inlineText,
-                color: inlineColor
-              }
-            },
-            hoverMessage: `SVN: r${blameLine.revision} by ${blameLine.author}`
-          });
+              blameLine,
+              inlineText,
+              inlineColor
+            )
+          );
         }
       }
     }
