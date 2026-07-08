@@ -23,6 +23,14 @@ class TestCommand extends Command {
     return (this as any).sanitizeStderr(stderr);
   }
 
+  // Expose handleOperationError for testing (setDepth-style result objects)
+  public async testHandleOperationError(
+    error: unknown,
+    errorMsg: string
+  ): Promise<void> {
+    return await (this as any).handleOperationError(error, errorMsg);
+  }
+
   // Expose handleRepositoryOperation for testing
   public async testHandleRepositoryOperation<T>(
     operation: () => Promise<T>,
@@ -700,6 +708,32 @@ suite("Error Formatting Tests", () => {
 
       assert.ok(result.includes("Network timeout"));
       // Internal sanitization occurred
+    });
+  });
+
+  suite("handleOperationError with result objects (setDepth shape)", () => {
+    test("routes {exitCode, stderr} cleanup errors to Run Cleanup action", async () => {
+      await command.testHandleOperationError(
+        { exitCode: 1, stderr: "svn: E155004: Working copy locked" },
+        "Failed to change checkout depth"
+      );
+
+      assert.strictEqual(showErrorCalls.length, 1);
+      assert.ok(showErrorCalls[0].message.includes("cleanup"));
+      assert.ok(showErrorCalls[0].items.includes("Run Cleanup"));
+    });
+
+    test("shows sanitized fallback with code for unknown result errors", async () => {
+      await command.testHandleOperationError(
+        { exitCode: 1, stderr: "svn: E999999: something odd" },
+        "Failed to change checkout depth"
+      );
+
+      assert.strictEqual(showErrorCalls.length, 1);
+      assert.ok(
+        showErrorCalls[0].message.startsWith("Failed to change checkout depth")
+      );
+      assert.ok(showErrorCalls[0].message.includes("E999999"));
     });
   });
 });

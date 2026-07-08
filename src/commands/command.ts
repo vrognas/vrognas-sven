@@ -994,7 +994,7 @@ export abstract class Command implements Disposable {
    * Note: network retry is NOT here — it needs the operation lambda, so it stays
    * in handleRepositoryOperation only.
    */
-  private async handleOperationError(
+  protected async handleOperationError(
     error: unknown,
     errorMsg: string
   ): Promise<void> {

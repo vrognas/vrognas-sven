@@ -17,7 +17,6 @@ import { Command } from "./command";
 import { confirm } from "../ui";
 import { formatBytes, formatDuration, formatSpeed } from "../util/formatting";
 import { Repository } from "../repository";
-import { needsCleanupFromFullError } from "./errorDetectors";
 
 /** Default download timeout in minutes */
 const DEFAULT_DOWNLOAD_TIMEOUT_MINUTES = 10;
@@ -211,7 +210,10 @@ export class SetDepth extends Command {
       const unsafeFiles = getUnsafeFiles(repository, uri.fsPath);
       if (unsafeFiles.length > 0) {
         const fileList = unsafeFiles.slice(0, 5).join("\n");
-        const more = unsafeFiles.length > 5 ? `\n...and ${unsafeFiles.length - 5} more` : "";
+        const more =
+          unsafeFiles.length > 5
+            ? `\n...and ${unsafeFiles.length - 5} more`
+            : "";
         const choice = await window.showWarningMessage(
           `${unsafeFiles.length} uncommitted/unversioned file(s) will be lost:\n\n${fileList}${more}\n\nCommit or move them first, or proceed to discard.`,
           { modal: true },
@@ -350,9 +352,13 @@ export class SetDepth extends Command {
                 pollInterval = setInterval(() => {
                   if (token.isCancellationRequested) return;
                   const stats = getFolderStats(uri.fsPath, pollRecursive);
-                  const pct = Math.max(0, Math.min(100, Math.round(
-                    (stats.size / expectedTotalSize) * 100
-                  )));
+                  const pct = Math.max(
+                    0,
+                    Math.min(
+                      100,
+                      Math.round((stats.size / expectedTotalSize) * 100)
+                    )
+                  );
 
                   // Calculate smoothed speed with exponential moving average
                   const now = Date.now();
@@ -413,9 +419,13 @@ export class SetDepth extends Command {
                 pollInterval = setInterval(() => {
                   const stats = getFolderStats(uri.fsPath);
                   const removedSize = initialTotalSize - stats.size;
-                  const pct = Math.max(0, Math.min(100, Math.round(
-                    (removedSize / initialTotalSize) * 100
-                  )));
+                  const pct = Math.max(
+                    0,
+                    Math.min(
+                      100,
+                      Math.round((removedSize / initialTotalSize) * 100)
+                    )
+                  );
 
                   // Calculate smoothed speed with exponential moving average
                   const now = Date.now();
@@ -502,34 +512,16 @@ export class SetDepth extends Command {
         // Refresh sparse checkout tree to reflect changes
         commands.executeCommand("sven.sparse.refresh");
       } else {
-        const stderr = result.stderr || "Unknown error";
-        if (needsCleanupFromFullError(stderr)) {
-          const action = await window.showErrorMessage(
-            "Working copy is locked. Run cleanup to fix.",
-            "Run Cleanup"
-          );
-          if (action === "Run Cleanup") {
-            commands.executeCommand("sven.cleanup");
-          }
-        } else {
-          window.showErrorMessage(
-            `Failed to change checkout: ${result.stderr || "Unknown error"}`
-          );
-        }
+        // Full recovery chain: auth/lock/cleanup/update/conflict prompts,
+        // sanitized stderr - replaces the hand-rolled cleanup-only branch
+        // that showed raw stderr
+        await this.handleOperationError(
+          result,
+          "Failed to change checkout depth"
+        );
       }
     } catch (error) {
-      const errStr = String(error);
-      if (needsCleanupFromFullError(errStr)) {
-        const action = await window.showErrorMessage(
-          "Working copy is locked. Run cleanup to fix.",
-          "Run Cleanup"
-        );
-        if (action === "Run Cleanup") {
-          commands.executeCommand("sven.cleanup");
-        }
-      } else {
-        window.showErrorMessage(`Failed to change checkout: ${error}`);
-      }
+      await this.handleOperationError(error, "Failed to change checkout depth");
     } finally {
       // Re-enable status updates
       repository.endSparseDownload();
