@@ -1,7 +1,17 @@
 # Lessons Learned
 
-**Version**: 0.2.72
+**Version**: 0.2.73
 **Updated**: 2026-07-08
+
+---
+
+### 78. Don't Return a Promise From a Constructor — Use a Static Factory
+
+**Lesson**: `SvnRepository` and `SourceControlManager` ran async init by returning `(async () => { …; return this })() as unknown as T` from their constructors, gated by a `ConstructorPolicy` enum. `new X()` therefore lied about its type (a `Promise<X>` masquerading as `X`), every call site had to `await new X(...)`, and the sync-vs-async paths were entangled in one body.
+
+**Fix**: A synchronous constructor that only initializes fields, plus a `static async create(...)` that constructs then awaits the async work. Production always used the eager path, so `ConstructorPolicy` was deleted; the test-only "late init" path is now a plain `new`.
+
+**Rule**: A constructor must return an instance of its class, synchronously. Async setup belongs in a `static async create()` factory. `as unknown as T` on a constructor return is a red flag — the cast is hiding a Promise. This is also the entry point for dependency injection (see F31: the god-object `Repository` still news up VS-Code-bound collaborators inline).
 
 ---
 

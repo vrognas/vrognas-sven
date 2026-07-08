@@ -7,6 +7,14 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.73] - 2026-07-08
+
+Construction seam (architecture review, Phase 2 cont.): removed the async-constructor anti-pattern.
+
+### Changed
+
+- Internal: the SVN repository wrapper and `SourceControlManager` no longer return a `Promise` from their constructors via an `as unknown as T` cast. They expose explicit `static async create(...)` factories that run async initialization (`svn info` fetch / repository discovery). The `ConstructorPolicy` enum is removed — production only ever used the eager path. No behavior change.
+
 ## [0.2.72] - 2026-07-08
 
 Seam work (architecture review, Phase 2, partial): a latent bug fix and service decoupling. The larger construction/DI seams (F13/F31) and lookup typing (F58) are deferred to a dedicated pass.

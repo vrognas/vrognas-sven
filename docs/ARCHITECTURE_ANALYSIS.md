@@ -1,6 +1,6 @@
 # SVN Extension Architecture
 
-**Version**: 0.2.72
+**Version**: 0.2.73
 **Updated**: 2026-07-08
 
 ---
@@ -212,10 +212,18 @@ to errors. Deferred within Phase 1: the F63 `vi.spyOn` test-harness migration
 (large; entangled with the eslint-ignored `src/test/**`). Phase 2 (seams)
 partial as of 0.2.72: `Resource.withLock()` (fixes the F54 propertyChanges-drop
 bug), role interfaces for the commit services (F11). Deferred to a dedicated
-construction/DI pass: `create()` factories (F13) — paired with the large
-`RepositoryDependencies` work (F31) as they touch the same construction seam —
-plus typed repo-lookup (F58), BlameProvider DI (F08), and Command-base SCM
-injection (F12).
+construction/DI pass. **F13 done as of 0.2.73**: `static create()` factories
+replace the async-constructor cast; `ConstructorPolicy` removed.
+
+Still deferred — **F31** (god-object `Repository` DI): its constructor is
+synchronous but hard-wires VS Code globals (`scm.createSourceControl`,
+`window.registerFileDecorationProvider`, window focus) and is `this`-coupled
+(`new StatusBarCommands(this)`, `new SvnFileDecorationProvider(this)`).
+Unit-constructibility requires injecting those _boundary_ operations via a
+`RepositoryDependencies` struct (real defaults), and per the review that must
+follow a construction characterization-test suite (none exists — tests use
+`Partial<Repository>`). Large; its own session. Also deferred: typed
+repo-lookup (F58), BlameProvider DI (F08), Command-base SCM injection (F12).
 
 ---
 
