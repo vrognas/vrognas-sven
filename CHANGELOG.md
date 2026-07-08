@@ -7,6 +7,29 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.70] - 2026-07-08
+
+Maintainability pass (architecture review, Phase 0): a fixed command-not-found bug, dead-code removal, and dependency hygiene. No behavior change beyond the fix.
+
+### Fixed
+
+- **Orphaned watch commands**: `Toggle Watch for Remote Changes` and `Manage Watches...` were listed in the command palette and explorer context menu but nothing registered them — invoking either threw `command 'sven.toggleWatch' not found`. The feature had been removed earlier, leaving the manifest entries; both are now gone.
+
+### Changed
+
+- Extracted the bounded-concurrency runner (`pLimit`) and the sparse-download progress monitors out of `SparseCheckoutProvider` into their own modules (internal; no behavior change).
+- `original-fs` moved from dev to runtime dependencies (it is imported by `src/fs/`).
+
+### Removed
+
+- Dead `AuthService` fork (the live `retryRun` auth path is a superset) and its false-coverage test.
+- A self-referential `[key: number]` index signature on `IFileStatus` that weakened type checking.
+- Stale pre-rename `.vsix` binaries; unused dev dependencies (`eslint-plugin-prettier`, `prettylint`); the duplicate `test:fast` script.
+
+### Internal
+
+- New command-manifest integrity test guards against declared-but-unregistered commands and undeclared menu references.
+
 ## [0.2.69] - 2026-07-08
 
 Update-button cascade trimmed: the two remaining audit items scoped to the repo-history Update flow.

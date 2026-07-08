@@ -1,7 +1,17 @@
 # Lessons Learned
 
-**Version**: 0.2.69
+**Version**: 0.2.70
 **Updated**: 2026-07-08
+
+---
+
+### 75. Manifest Commands Can Outlive Their Handlers — Guard the Contract
+
+**Lesson**: `sven.toggleWatch` / `sven.manageWatches` sat in `contributes.commands` and in two menus long after the watch feature was deleted. Nothing registered them, so the palette and context menu offered entries that threw `command not found`. Static review missed it because the manifest and the code drift independently — package.json declares, code registers, and no build step cross-checks the two.
+
+**Fix**: Removed the orphaned declarations + menu refs, and added a unit test asserting every declared command appears as a registered string literal in non-test src, every menu/keybinding command is declared, and no id is duplicated.
+
+**Rule**: A VS Code manifest is an untyped contract with the code. Any command id declared or referenced in package.json but never registered is a latent "command not found". Cross-check it in a test; the literal-string heuristic is enough and cheaply catches feature-removal leftovers.
 
 ---
 

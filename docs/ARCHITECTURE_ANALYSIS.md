@@ -1,7 +1,7 @@
 # SVN Extension Architecture
 
-**Version**: 0.2.68
-**Updated**: 2026-07-07
+**Version**: 0.2.70
+**Updated**: 2026-07-08
 
 ---
 
@@ -200,7 +200,12 @@ External: vscode, @posit-dev/positron
 - ~46 command files after consolidation (reveal, ignore, patch, commit merged)
 - ~248 `any` types remaining across 25 files (mostly test files; production ~5 files)
 - fs/ wrappers use `promisify(original-fs)` — could use `original-fs.promises`
-- AuthService extracted but unused in production (retryRun inline in repository.ts)
+
+A standalone architecture & maintainability review lives in
+[MAINTAINABILITY_REVIEW.md](MAINTAINABILITY_REVIEW.md) (65 verified findings,
+phased plan). Phase 0 (quick wins) is complete as of 0.2.70: dead `AuthService`
+fork deleted, orphaned watch commands removed, `pLimit`/download monitors
+extracted, dependency/manifest hygiene.
 
 ---
 
