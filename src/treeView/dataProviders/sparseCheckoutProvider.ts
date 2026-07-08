@@ -40,6 +40,8 @@ import {
   parseSizeToBytes
 } from "../../util/formatting";
 import { pLimit } from "../../util/pLimit";
+import { LRUCache } from "../../util/lruCache";
+import { withCachedInFlight } from "../../util/withCachedInFlight";
 import {
   createFileSizeMonitor,
   createFolderMonitor,
@@ -78,12 +80,6 @@ class RepositoryRootNode extends BaseNode {
   }
 }
 
-/** Cache entry with TTL */
-interface CacheEntry<T> {
-  data: T;
-  expires: number;
-}
-
 /** Cache TTL in milliseconds (5 minutes) */
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -114,13 +110,22 @@ export default class SparseCheckoutProvider
   private _onDidChangeTreeData = new EventEmitter<BaseNode | undefined>();
   private _disposables: Disposable[] = [];
 
-  /** Cache for server list results to avoid repeated network calls */
-  private serverListCache = new Map<string, CacheEntry<ISvnListItem[]>>();
+  /** Server list cache: LRU-bounded TTL cache + in-flight dedup */
+  private serverListCache = new LRUCache<ISvnListItem[]>(
+    MAX_CACHE_SIZE,
+    CACHE_TTL_MS
+  );
+  private serverListInFlight = new Map<string, Promise<ISvnListItem[]>>();
 
-  /** Cache for folder depth to avoid repeated svn info calls */
-  private depthCache = new Map<
+  /** Folder depth cache. Boxed: `undefined` depth is a legitimate cached
+   *  value ("no wc depth info"), distinct from a cache miss. */
+  private depthCache = new LRUCache<{ depth: SparseDepthKey | undefined }>(
+    MAX_CACHE_SIZE,
+    CACHE_TTL_MS
+  );
+  private depthInFlight = new Map<
     string,
-    CacheEntry<SparseDepthKey | undefined>
+    Promise<{ depth: SparseDepthKey | undefined }>
   >();
 
   /** Pending debounced refresh timeout */
@@ -173,7 +178,9 @@ export default class SparseCheckoutProvider
   public refresh(): void {
     // Clear caches on manual refresh
     this.serverListCache.clear();
+    this.serverListInFlight.clear();
     this.depthCache.clear();
+    this.depthInFlight.clear();
     this._onDidChangeTreeData.fire(undefined);
   }
 
@@ -493,44 +500,22 @@ export default class SparseCheckoutProvider
   ): Promise<SparseDepthKey | undefined> {
     // Include repo root in cache key for multi-repo safety
     const cacheKey = `${repo.root}:${folderPath}`;
-    const now = Date.now();
-
-    // Check cache
-    const cached = this.depthCache.get(cacheKey);
-    if (cached && cached.expires > now) {
-      return cached.data;
-    }
-
-    // Evict expired entries if cache is large
-    if (this.depthCache.size >= MAX_CACHE_SIZE) {
-      this.evictExpiredEntries(this.depthCache, now);
-    }
-
     try {
-      const info = await repo.getInfo(folderPath);
-      const depth = info.wcInfo?.depth as SparseDepthKey | undefined;
-
-      // Cache result
-      this.depthCache.set(cacheKey, {
-        data: depth,
-        expires: now + CACHE_TTL_MS
-      });
-
-      return depth;
+      const boxed = await withCachedInFlight(
+        cacheKey,
+        this.depthCache,
+        this.depthInFlight,
+        async () => ({
+          depth: (await repo.getInfo(folderPath)).wcInfo?.depth as
+            | SparseDepthKey
+            | undefined
+        })
+      );
+      return boxed.depth;
     } catch {
+      // Errors are NOT cached (withCachedInFlight caches success only),
+      // preserving retry on the next call
       return undefined;
-    }
-  }
-
-  /** Remove expired entries from a cache */
-  private evictExpiredEntries<T>(
-    cache: Map<string, CacheEntry<T>>,
-    now: number
-  ): void {
-    for (const [key, entry] of cache) {
-      if (entry.expires <= now) {
-        cache.delete(key);
-      }
     }
   }
 
@@ -539,29 +524,14 @@ export default class SparseCheckoutProvider
     folderPath: string
   ): Promise<ISvnListItem[]> {
     const cacheKey = `${repo.root}:${folderPath}`;
-    const now = Date.now();
-
-    // Check cache
-    const cached = this.serverListCache.get(cacheKey);
-    if (cached && cached.expires > now) {
-      return cached.data;
-    }
-
-    // Evict expired entries if cache is large
-    if (this.serverListCache.size >= MAX_CACHE_SIZE) {
-      this.evictExpiredEntries(this.serverListCache, now);
-    }
-
-    // Fetch from server (returns full ISvnListItem with commit metadata)
-    const listItems = await repo.list(folderPath);
-
-    // Cache result
-    this.serverListCache.set(cacheKey, {
-      data: listItems,
-      expires: now + CACHE_TTL_MS
-    });
-
-    return listItems;
+    // LRU-bounded TTL cache + in-flight dedup: concurrent expansions of the
+    // same folder share one `svn list`; errors propagate uncached
+    return withCachedInFlight(
+      cacheKey,
+      this.serverListCache,
+      this.serverListInFlight,
+      () => repo.list(folderPath)
+    );
   }
 
   private computeGhosts(
