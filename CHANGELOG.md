@@ -7,6 +7,22 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.71] - 2026-07-08
+
+Error-handling foundations (architecture review, Phase 1): SVN failures now surface their real cause instead of "Unknown error".
+
+### Fixed
+
+- **"Unknown error" on SVN failures**: `SvnError` was not a JavaScript `Error` subclass, so message extraction via `instanceof Error` fell through to "Unknown error" exactly when a genuine SVN error occurred. `SvnError` now extends `Error`, and error toasts surface the real (credential-sanitized) SVN reason. Affects auto-props, open-config, batch property commands, and file-stat failures.
+
+### Changed
+
+- Error-message extraction is centralized in the svn-aware, sanitizing `getErrorMessage` helper (replaced ~7 drifting inline copies). The duplicated blame error-code classification is now a shared `classifyBlameError`, and the blame auth/network toast moved out of the data-fetch path.
+
+### Internal
+
+- Lint: `no-floating-promises` / `no-misused-promises` promoted to errors (zero violations); added `no-console` (warn) to steer logging through the sanitizing wrapper.
+
 ## [0.2.70] - 2026-07-08
 
 Maintainability pass (architecture review, Phase 0): a fixed command-not-found bug, dead-code removal, and dependency hygiene. No behavior change beyond the fix.

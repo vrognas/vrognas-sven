@@ -1,7 +1,17 @@
 # Lessons Learned
 
-**Version**: 0.2.70
+**Version**: 0.2.71
 **Updated**: 2026-07-08
+
+---
+
+### 76. A Custom Error Class That Doesn't `extends Error` Fails `instanceof` Exactly When It Matters
+
+**Lesson**: `SvnError` was a plain class with a `message` field, not an `Error` subclass. Every `error instanceof Error ? error.message : "Unknown error"` catch site therefore took the `else` branch for real SVN failures, so users saw "Unknown error" precisely when a genuine error had a real message to show. The bug hid because the type shape _looked_ like an error and structural `as ISvnErrorData` casts still worked.
+
+**Fix**: `SvnError extends Error` (with `Object.setPrototypeOf(this, SvnError.prototype)` + `name`), an exported `isSvnError` guard, and a single svn-aware `getErrorMessage` that returns the _sanitized stderr_ (the informative content lives there, not in `.message` = "Failed to execute svn").
+
+**Rule**: A throwable must `extends Error`, or `instanceof Error` checks across the codebase silently misfire. Add `setPrototypeOf` for transpiled targets, set `name`, and route all catch-site message extraction through one helper. For SVN, the useful text is in stderr — and stderr must be sanitized before display (URLs/paths/credentials).
 
 ---
 

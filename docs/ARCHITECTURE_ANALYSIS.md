@@ -1,6 +1,6 @@
 # SVN Extension Architecture
 
-**Version**: 0.2.70
+**Version**: 0.2.71
 **Updated**: 2026-07-08
 
 ---
@@ -203,9 +203,13 @@ External: vscode, @posit-dev/positron
 
 A standalone architecture & maintainability review lives in
 [MAINTAINABILITY_REVIEW.md](MAINTAINABILITY_REVIEW.md) (65 verified findings,
-phased plan). Phase 0 (quick wins) is complete as of 0.2.70: dead `AuthService`
+phased plan). Phase 0 (quick wins) complete as of 0.2.70: dead `AuthService`
 fork deleted, orphaned watch commands removed, `pLimit`/download monitors
-extracted, dependency/manifest hygiene.
+extracted, dependency/manifest hygiene. Phase 1 (foundations) complete as of
+0.2.71: `SvnError extends Error` + svn-aware `getErrorMessage` (fixes the
+"Unknown error" bug), shared `classifyBlameError`, async-safety lint promoted
+to errors. Deferred within Phase 1: the F63 `vi.spyOn` test-harness migration
+(large; entangled with the eslint-ignored `src/test/**`).
 
 ---
 
