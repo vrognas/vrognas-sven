@@ -15,7 +15,6 @@ import {
   WorkspaceFoldersChangeEvent
 } from "vscode";
 import {
-  ConstructorPolicy,
   RepositoryChangeEvent,
   IOpenRepository,
   RepositoryState
@@ -108,22 +107,25 @@ export class SourceControlManager implements IDisposable {
 
   constructor(
     private _svn: Svn,
-    policy: ConstructorPolicy,
     private extensionContext: ExtensionContext
   ) {
-    if (policy !== ConstructorPolicy.Async) {
-      throw new Error("Unsupported policy");
-    }
-
     this.configurationChangeDisposable = workspace.onDidChangeConfiguration(
       this.onDidChangeConfiguration,
       this
     );
+  }
 
-    return (async (): Promise<SourceControlManager> => {
-      await this.enable();
-      return this;
-    })() as unknown as SourceControlManager;
+  /**
+   * Build the manager and run async initialization (repository discovery via
+   * enable()). Replaces the old async-returning-constructor cast.
+   */
+  static async create(
+    svn: Svn,
+    extensionContext: ExtensionContext
+  ): Promise<SourceControlManager> {
+    const manager = new SourceControlManager(svn, extensionContext);
+    await manager.enable();
+    return manager;
   }
 
   public openRepositoriesSorted(): IOpenRepository[] {

@@ -7,7 +7,6 @@ import * as semver from "semver";
 import * as tmp from "tmp";
 import { CancellationToken, Uri, workspace } from "vscode";
 import {
-  ConstructorPolicy,
   ICpOptions,
   ICleanupOptions,
   IExecutionResult,
@@ -141,24 +140,32 @@ export class Repository {
     private svn: Svn,
     public root: string,
     public workspaceRoot: string,
-    policy: ConstructorPolicy,
     prefetchedInfo?: ISvnInfo
   ) {
-    if (policy === ConstructorPolicy.LateInit) {
-      return (async (): Promise<Repository> => {
-        return this;
-      })() as unknown as Repository;
+    if (prefetchedInfo) {
+      this._info = prefetchedInfo;
+      this._infoCache.set("", prefetchedInfo);
+      this.lastInfoUpdate = Date.now();
     }
-    return (async (): Promise<Repository> => {
-      if (prefetchedInfo) {
-        this._info = prefetchedInfo;
-        this._infoCache.set("", prefetchedInfo);
-        this.lastInfoUpdate = Date.now();
-      } else {
-        await this.updateInfo();
-      }
-      return this;
-    })() as unknown as Repository;
+  }
+
+  /**
+   * Build a repository wrapper and eagerly run the initial `svn info` fetch
+   * (unless prefetched info is supplied). Prefer this over `new Repository`:
+   * the bare constructor leaves info uninitialized and exists for tests that
+   * drive it directly. Replaces the old async-returning-constructor cast.
+   */
+  static async create(
+    svn: Svn,
+    root: string,
+    workspaceRoot: string,
+    prefetchedInfo?: ISvnInfo
+  ): Promise<Repository> {
+    const repository = new Repository(svn, root, workspaceRoot, prefetchedInfo);
+    if (!prefetchedInfo) {
+      await repository.updateInfo();
+    }
+    return repository;
   }
 
   public async updateInfo(forceRefresh: boolean = false) {

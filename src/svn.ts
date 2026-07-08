@@ -10,7 +10,6 @@ import { Readable } from "stream";
 import * as semver from "semver";
 import { env } from "vscode";
 import {
-  ConstructorPolicy,
   ICpOptions,
   IExecutionResult,
   ISvnInfo,
@@ -645,13 +644,7 @@ export class Svn {
     workspaceRoot: string,
     info?: ISvnInfo
   ): Promise<Repository> {
-    return new Repository(
-      this,
-      repositoryRoot,
-      workspaceRoot,
-      ConstructorPolicy.Async,
-      info
-    );
+    return Repository.create(this, repositoryRoot, workspaceRoot, info);
   }
 
   public dispose(): void {

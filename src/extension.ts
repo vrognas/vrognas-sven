@@ -12,7 +12,6 @@ import {
   window
 } from "vscode";
 import { registerCommands } from "./commands";
-import { ConstructorPolicy } from "./common/types";
 import { CheckActiveEditor } from "./contexts/checkActiveEditor";
 import { OpenRepositoryCount } from "./contexts/openRepositoryCount";
 import { HasBranch } from "./contexts/hasBranch";
@@ -81,9 +80,8 @@ async function init(
     })
   );
 
-  const sourceControlManager = await new SourceControlManager(
+  const sourceControlManager = await SourceControlManager.create(
     svn,
-    ConstructorPolicy.Async,
     extensionContext
   );
 

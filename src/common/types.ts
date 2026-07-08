@@ -8,12 +8,6 @@ import { Disposable, SourceControlResourceGroup, Uri } from "vscode";
 import { Repository } from "../repository";
 import { Resource } from "../resource";
 
-/** Marker for constructors returning Promise<this> */
-export enum ConstructorPolicy {
-  Async,
-  LateInit
-}
-
 export interface IBranchItem {
   name: string;
   path: string;

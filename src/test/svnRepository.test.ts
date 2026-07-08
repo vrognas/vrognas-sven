@@ -1,10 +1,5 @@
 import * as assert from "assert";
-import {
-  ConstructorPolicy,
-  ICpOptions,
-  ISvnOptions,
-  Status
-} from "../common/types";
+import { ICpOptions, ISvnInfo, ISvnOptions, Status } from "../common/types";
 import { Svn } from "../svn";
 import { Repository } from "../svnRepository";
 
@@ -23,14 +18,22 @@ suite("Svn Repository Tests", () => {
     svn = null;
   });
 
+  test("create() returns a real Repository instance", async () => {
+    svn = new Svn(options);
+    // Prefetched info skips the initial `svn info` fetch, so no process runs.
+    const info = { url: "https://example.com/repo" } as unknown as ISvnInfo;
+    const repository = await Repository.create(svn, "/tmp", "/tmp", info);
+
+    // The old async-returning-constructor cast produced a Promise disguised as
+    // a Repository; create() must hand back a genuine instance.
+    assert.ok(repository instanceof Repository);
+    assert.strictEqual(repository.root, "/tmp");
+    assert.strictEqual(repository.workspaceRoot, "/tmp");
+  });
+
   test("Test getStatus", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tpm",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tpm");
     repository.exec = async (_args: string[], _options?: ICpOptions) => {
       return {
         exitCode: 1,
@@ -48,12 +51,7 @@ suite("Svn Repository Tests", () => {
 
   test("Test rename", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tpm",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tpm");
     repository.exec = async (args: string[], _options?: ICpOptions) => {
       assert.equal(args[0]!.includes("rename"), true);
       assert.equal(args[1]!.includes("test.php"), true);
@@ -74,12 +72,7 @@ suite("Svn Repository Tests", () => {
 
   test("Test addChangelist validation - invalid name", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tpm",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tpm");
 
     try {
       await repository.addChangelist(["test.php"], "invalid@name");
@@ -91,12 +84,7 @@ suite("Svn Repository Tests", () => {
 
   test("Test addChangelist validation - valid name", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tpm",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tpm");
     repository.exec = async (args: string[]) => {
       assert.equal(args[0], "changelist");
       assert.equal(args[1], "valid_name-123");
@@ -108,12 +96,7 @@ suite("Svn Repository Tests", () => {
 
   test("Test merge validation - invalid accept action", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tpm",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tpm");
 
     try {
       await repository.merge("trunk", false, "invalid_action");
@@ -125,12 +108,7 @@ suite("Svn Repository Tests", () => {
 
   test("Test merge validation - valid accept action", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tpm",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tpm");
     repository.getRepoUrl = async () => "http://repo/svn";
     repository.exec = async (args: string[]) => {
       assert.equal(args[0], "merge");
@@ -144,12 +122,7 @@ suite("Svn Repository Tests", () => {
 
   test("Test plainLogByText validation - invalid pattern", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tpm",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tpm");
 
     try {
       await repository.plainLogByText("pattern;rm -rf /");
@@ -161,12 +134,7 @@ suite("Svn Repository Tests", () => {
 
   test("Test plainLogByText validation - valid pattern", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tpm",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tpm");
     repository.exec = async (args: string[]) => {
       assert.equal(args[0], "log");
       assert.equal(args[1], "--search");
@@ -179,12 +147,7 @@ suite("Svn Repository Tests", () => {
 
   test("Test getStatus with externals (parallel fetch)", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tpm",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tpm");
 
     let getInfoCallCount = 0;
 
@@ -222,12 +185,7 @@ suite("Svn Repository Tests", () => {
 
   test("Test getInfo LRU cache evicts oldest when max size reached", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tpm",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tpm");
 
     let execCount = 0;
     repository.exec = async (args: string[]) => {
@@ -260,12 +218,7 @@ suite("Svn Repository Tests", () => {
 
   test("Test getInfo LRU cache updates access time on hit", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tpm",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tpm");
 
     let execCount = 0;
     repository.exec = async (args: string[]) => {
@@ -308,12 +261,7 @@ suite("Svn Repository Tests", () => {
 
   test("Test getInfo LRU cache respects 500 entry limit", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tpm",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tpm");
 
     let execCount = 0;
     repository.exec = async (args: string[]) => {
@@ -343,12 +291,7 @@ suite("Svn Repository Tests", () => {
 
   test("hasRemoteChanges: Returns false when BASE == HEAD (no changes)", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tmp",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tmp");
 
     // Mock log output when BASE == HEAD (no new revisions)
     repository.exec = async (args: string[]) => {
@@ -379,12 +322,7 @@ suite("Svn Repository Tests", () => {
 
   test("hasRemoteChanges: Returns true when BASE < HEAD (new revisions)", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tmp",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tmp");
 
     // Mock log output when BASE < HEAD (new revisions exist)
     repository.exec = async (args: string[]) => {
@@ -414,12 +352,7 @@ suite("Svn Repository Tests", () => {
 
   test("getStatus: Skips status check when no remote changes", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tmp",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tmp");
 
     let logCalled = false;
     let statusCalled = false;
@@ -456,12 +389,7 @@ suite("Svn Repository Tests", () => {
 
   test("commitFiles: Throws when exec fails", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tmp",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tmp");
 
     repository.exec = async () => {
       throw new Error("SVN commit failed");
@@ -478,12 +406,7 @@ suite("Svn Repository Tests", () => {
 
   test("commitFiles: Returns commit message on success", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tmp",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tmp");
 
     repository.exec = async (args: string[]) => {
       assert.equal(args[0], "commit");
@@ -500,12 +423,7 @@ suite("Svn Repository Tests", () => {
 
   test("commitFiles: Uses temp file for multiline messages", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tmp",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tmp");
 
     let usedTempFile = false;
     repository.exec = async (args: string[]) => {
@@ -529,12 +447,7 @@ suite("Svn Repository Tests", () => {
 
   test("getScopedStatus: Fetches status for specific path with depth", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tmp",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tmp");
 
     let capturedArgs: string[] = [];
     repository.exec = async (args: string[]) => {
@@ -560,12 +473,7 @@ suite("Svn Repository Tests", () => {
 
   test("getScopedStatus: Works with infinity depth", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tmp",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tmp");
 
     let capturedArgs: string[] = [];
     repository.exec = async (args: string[]) => {
@@ -588,12 +496,7 @@ suite("Svn Repository Tests", () => {
 
   test("getScopedStatus: Empty depth returns only folder status", async () => {
     svn = new Svn(options);
-    const repository = await new Repository(
-      svn,
-      "/tmp",
-      "/tmp",
-      ConstructorPolicy.LateInit
-    );
+    const repository = await new Repository(svn, "/tmp", "/tmp");
 
     let capturedArgs: string[] = [];
     repository.exec = async (args: string[]) => {

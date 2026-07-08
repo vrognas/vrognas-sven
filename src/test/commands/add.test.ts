@@ -4,7 +4,7 @@ import { Uri, window } from "vscode";
 import { Add } from "../../commands/add";
 import { Repository } from "../../svnRepository";
 import { Svn } from "../../svn";
-import { ConstructorPolicy, ISvnOptions } from "../../common/types";
+import { ISvnOptions } from "../../common/types";
 import { Resource } from "../../resource";
 import { Status } from "../../common/types";
 
@@ -23,8 +23,7 @@ suite("Add Command E2E Tests", () => {
     repository = await new Repository(
       svn,
       "/test/workspace",
-      "/test/workspace",
-      ConstructorPolicy.LateInit
+      "/test/workspace"
     );
     execStub = sinon.stub(repository, "exec" as any);
   });
@@ -55,7 +54,11 @@ suite("Add Command E2E Tests", () => {
   });
 
   test("Add multiple files - verify batch add", async () => {
-    execStub.resolves({ exitCode: 0, stdout: "A    file1.txt\nA    file2.txt\nA    file3.txt", stderr: "" });
+    execStub.resolves({
+      exitCode: 0,
+      stdout: "A    file1.txt\nA    file2.txt\nA    file3.txt",
+      stderr: ""
+    });
 
     const files = [
       Uri.file("/test/workspace/file1.txt"),
@@ -96,7 +99,9 @@ suite("Add Command E2E Tests", () => {
 
     assert.ok(execStub.calledOnce, "exec should be called");
     assert.ok(errorStub.calledOnce, "Error message should be shown");
-    assert.ok(errorStub.firstCall.args[0].includes("Unable to add file"), "Error message should mention add failure");
+    assert.ok(
+      errorStub.firstCall.args[0].includes("Unable to add file"),
+      "Error message should mention add failure"
+    );
   });
 });
-
