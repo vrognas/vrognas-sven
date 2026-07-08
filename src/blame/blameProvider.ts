@@ -61,7 +61,11 @@ export class BlameProvider implements Disposable {
   private svgCache = new Map<string, Uri>(); // color → SVG data URI
   private messageCache = new Map<string, string>(); // revision → commit message
   private inFlightMessageFetches = new Map<string, Promise<void>>(); // uri → fetch promise
-  private cacheAccessOrder = new Map<string, number>(); // uri → timestamp for LRU
+  // uri → monotonic access sequence for LRU eviction. A counter, not
+  // Date.now(): same-millisecond accesses tie on wall-clock time, making
+  // eviction order arbitrary (and the LRU test flaky on fast runners)
+  private cacheAccessOrder = new Map<string, number>();
+  private cacheAccessCounter = 0;
   private currentLineNumber?: number; // Track cursor position for current-line-only mode
   private disposables: Disposable[] = [];
   private isActivated = false;
@@ -821,7 +825,7 @@ export class BlameProvider implements Disposable {
     const cached = this.blameCache.get(key);
     if (cached && cached.version === currentVersion && currentVersion !== -1) {
       // Update access time for LRU
-      this.cacheAccessOrder.set(key, Date.now());
+      this.cacheAccessOrder.set(key, ++this.cacheAccessCounter);
       return cached.data;
     }
 
@@ -850,7 +854,7 @@ export class BlameProvider implements Disposable {
       this.blameCache.set(key, { data, version: currentVersion });
 
       // Track access time for LRU
-      this.cacheAccessOrder.set(key, Date.now());
+      this.cacheAccessOrder.set(key, ++this.cacheAccessCounter);
 
       // Evict oldest entry if cache exceeds limit
       this.evictOldestCache();
