@@ -10,6 +10,7 @@
  */
 
 import { sanitizeError, sanitizeString } from "../security/errorSanitizer";
+import { isSvnError } from "../svnError";
 
 /**
  * Safely log an error with automatic sanitization
@@ -62,10 +63,18 @@ export function logWarning(message: string, data?: unknown): void {
 }
 
 /**
- * Extract error message from unknown error type
- * Use in catch blocks to safely get error message string
+ * Extract a user-safe error message from an unknown throwable.
+ *
+ * For SvnError the informative detail lives in stderr, not `.message`
+ * ("Failed to execute svn"), so surface the (sanitized) stderr instead —
+ * this is what fixes SVN failures previously shown as "Unknown error".
+ * stderr is sanitized because it can contain URLs/paths/credentials.
  */
 export function getErrorMessage(error: unknown): string {
+  if (isSvnError(error)) {
+    const detail = error.stderrFormated || error.stderr || error.message;
+    return sanitizeString(detail).trim() || error.message;
+  }
   return error instanceof Error ? error.message : String(error);
 }
 

@@ -8,9 +8,8 @@ import {
   createSanitizedErrorLog
 } from "./security/errorSanitizer";
 
-export default class SvnError {
+export default class SvnError extends Error {
   public error?: Error;
-  public message: string;
   public stdout?: string;
   public stderr?: string;
   public stderrFormated?: string;
@@ -19,14 +18,14 @@ export default class SvnError {
   public svnCommand?: string;
 
   constructor(data: ISvnErrorData) {
-    if (data.error) {
-      this.error = data.error;
-      this.message = data.error.message;
-    } else {
-      this.error = void 0;
-    }
+    super(data.message || "SVN error");
+    // Restore the prototype chain so `instanceof Error`/`SvnError` hold after
+    // transpilation. Without this a genuine SVN failure reads as a non-Error
+    // and callers fall through to "Unknown error".
+    Object.setPrototypeOf(this, SvnError.prototype);
+    this.name = "SvnError";
 
-    this.message = data.message || "SVN error";
+    this.error = data.error;
     this.stdout = data.stdout;
     this.stderr = data.stderr;
     this.stderrFormated = data.stderrFormated;
@@ -35,7 +34,7 @@ export default class SvnError {
     this.svnCommand = data.svnCommand;
   }
 
-  public toString(): string {
+  public override toString(): string {
     const errorLog = createSanitizedErrorLog(this);
     let result =
       sanitizeString(this.message) + " " + JSON.stringify(errorLog, null, 2);
@@ -46,4 +45,9 @@ export default class SvnError {
 
     return result;
   }
+}
+
+/** Type guard: true only for SvnError instances (not plain error-shaped objects). */
+export function isSvnError(err: unknown): err is SvnError {
+  return err instanceof SvnError;
 }
