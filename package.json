@@ -153,7 +153,7 @@
         {
           "id": "sven.branchchanges",
           "name": "Branch Changes",
-          "when": "svnOpenRepositoryCount != 0 && svn.hasBranch",
+          "when": "svnOpenRepositoryCount != 0 && sven.hasBranch",
           "visibility": "visible",
           "order": 2
         },
@@ -192,12 +192,12 @@
         "when": "svnOpenRepositoryCount != 0"
       },
       {
-        "view": "branchchanges",
+        "view": "sven.branchchanges",
         "contents": "Compare your branch against trunk to see what's changed.\n\nThis view shows commits unique to your branch that haven't been merged to trunk yet.",
-        "when": "svnOpenRepositoryCount != 0 && svn.hasBranch"
+        "when": "svnOpenRepositoryCount != 0 && sven.hasBranch"
       },
       {
-        "view": "sparseCheckout",
+        "view": "sven.sparseCheckout",
         "contents": "Choose which folders and files to download from the repository.\n\nExpand folders to browse server contents. De-emphasized items are on the server but not downloaded locally.\n\n[Refresh](command:sven.sparse.refresh)",
         "when": "svnOpenRepositoryCount != 0"
       }
@@ -1364,18 +1364,18 @@
         },
         {
           "command": "sven.repolog.filterHistory",
-          "when": "view == sven.repolog && !svn.historyFilterActive",
+          "when": "view == sven.repolog && !sven.historyFilterActive",
           "group": "navigation@4"
         },
         {
           "command": "sven.repolog.filterHistory",
-          "when": "view == sven.repolog && svn.historyFilterActive",
+          "when": "view == sven.repolog && sven.historyFilterActive",
           "group": "navigation@4",
           "alt": "sven.repolog.clearFilter"
         },
         {
           "command": "sven.repolog.clearFilter",
-          "when": "view == sven.repolog && svn.historyFilterActive",
+          "when": "view == sven.repolog && sven.historyFilterActive",
           "group": "navigation@5"
         },
         {

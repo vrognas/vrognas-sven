@@ -514,6 +514,15 @@ export class RepoLogProvider
       }
     ];
 
+    // One-step reset, also available as the title-bar clear-all button
+    if (this.filterService.hasActiveFilter()) {
+      filterTypes.unshift({
+        label: "$(clear-all) Clear all filters",
+        id: "clearAll",
+        detail: this.filterService.getFilterDescription()
+      });
+    }
+
     const selected = await window.showQuickPick(filterTypes, {
       placeHolder: "Select filter type to configure",
       title: "Filter History"
@@ -523,6 +532,9 @@ export class RepoLogProvider
 
     // Step 2: Configure selected filter type
     switch (selected.id) {
+      case "clearAll":
+        this.clearFilter();
+        return;
       case "message":
         await this.promptFilterMessage(currentFilter.message);
         break;
