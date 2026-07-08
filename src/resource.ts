@@ -88,6 +88,34 @@ export class Resource implements SourceControlResourceState {
     return this._lockStatus;
   }
 
+  /**
+   * Return a copy with lock fields overridden, preserving every other field.
+   * Replaces hand-written positional clones (which silently dropped the
+   * trailing propertyChanges argument).
+   */
+  public withLock(lock: {
+    locked?: boolean;
+    lockOwner?: string;
+    hasLockToken?: boolean;
+    lockStatus?: LockStatus;
+  }): Resource {
+    return new Resource(
+      this._resourceUri,
+      this._type,
+      this._renameResourceUri,
+      this._props,
+      this._remote,
+      lock.locked ?? this._locked,
+      lock.lockOwner ?? this._lockOwner,
+      lock.hasLockToken ?? this._hasLockToken,
+      lock.lockStatus ?? this._lockStatus,
+      this._changelist,
+      this._kind,
+      this._localFileExists,
+      this._propertyChanges
+    );
+  }
+
   get contextValue(): string {
     return this._kind === "dir" ? "folder" : "file";
   }

@@ -257,21 +257,14 @@ export class ResourceGroupManager implements IResourceGroupManager {
           const key = normalizePath(r.resourceUri.fsPath);
           const preserved = preservedLockStatus.get(key);
           if (preserved) {
-            // Create new Resource with preserved lock status
-            return new Resource(
-              r.resourceUri,
-              r.type,
-              r.renameResourceUri,
-              r.props,
-              r.remote,
-              true, // locked
-              preserved.lockOwner,
-              preserved.hasLockToken,
-              preserved.lockStatus,
-              r.changelist,
-              r.kind,
-              r.localFileExists
-            );
+            // Copy with preserved lock status; withLock keeps every other
+            // field (the old positional clone dropped propertyChanges).
+            return r.withLock({
+              locked: true,
+              lockOwner: preserved.lockOwner,
+              hasLockToken: preserved.hasLockToken,
+              lockStatus: preserved.lockStatus
+            });
           }
         }
         return r;
