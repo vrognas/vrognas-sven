@@ -450,17 +450,6 @@
         "category": "SVN"
       },
       {
-        "command": "sven.toggleWatch",
-        "title": "Toggle Watch for Remote Changes",
-        "category": "SVN",
-        "icon": "$(eye)"
-      },
-      {
-        "command": "sven.manageWatches",
-        "title": "Manage Watches...",
-        "category": "SVN"
-      },
-      {
         "command": "sven.setEolStyle",
         "title": "Set Line Ending Style (EOL)...",
         "category": "SVN",
@@ -1069,14 +1058,6 @@
         {
           "command": "sven.addToIgnoreSCM",
           "when": "false"
-        },
-        {
-          "command": "sven.toggleWatch",
-          "when": "svnOpenRepositoryCount != 0"
-        },
-        {
-          "command": "sven.manageWatches",
-          "when": "svnOpenRepositoryCount != 0"
         },
         {
           "command": "sven.setEolStyle",
@@ -1858,11 +1839,6 @@
           "command": "sven.setDepth",
           "group": "3_svn@5",
           "when": "svnOpenRepositoryCount != 0 && explorerResourceIsFolder"
-        },
-        {
-          "command": "sven.toggleWatch",
-          "group": "3_svn@6",
-          "when": "svnOpenRepositoryCount != 0"
         }
       ]
     },
