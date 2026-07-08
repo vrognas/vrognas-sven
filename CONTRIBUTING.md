@@ -40,8 +40,8 @@ npm run compile
 # Watch CSS changes (separate terminal)
 npm run watch:css
 
-# Run tests (fast mode, no coverage)
-npm run test:fast
+# Run unit tests (no coverage)
+npm run test:unit
 
 # Run with coverage report
 npm run test:coverage
@@ -286,8 +286,8 @@ sven/
 # All tests with coverage (HTML report in coverage/)
 npm run test:coverage
 
-# Fast mode (no coverage)
-npm run test:fast
+# Unit tests only (no coverage)
+npm run test:unit
 
 # Single test file
 npm run build:ts

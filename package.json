@@ -68,7 +68,6 @@
     "test:unit:coverage": "vitest run --coverage",
     "test:e2e": "vscode-test",
     "test:coverage": "vitest run --coverage && c8 --reporter=html --reporter=text --reporter=lcov vscode-test",
-    "test:fast": "vitest run",
     "tools:genReadme": "node ./out/tools/generateConfigSectionForReadme.js",
     "vscode:prepublish": "npm run compile",
     "watch:css": "sass scss/:css/ --watch --style=compressed --no-source-map"
@@ -91,6 +90,7 @@
   "dependencies": {
     "chardet": "^2.1.1",
     "fast-xml-parser": "^5.3.7",
+    "original-fs": "^1.2.0",
     "picomatch": "^4.0.3",
     "semver": "^7.6.3",
     "tmp": "^0.2.5"
@@ -119,15 +119,12 @@
     "esbuild": "^0.28.0",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-prettier": "^5.5.5",
     "glob": "^13.0.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
     "mocha": "^11.7.5",
     "npm-run-all2": "^8.0.4",
-    "original-fs": "^1.2.0",
     "prettier": "^3.6.2",
-    "prettylint": "^2.0.0",
     "sass": "^1.97.3",
     "semantic-release": "^24.2.9",
     "semantic-release-vsce": "^6.1.2",
