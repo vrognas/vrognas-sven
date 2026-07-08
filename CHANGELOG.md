@@ -7,6 +7,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.76] - 2026-07-09
+
+### Fixed
+
+- **Blame commands restored to menus**: six blame entries (Toggle/Show/Clear Annotations in the command palette; Enable/Disable/What-is-this in the editor context menu) were gated on a `config.svn.blame.enabled` when-clause left over from the svn→sven settings rename, so they never appeared. They now show when `sven.blame.enabled` is on.
+
+### Documentation
+
+- Full docs fact-check against the shipping extension: README rewritten for new users (install links for Marketplace/Open VSX, walkthroughs surfaced, Positron commit caveat, drifted command titles corrected); SETTINGS.md now matches all 80 settings exactly; BLAME_SYSTEM/FILE_LOCKING/CONTRIBUTING/ARCHITECTURE docs brought current.
+
 ## [0.2.75] - 2026-07-08
 
 Test code is now inside the quality gates (review finding F17 — the last scheduled item from the architecture review; the backlog is closed).
