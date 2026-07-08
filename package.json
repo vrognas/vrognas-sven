@@ -861,11 +861,6 @@
         "icon": "$(git-fetch)"
       },
       {
-        "command": "sven.repolog.remove",
-        "category": "SVN",
-        "title": "Remove"
-      },
-      {
         "command": "sven.repolog.revealInExplorer",
         "category": "SVN",
         "title": "Reveal in File Explorer"
@@ -1270,10 +1265,6 @@
           "when": "false"
         },
         {
-          "command": "sven.repolog.remove",
-          "when": "false"
-        },
-        {
           "command": "sven.repolog.filterHistory",
           "when": "false"
         },
@@ -1427,10 +1418,6 @@
           "command": "sven.setDepth",
           "when": "viewItem == sparseLocalDir",
           "group": "1_sparse@3"
-        },
-        {
-          "command": "sven.repolog.remove",
-          "when": "view == sven.repolog && viewItem == userrepo"
         },
         {
           "command": "sven.itemlog.openFileRemote",

@@ -415,8 +415,7 @@ export class ItemLogProvider
               persisted: {
                 commitFrom: "HEAD",
                 baseRevision: parseInt(info.revision, 10)
-              },
-              order: 0
+              }
             };
             // Pre-load entries before firing tree change to prevent flash
             await fetchMore(this.currentItem);

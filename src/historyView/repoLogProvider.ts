@@ -39,7 +39,6 @@ import {
   openDiff,
   openFileRemote,
   showPatchIfPropertyOnly,
-  SvnPath,
   transform,
   getCommitDescription
 } from "./common";
@@ -73,10 +72,6 @@ export class RepoLogProvider
     let oldestKey: string | null = null;
     let oldestTime = Infinity;
     for (const [key, entry] of this.logCache.entries()) {
-      // Skip user-added repos from eviction
-      if (entry.persisted.userAdded) {
-        continue;
-      }
       const accessTime = entry.lastAccessed ?? 0;
       if (accessTime < oldestTime) {
         oldestTime = accessTime;
@@ -98,14 +93,6 @@ export class RepoLogProvider
         first.lastAccessed = Date.now();
       }
       return first;
-    }
-
-    if (maybeItem.data instanceof SvnPath) {
-      const cached = this.logCache.get(maybeItem.data.toString());
-      if (cached) {
-        cached.lastAccessed = Date.now();
-      }
-      return cached;
     }
 
     // For commits at root level, return first cache entry
@@ -148,7 +135,6 @@ export class RepoLogProvider
         "sven.repolog.copyrevision",
         async (item: ILogTreeItem) => copyCommitToClipboard("revision", item)
       ),
-      commands.registerCommand("sven.repolog.remove", this.removeRepo, this),
       commands.registerCommand(
         "sven.repolog.openFileRemote",
         this.openFileRemoteCmd,
@@ -239,11 +225,6 @@ export class RepoLogProvider
       clearTimeout(this.refreshTimeout);
     }
     dispose(this._dispose);
-  }
-
-  public removeRepo(element: ILogTreeItem) {
-    this.logCache.delete((element.data as SvnPath).toString());
-    void this.refresh();
   }
 
   public async openFileRemoteCmd(element: ILogTreeItem) {
@@ -861,12 +842,9 @@ export class RepoLogProvider
         }
       }
 
-      // Remove auto-added repositories
-      for (const [k, v] of this.logCache) {
-        if (!v.persisted.userAdded) {
-          this.logCache.delete(k);
-        }
-      }
+      // Rebuild the cache from scratch (all entries are auto-added;
+      // the vestigial user-added distinction is gone)
+      this.logCache.clear();
 
       // Clear low-level log cache on explicit refresh to force fresh SVN call
       if (shouldClearCache) {
@@ -951,7 +929,6 @@ export class RepoLogProvider
           repo,
           svnTarget: remoteRoot,
           persisted,
-          order: this.logCache.size,
           lastAccessed: Date.now(),
           filter: this.filterService.getFilter()
         };

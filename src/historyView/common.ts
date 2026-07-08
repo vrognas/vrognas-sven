@@ -51,8 +51,7 @@ function formatRelativeTime(date: string | Date): string {
 }
 
 export enum LogTreeItemKind {
-  Repo = 1,
-  Commit,
+  Commit = 1,
   CommitDetail,
   TItem
 }
@@ -71,22 +70,13 @@ export interface ICachedLog {
   persisted: {
     readonly commitFrom: string;
     baseRevision?: number;
-    readonly userAdded?: boolean;
   };
-  order: number;
   lastAccessed?: number; // LRU tracking
   // Active filter for this cache
   filter?: IHistoryFilter;
 }
 
-export class SvnPath {
-  constructor(private path: string) {}
-  public toString(): string {
-    return this.path;
-  }
-}
-
-type TreeItemData = ISvnLogEntry | ISvnLogEntryPath | SvnPath | TreeItem;
+type TreeItemData = ISvnLogEntry | ISvnLogEntryPath | TreeItem;
 
 export interface ILogTreeItem {
   readonly kind: LogTreeItemKind;
