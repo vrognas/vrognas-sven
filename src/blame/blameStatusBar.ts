@@ -15,6 +15,7 @@ import {
   window
 } from "vscode";
 import { debounce } from "../decorators";
+import { classifyBlameError } from "./classifyBlameError";
 import { ISvnBlameLine, Operation, Status } from "../common/types";
 import { BLAME_INVALIDATING_OPERATIONS } from "../util";
 import { Repository } from "../repository";
@@ -335,13 +336,8 @@ export class BlameStatusBar implements Disposable {
       return await repository.blame(uri.fsPath);
     } catch (err) {
       // Unversioned/non-WC files are expected - skip the log noise
-      // (same codes BlameProvider treats as silent)
-      const msg = `${err instanceof Error ? err.message : ""} ${
-        err && typeof err === "object" && "stderr" in err
-          ? String((err as { stderr?: unknown }).stderr)
-          : ""
-      }`;
-      if (!/W155010|E200009|E155007/.test(msg)) {
+      // (shared classifier keeps the codes in sync with BlameProvider)
+      if (classifyBlameError(err) !== "untracked") {
         logError("BlameStatusBar: Failed to fetch blame data", err);
       }
       return undefined;

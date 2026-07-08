@@ -28,7 +28,8 @@ import {
   clearTemplateCache,
   CompiledTemplateFn
 } from "./templateCompiler";
-import { getErrorMessage, logError } from "../util/errorLogger";
+import { logError } from "../util/errorLogger";
+import { classifyBlameError, BlameErrorKind } from "./classifyBlameError";
 import { Operation, Status } from "../common/types";
 import { BLAME_INVALIDATING_OPERATIONS, isDescendant } from "../util";
 import {
@@ -861,64 +862,40 @@ export class BlameProvider implements Disposable {
 
       return data;
     } catch (err) {
-      // Extract error details
-      const errorMsg = getErrorMessage(err) || "Unknown error";
-      const stderrStr =
-        err && typeof err === "object" && "stderr" in err
-          ? String((err as { stderr?: unknown }).stderr)
-          : "";
-
-      // Suppress expected errors for unversioned/untracked files (not actual errors)
-      // W155010: node not found in working copy
-      // E200009: could not perform operation on some targets
-      // E155007: not a working copy (file outside/detached from the WC -
-      //          the shallow-checkout edge the old svn-info pre-check hid)
-      const isUntrackedFile =
-        stderrStr.includes("W155010") ||
-        stderrStr.includes("E200009") ||
-        stderrStr.includes("E155007") ||
-        errorMsg.includes("W155010") ||
-        errorMsg.includes("E200009") ||
-        errorMsg.includes("E155007");
-
-      if (isUntrackedFile) {
+      const kind = classifyBlameError(err);
+      if (kind === "untracked") {
         return undefined; // Silently skip unversioned files
       }
 
       logError("BlameProvider: Failed to fetch blame data", err);
-      if (
-        errorMsg.includes("Authentication failed") ||
-        errorMsg.includes("No more credentials") ||
-        errorMsg.includes("E170001") ||
-        errorMsg.includes("E215004")
-      ) {
-        window
-          .showWarningMessage(
-            "SVN authentication required. Use 'SVN: Authenticate' command or check credentials.",
-            "Authenticate"
-          )
-          .then(choice => {
-            if (choice === "Authenticate") {
-              const repoUrl = this.repository.repository.info?.url;
-              commands.executeCommand(
-                "sven.promptAuth",
-                undefined,
-                undefined,
-                repoUrl
-              );
-            }
-          });
-      } else if (
-        errorMsg.includes("E170013") ||
-        errorMsg.includes("No such host") ||
-        errorMsg.includes("Unable to connect")
-      ) {
-        window.showErrorMessage(
-          "Unable to connect to SVN server. Check VPN/network."
-        );
-      }
-
+      this.notifyBlameFetchError(kind);
       return undefined;
+    }
+  }
+
+  /** Surface a blame-fetch failure to the user (auth/network only). */
+  private notifyBlameFetchError(kind: BlameErrorKind): void {
+    if (kind === "auth") {
+      window
+        .showWarningMessage(
+          "SVN authentication required. Use 'SVN: Authenticate' command or check credentials.",
+          "Authenticate"
+        )
+        .then(choice => {
+          if (choice === "Authenticate") {
+            const repoUrl = this.repository.repository.info?.url;
+            commands.executeCommand(
+              "sven.promptAuth",
+              undefined,
+              undefined,
+              repoUrl
+            );
+          }
+        });
+    } else if (kind === "network") {
+      window.showErrorMessage(
+        "Unable to connect to SVN server. Check VPN/network."
+      );
     }
   }
 
