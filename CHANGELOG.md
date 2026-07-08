@@ -7,6 +7,31 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.74] - 2026-07-08
+
+Deferred-backlog triage executed: dead code removed, real bugs in error surfaces fixed, false test coverage replaced, lint now gates CI. A second review pass re-verified all deferred findings against current code; ~75% were dropped as not worth doing (documented in docs/MAINTAINABILITY_REVIEW.md §5).
+
+### Fixed
+
+- **Sparse checkout depth errors**: failures now show the sanitized, curated error message with recovery actions (auth/lock/cleanup/update/conflict prompts). Previously a hand-rolled branch showed raw unsanitized stderr and only offered cleanup.
+- **Credential-safe logging**: the post-commit update failure path passed a raw SVN error to `console.warn`; it now routes through the sanitizing logger.
+
+### Changed
+
+- History view: `ILogTreeItem` is a discriminated union (kind narrows data); unguarded open-diff/open-file handlers now check the item kind instead of casting blindly.
+- Sparse checkout: server-list and depth caches moved onto the shared LRU+in-flight-dedup helpers — concurrent folder expansions share one `svn list`, and the caches have a real memory bound.
+- Blame: the inline decoration builder is deduplicated across its three render paths.
+
+### Removed
+
+- Dead raw-key lock-cache API (`updateLockCache`/`getCachedLockStatus`/`clearLockCacheEntry`, zero callers) — closes the dual-key hazard permanently.
+- Vestigial multi-repo history machinery: never-written `userAdded`, unreachable `sven.repolog.remove` command, never-constructed `SvnPath`/`Repo` tree kind, never-read `order` field.
+
+### Internal
+
+- `retryRun.test.ts` was simulation-only false coverage; replaced with 4 characterization tests driving the real implementation (account cycling, credential-mutex serialization, backoff, prompt-decline propagation).
+- Lint: 34 warnings → 0; `--max-warnings 0` now enforced, so warnings fail CI. 18 needlessly-async methods de-asynced; the two load-bearing asyncs documented in place.
+
 ## [0.2.73] - 2026-07-08
 
 Construction seam (architecture review, Phase 2 cont.): removed the async-constructor anti-pattern.

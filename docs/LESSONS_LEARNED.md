@@ -1,7 +1,17 @@
 # Lessons Learned
 
-**Version**: 0.2.73
+**Version**: 0.2.74
 **Updated**: 2026-07-08
+
+---
+
+### 79. `async` Can Be a Contract — De-async Only Where Tests Prove It's Noise
+
+**Lesson**: A require-await cleanup de-asynced 20 warn-flagged methods. tsc stayed green, but 10 tests failed: `updateRemoteChangedFiles`'s `async` was the _contract_ — command callers `await` it and tests pin that a rejecting implementation propagates. Removing the `await` in callers silently orphaned the rejection. Two other asyncs were also load-bearing (the sequentialize decorator's wrapper converts sync throws into rejections so its `.then(run, run)` chain survives).
+
+**Fix**: Reverted the contract-bearing trio with an inline disable stating _why_ the async stays; kept the 18 genuinely-noise removals. Test mocks in the untypechecked `test/` root also had to be synced by hand — tsc never saw them (the F17 gap).
+
+**Rule**: `require-await` flags a _smell_, not a defect. Before de-asyncing: (1) do callers `.catch`/`await` it as an error channel? (2) does the `async` wrap sync throws into rejections on purpose? If yes, keep it and document with a targeted disable. And run the suite, not just tsc — Promise-shape changes are exactly what type-checking misses in untypechecked test roots.
 
 ---
 

@@ -254,3 +254,65 @@ Within each god object, **lift pure slices first, stateful/lifecycle slices last
 `src/` folder reorg (F66), file-naming normalization (F15), the `common/types.ts`/`util.ts` split (F29), the delegation-wrapper/exec-core/cache-primitive megarefactors (F20/F21/F22), and the two-tree-paradigm unification (F28) are `large` with `low`-to-`medium` corrected impact and real churn/regression risk. Fold their _safe slices_ (typed action ids in F49, `runXml` in F21, `RepoRootNode<T>` in F28) into adjacent work rather than tackling them head-on. Leave the build toolchain (F16) and `c8` alone.
 
 **Net:** Phases 0-1 are a few days of mostly-confirmed, low-risk work that fix the one real user-facing bug and stop the decay. Phase 2 is the pivot — once seams exist, the god-object splits in Phase 3 become tractable and testable instead of terrifying. Resist starting Phase 3 before Phase 2; the review's own `plausible` verdicts are almost entirely "the code has no safety net for this yet."
+
+---
+
+## 5. Post-review triage (2026-07-08, v0.2.74)
+
+A second multi-agent pass re-verified every deferred finding against the
+post-0.2.73 code, measured real sizes with grep, and rendered worth-it
+verdicts. Full data: 43 items → 10 do-next, 16 do-opportunistically,
+4 marginal, 13 skip. **Net: ~75% of the deferred backlog is not worth
+scheduled effort for a solo maintainer on stable, freshly-audited code.**
+
+### Executed from the triage (v0.2.74)
+
+- **F19 (rescoped)**: deleted the dead raw-key lock-cache trio
+  (`updateLockCache`/`getCachedLockStatus`/`clearLockCacheEntry`, zero
+  callers) — the entire remaining substance of the dual-key hazard. The
+  full PropertyCacheService extraction is **dropped**.
+- **F10**: removed the vestigial multi-repo history machinery
+  (`userAdded` never written, `sven.repolog.remove` unreachable,
+  `LogTreeItemKind.Repo`/`SvnPath`/`order` never constructed/read).
+- **F52**: `ILogTreeItem` is a 3-arm discriminated union; 18 casts
+  removed; 6 unguarded command handlers now kind-guard.
+- **F06 (setDepth slice)**: failures route through `handleOperationError`
+  (was: hand-rolled cleanup-only branch showing raw unsanitized stderr).
+- **F07**: triplicated inline-decoration builder deduped.
+- **F35**: sparse TTL caches on `LRUCache` + `withCachedInFlight`
+  (concurrent-expansion dedup + real memory bound).
+- **F18 (substitute)**: `retryRun.test.ts` was simulation-only false
+  coverage; replaced with 4 real characterization tests (account cycling,
+  credential-mutex serialization, backoff, prompt-decline propagation).
+  The OperationRunner extraction is **dropped** unless auth logic changes.
+- **F03-p2/F40-p2/F60 residue**: 34 lint warnings → 0; `--max-warnings 0`
+  now gates CI. The one real leak (raw svn error via `console.warn` in the
+  post-commit path) routes through sanitized `logError`.
+
+### Still scheduled (one item)
+
+- **F17 lint slice** (~half day): un-ignore `src/test/**` in eslint with a
+  tests-only override, fix the ~13 surfaced errors (3 floating promises in
+  `testUtil.ts` are real flake risk), add a lint ban on vscode-mock export
+  reassignment (enforces the CLAUDE.md `vi.spyOn` rule). The two-test-roots
+  merge is skipped (churn, no payoff).
+
+### Dropped with reasons (headline items)
+
+- **F31 + F18-full** (Repository DI + OperationRunner): parked as a pair;
+  only worth it if repository.ts decomposition is genuinely scheduled.
+  Standalone = days of lifecycle-sensitive work with no user-visible gain.
+- **F12** (Command SCM injection): the static cache is set before any
+  command runs — the service-locator is harmless in practice.
+- **F50** (blame caches → lruCache): would be a **downgrade** — wall-clock
+  LRU ordering reintroduces the eviction-tie flake fixed in 3e7cc536.
+- **F25** (BaseLogProvider): the "drift" is two different events;
+  common.ts already holds the real shared logic.
+- **F56/F22/F42**: already superseded by shipped code.
+- **F20/F41/F43/F44/F15/F57/F66**: churn; the review's own corrected
+  verdicts hold (typed wrappers are a feature, case-renames are a Windows
+  footgun, folders don't enforce TS boundaries, post-F13 init() is fine).
+- **F27** (sparse split): the one large item with a real case (1516 LOC,
+  untested) — do staged, characterization-tests-first, when sparse
+  checkout next needs feature work. F24/F08/F09/F51/F58/F36/F49/F64/F21
+  slices: fold in opportunistically when touching those files.

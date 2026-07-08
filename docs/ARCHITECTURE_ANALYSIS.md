@@ -1,6 +1,6 @@
 # SVN Extension Architecture
 
-**Version**: 0.2.73
+**Version**: 0.2.74
 **Updated**: 2026-07-08
 
 ---
@@ -222,8 +222,15 @@ synchronous but hard-wires VS Code globals (`scm.createSourceControl`,
 Unit-constructibility requires injecting those _boundary_ operations via a
 `RepositoryDependencies` struct (real defaults), and per the review that must
 follow a construction characterization-test suite (none exists — tests use
-`Partial<Repository>`). Large; its own session. Also deferred: typed
-repo-lookup (F58), BlameProvider DI (F08), Command-base SCM injection (F12).
+`Partial<Repository>`). Large; its own session.
+
+**Triage update (0.2.74)**: a second pass re-verified all deferred findings
+against current code and executed the worth-it subset (F19-rescoped, F10, F52,
+F06-slice, F07, F35, real retryRun tests, lint ratchet with
+`--max-warnings 0`). ~75% of the backlog was dropped with reasons — F12 is a
+non-issue in practice, F50 would reintroduce a fixed flake, F31/F18 stay
+parked as a pair. See MAINTAINABILITY_REVIEW.md §5. Remaining scheduled item:
+the F17 lint slice (un-ignore `src/test/**`).
 
 ---
 
