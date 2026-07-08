@@ -3,6 +3,7 @@
 
 import { window, workspace, Uri } from "vscode";
 import { Command } from "./command";
+import { getErrorMessage } from "../util/errorLogger";
 import { Repository } from "../repository";
 import { confirmDestructive } from "../ui";
 import * as path from "path";
@@ -190,7 +191,7 @@ export class ManageAutoProps extends Command {
             }
           } catch (error) {
             window.showErrorMessage(
-              `Failed to set auto-props: ${error instanceof Error ? error.message : "Unknown error"}`
+              `Failed to set auto-props: ${getErrorMessage(error)}`
             );
           }
 
@@ -236,7 +237,7 @@ export class ManageAutoProps extends Command {
       }
     } catch (error) {
       window.showErrorMessage(
-        `Failed to remove auto-props: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Failed to remove auto-props: ${getErrorMessage(error)}`
       );
     }
   }
@@ -267,7 +268,7 @@ export class ManageAutoProps extends Command {
       }
     } catch (error) {
       window.showErrorMessage(
-        `Failed to apply template: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Failed to apply template: ${getErrorMessage(error)}`
       );
     }
   }
@@ -326,9 +327,7 @@ export class ManageAutoProps extends Command {
         );
       }
     } catch (error) {
-      window.showErrorMessage(
-        `Failed to import: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
+      window.showErrorMessage(`Failed to import: ${getErrorMessage(error)}`);
     }
   }
 }

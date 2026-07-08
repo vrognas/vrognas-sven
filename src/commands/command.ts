@@ -34,7 +34,7 @@ import { Repository } from "../repository";
 import { Resource } from "../resource";
 import { fromSvnUri, toSvnUri } from "../uri";
 import { getSvnDir } from "../util";
-import { logError, logWarning } from "../util/errorLogger";
+import { getErrorMessage, logError, logWarning } from "../util/errorLogger";
 import { STAGING_CHANGELIST } from "../services/stagingService";
 import { FORMAT_CODE_MESSAGES } from "./errorPatterns";
 import {
@@ -1117,8 +1117,7 @@ export abstract class Command implements Disposable {
         }
       } catch (error) {
         if (!options?.ignoreErrors) {
-          errorMessage =
-            error instanceof Error ? error.message : "Unknown error";
+          errorMessage = getErrorMessage(error);
         }
       }
     }

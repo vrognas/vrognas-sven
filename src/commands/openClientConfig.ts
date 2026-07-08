@@ -4,6 +4,7 @@
 import { window, workspace, Uri } from "vscode";
 import { Command } from "./command";
 import { getSvnConfigPath, svnConfigExists } from "../util/svnConfigPath";
+import { getErrorMessage } from "../util/errorLogger";
 
 /**
  * Open the SVN client configuration file in the editor.
@@ -29,7 +30,7 @@ export class OpenClientConfig extends Command {
       await window.showTextDocument(doc);
     } catch (error) {
       window.showErrorMessage(
-        `Failed to open config: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Failed to open config: ${getErrorMessage(error)}`
       );
     }
   }

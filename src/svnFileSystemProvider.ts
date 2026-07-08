@@ -27,7 +27,7 @@ import {
   pathEquals,
   EmptyDisposable
 } from "./util";
-import { logError, logWarning } from "./util/errorLogger";
+import { getErrorMessage, logError, logWarning } from "./util/errorLogger";
 
 const ONE_MINUTE = 1000 * 60;
 const THREE_MINUTES = 1000 * 60 * 3;
@@ -277,7 +277,7 @@ export class SvnFileSystemProvider implements FileSystemProvider, Disposable {
       // Wrap other errors
       logError("stat failed", error);
       throw FileSystemError.Unavailable(
-        error instanceof Error ? error.message : "Failed to stat file"
+        error instanceof Error ? getErrorMessage(error) : "Failed to stat file"
       );
     }
   }
