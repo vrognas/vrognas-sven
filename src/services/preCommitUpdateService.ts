@@ -1,9 +1,32 @@
 // Copyright (c) 2025-present Viktor Rognas
 // Licensed under MIT License
 
-import { CancellationToken, ProgressLocation, window } from "vscode";
-import { ISvnErrorData, Status } from "../common/types";
-import { Repository } from "../repository";
+import { CancellationToken, ProgressLocation, Uri, window } from "vscode";
+import { ISvnErrorData, IUpdateResult, Status } from "../common/types";
+import { Resource } from "../resource";
+
+/**
+ * The slice of Repository that PreCommitUpdateService drives. Depending on
+ * this role keeps the service decoupled from the concrete god object; a real
+ * Repository satisfies it structurally.
+ */
+export interface IPreCommitUpdateRepository {
+  getResourceFromFile(uri: string | Uri): Resource | undefined;
+  isInsideUnversionedOrIgnored(filePath: string): Status | undefined;
+  getLastRemoteCheckResult():
+    | { hasChanges: boolean; timestamp: number }
+    | undefined;
+  getRemoteCheckFrequencyMs(): number;
+  hasRemoteChanges(): Promise<boolean>;
+  updateRevision(
+    ignoreExternals?: boolean,
+    opts?: {
+      skipHistoryRefresh?: boolean;
+      token?: CancellationToken;
+      files?: string[];
+    }
+  ): Promise<IUpdateResult>;
+}
 
 // E155015 = "One or more conflicts produced" (commit-side).
 // E200024 = MergeConflict (update-side; mirrored from svn.svnErrorCodes).
@@ -41,7 +64,7 @@ export class PreCommitUpdateService {
    * Reuses cached remote-check result from background polling when fresh.
    */
   async runUpdate(
-    repository: Repository,
+    repository: IPreCommitUpdateRepository,
     files?: string[]
   ): Promise<UpdateResult> {
     // Filter to versioned files only — new/unversioned files don't need updating

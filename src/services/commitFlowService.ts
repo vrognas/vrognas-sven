@@ -7,13 +7,25 @@ import {
   QuickPickItemKind,
   window
 } from "vscode";
-import { Repository } from "../repository";
 import {
   ConventionalCommitService,
   ConventionalCommit
 } from "./conventionalCommitService";
-import { PreCommitUpdateService, UpdateResult } from "./preCommitUpdateService";
+import {
+  PreCommitUpdateService,
+  UpdateResult,
+  IPreCommitUpdateRepository
+} from "./preCommitUpdateService";
 import { truncate } from "../util/formatting";
+
+/**
+ * Minimal repository surface CommitFlowService needs: the SCM input box.
+ * Depending on this role instead of the concrete ~3000-line Repository keeps
+ * the dependency direction pointing away from the god object.
+ */
+export interface ICommitMessageInput {
+  readonly inputBox: { value: string };
+}
 
 /**
  * Result of the commit flow
@@ -64,7 +76,7 @@ export class CommitFlowService {
    * Run the complete commit flow
    */
   async runCommitFlow(
-    repository: Repository,
+    repository: ICommitMessageInput & IPreCommitUpdateRepository,
     filePaths: string[],
     options: CommitFlowOptions = {}
   ): Promise<CommitFlowResult> {
@@ -129,7 +141,7 @@ export class CommitFlowService {
    * Run conventional commit flow with type selection
    */
   private async runConventionalFlow(
-    repository: Repository,
+    repository: ICommitMessageInput,
     filePaths: string[]
   ): Promise<string | undefined> {
     // Step 1: Select commit type
@@ -189,7 +201,7 @@ export class CommitFlowService {
    * Show commit type selection (Step 1)
    */
   private async showTypeStep(
-    repository: Repository
+    repository: ICommitMessageInput
   ): Promise<TypePickItem | undefined> {
     const types = this.conventionalService.getCommitTypes();
     const items: TypePickItem[] = [];
@@ -394,7 +406,7 @@ export class CommitFlowService {
    * Shows real-time character count
    */
   private async showCustomMessageStep(
-    repository: Repository
+    repository: ICommitMessageInput
   ): Promise<string | undefined> {
     const maxLen = this.conventionalService.getMaxLength();
 

@@ -42,7 +42,7 @@ suite("CommitAll Command E2E Tests", () => {
 
     runCommitFlowStub = sinon
       .stub(CommitFlowService.prototype, "runCommitFlow")
-      .callsFake(async (_repository: Repository, filePaths: string[]) => ({
+      .callsFake(async (_repository, filePaths: string[]) => ({
         cancelled: false,
         message: "Commit all changes",
         selectedFiles: filePaths
@@ -61,9 +61,18 @@ suite("CommitAll Command E2E Tests", () => {
   });
 
   test("Commit all success - staged files committed", async () => {
-    const file1 = new Resource(Uri.file("/test/workspace/file1.txt"), Status.MODIFIED);
-    const file2 = new Resource(Uri.file("/test/workspace/file2.txt"), Status.ADDED);
-    const file3 = new Resource(Uri.file("/test/workspace/file3.txt"), Status.DELETED);
+    const file1 = new Resource(
+      Uri.file("/test/workspace/file1.txt"),
+      Status.MODIFIED
+    );
+    const file2 = new Resource(
+      Uri.file("/test/workspace/file2.txt"),
+      Status.ADDED
+    );
+    const file3 = new Resource(
+      Uri.file("/test/workspace/file3.txt"),
+      Status.DELETED
+    );
 
     (mockRepository as any).staged.resourceStates = [file1, file2, file3];
     (mockRepository as any).changes.resourceStates = [];
@@ -104,7 +113,10 @@ suite("CommitAll Command E2E Tests", () => {
   });
 
   test("Commit error - shows actionable error message", async () => {
-    const file = new Resource(Uri.file("/test/workspace/error.txt"), Status.MODIFIED);
+    const file = new Resource(
+      Uri.file("/test/workspace/error.txt"),
+      Status.MODIFIED
+    );
     (mockRepository as any).staged.resourceStates = [file];
     (mockRepository as any).changes.resourceStates = [];
 
@@ -122,7 +134,9 @@ suite("CommitAll Command E2E Tests", () => {
     assert.ok(runCommitFlowStub.calledOnce);
     assert.ok(showErrorStub.calledOnce);
     // E155015 is a conflict error — routes to "Resolve Conflicts"
-    assert.ok(showErrorStub.firstCall.args[0].includes("Conflict blocking operation"));
+    assert.ok(
+      showErrorStub.firstCall.args[0].includes("Conflict blocking operation")
+    );
     assert.strictEqual(showErrorStub.firstCall.args[1], "Resolve Conflicts");
   });
 });
