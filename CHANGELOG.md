@@ -7,6 +7,18 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.68] - 2026-07-08
+
+Audit leftovers: three defects confirmed in earlier review passes but parked as out of scope.
+
+### Fixed
+
+- `SVN: Show Annotations (Blame)` was a dead end: it ran a remote HEAD blame and discarded the result (an info toast was all you got — a TODO from the original implementation). It now enables blame for the file, and the decorations render through the provider's shared caches. Programmatic calls with an explicit revision keep the direct fetch.
+- Gutter heatmap colors were cached by revision number alone, so the first file blamed in a session froze the palette for every other file sharing those revisions — "newest = red" was wrong everywhere else, and theme switches served stale colors. The cache key now includes the revision's position in the file's range, the range size, and the theme lightness.
+- Changing _any_ setting silently flipped the repository scan depth from 0 to 4 (`sven.multipleFolders.depth`'s package.json default) even with `sven.multipleFolders.enabled` off, arming recursive directory walks the disabled mode exists to prevent. Depth now applies only while the feature is enabled.
+
+---
+
 ## [0.2.67] - 2026-07-07
 
 The three deferred server-query proposals: immutable revision-pinned caching, blame keyed by its actual BASE revision, and history panels that stop paying for refreshes nobody sees.
