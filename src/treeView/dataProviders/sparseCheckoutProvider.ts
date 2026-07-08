@@ -1,7 +1,6 @@
 // Copyright (c) 2025-present Viktor Rognas
 // Licensed under MIT License
 
-import * as fs from "fs";
 import * as path from "path";
 import {
   CancellationToken,
@@ -40,32 +39,15 @@ import {
   formatDuration,
   parseSizeToBytes
 } from "../../util/formatting";
+import { pLimit } from "../../util/pLimit";
+import {
+  createFileSizeMonitor,
+  createFolderMonitor,
+  FILE_POLL_INTERVAL_MS
+} from "./downloadProgressMonitor";
 
 /** Max concurrent svn info subprocess calls (prevents EMFILE / WC lock contention) */
 const MAX_CONCURRENT_INFO = 5;
-
-/** Run async tasks with bounded concurrency */
-async function pLimit<T>(
-  tasks: (() => Promise<T>)[],
-  concurrency: number
-): Promise<T[]> {
-  const results: T[] = new Array(tasks.length);
-  let nextIndex = 0;
-
-  async function worker() {
-    while (nextIndex < tasks.length) {
-      const i = nextIndex++;
-      results[i] = await tasks[i]!();
-    }
-  }
-
-  const workers = Array.from(
-    { length: Math.min(concurrency, tasks.length) },
-    () => worker()
-  );
-  await Promise.all(workers);
-  return results;
-}
 
 class RepositoryRootNode extends BaseNode {
   constructor(
@@ -123,219 +105,8 @@ const DEFAULT_SPEED_BPS = 1 * 1024 * 1024;
 /** Max speed samples to keep for averaging */
 const MAX_SPEED_SAMPLES = 5;
 
-/** Polling interval for file size monitoring (ms) */
-const FILE_POLL_INTERVAL_MS = 500;
-
-/** Speed decay factor when no growth detected (0.5 = halve each poll) */
-const SPEED_DECAY_FACTOR = 0.5;
-
-/** Max recursion depth for folder counting (prevents stack overflow) */
-const MAX_RECURSION_DEPTH = 100;
-
 /** Default pre-scan timeout in seconds (configurable via svn.sparse.preScanTimeoutSeconds) */
 const DEFAULT_PRESCAN_TIMEOUT_SECONDS = 30;
-
-/**
- * Monitor file size growth during download.
- * Returns cleanup function and getters for speed/size.
- *
- * NOTE: SVN may download to .svn/tmp/ first then rename, so real-time
- * monitoring may not show progress for all files. Works best when SVN
- * writes directly to the target path.
- */
-function createFileSizeMonitor(filePath: string): {
-  stop: () => void;
-  getSpeed: () => number;
-  getSize: () => number;
-  isStopped: () => boolean;
-} {
-  let lastSize = 0;
-  let lastTime = Date.now();
-  let currentSpeed = 0;
-  let currentSize = 0;
-  let isFirstPoll = true;
-  let stopped = false;
-
-  const poll = () => {
-    // Race condition fix: don't poll after stop
-    if (stopped) return;
-
-    try {
-      const stats = fs.statSync(filePath);
-      const now = Date.now();
-      const sizeDelta = stats.size - lastSize;
-      const timeDelta = (now - lastTime) / 1000;
-
-      if (isFirstPoll) {
-        // Skip first measurement to avoid spike when file appears with data
-        isFirstPoll = false;
-        lastSize = stats.size;
-        lastTime = now;
-        currentSize = stats.size;
-        return;
-      }
-
-      if (timeDelta > 0) {
-        if (sizeDelta > 0) {
-          // File is growing - calculate speed
-          currentSpeed = sizeDelta / timeDelta;
-        } else {
-          // No growth - decay speed toward 0 (indicates stall)
-          currentSpeed *= SPEED_DECAY_FACTOR;
-          if (currentSpeed < 1024) currentSpeed = 0; // Below 1KB/s = 0
-        }
-      }
-
-      currentSize = stats.size;
-      lastSize = stats.size;
-      lastTime = now;
-    } catch {
-      // File may not exist yet or be locked - ignore
-    }
-  };
-
-  // Poll immediately (Bug fix: setInterval doesn't run immediately)
-  poll();
-  const interval = setInterval(poll, FILE_POLL_INTERVAL_MS);
-
-  return {
-    stop: () => {
-      stopped = true;
-      clearInterval(interval);
-    },
-    getSpeed: () => currentSpeed,
-    getSize: () => currentSize,
-    isStopped: () => stopped
-  };
-}
-
-/**
- * Count files recursively in a directory (for tracking folder download progress).
- * Returns count of files that exist on disk.
- *
- * Safety features:
- * - Symlink loop detection via visited inode tracking
- * - Max recursion depth limit
- * - Skips symbolic links entirely
- */
-/** Folder statistics for progress tracking */
-interface FolderStats {
-  count: number;
-  size: number;
-}
-
-/**
- * Get file count and total size in a single traversal.
- * Used for size-based progress tracking.
- */
-function getFolderStats(
-  folderPath: string,
-  visited = new Set<string>(),
-  depth = 0
-): FolderStats {
-  if (depth > MAX_RECURSION_DEPTH) {
-    return { count: 0, size: 0 };
-  }
-
-  let count = 0;
-  let size = 0;
-  try {
-    const folderStat = fs.statSync(folderPath);
-    const inode = `${folderStat.dev}:${folderStat.ino}`;
-    if (visited.has(inode)) {
-      return { count: 0, size: 0 };
-    }
-    visited.add(inode);
-
-    const entries = fs.readdirSync(folderPath, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.name === ".svn") continue;
-      if (entry.isSymbolicLink()) continue;
-
-      const fullPath = path.join(folderPath, entry.name);
-      if (entry.isDirectory()) {
-        const sub = getFolderStats(fullPath, visited, depth + 1);
-        count += sub.count;
-        size += sub.size;
-      } else if (entry.isFile()) {
-        try {
-          size += fs.statSync(fullPath).size;
-          count++;
-        } catch {
-          // File may have been deleted
-        }
-      }
-    }
-  } catch (err) {
-    if (err instanceof Error && !err.message.includes("ENOENT")) {
-      logError("getFolderStats error", err);
-    }
-  }
-  return { count, size };
-}
-
-/**
- * Monitor folder download progress by tracking file size.
- * Size-based tracking is more accurate than file count for progress/ETA.
- */
-function createFolderMonitor(
-  folderPath: string,
-  expectedTotalSize: number,
-  expectedFileCount: number
-): {
-  stop: () => void;
-  getProgress: () => number;
-  getSize: () => number;
-  getFileCount: () => number;
-  getSpeed: () => number;
-  isStopped: () => boolean;
-} {
-  let currentStats = { count: 0, size: 0 };
-  let stopped = false;
-  let lastSize = 0;
-  let lastTime = Date.now();
-  let smoothedSpeed = 0;
-
-  const poll = () => {
-    if (stopped) return;
-    currentStats = getFolderStats(folderPath);
-
-    // Calculate smoothed speed
-    const now = Date.now();
-    const deltaTime = (now - lastTime) / 1000;
-    const deltaSize = currentStats.size - lastSize;
-    if (deltaTime > 0 && deltaSize > 0) {
-      const instantSpeed = deltaSize / deltaTime;
-      smoothedSpeed =
-        smoothedSpeed === 0
-          ? instantSpeed
-          : 0.3 * instantSpeed + 0.7 * smoothedSpeed;
-    }
-    lastSize = currentStats.size;
-    lastTime = now;
-  };
-
-  // Poll immediately
-  poll();
-  const interval = setInterval(poll, FILE_POLL_INTERVAL_MS);
-
-  return {
-    stop: () => {
-      stopped = true;
-      clearInterval(interval);
-    },
-    getProgress: () =>
-      expectedTotalSize > 0
-        ? Math.min(currentStats.size / expectedTotalSize, 1)
-        : expectedFileCount > 0
-          ? Math.min(currentStats.count / expectedFileCount, 1)
-          : 0,
-    getSize: () => currentStats.size,
-    getFileCount: () => currentStats.count,
-    getSpeed: () => smoothedSpeed,
-    isStopped: () => stopped
-  };
-}
 
 export default class SparseCheckoutProvider
   implements TreeDataProvider<BaseNode>, Disposable
@@ -586,7 +357,9 @@ export default class SparseCheckoutProvider
     if (dirItems.length === 0) return;
 
     const depths = await pLimit(
-      dirItems.map(d => () => this.getDepth(repo, path.join(repo.root, d.path))),
+      dirItems.map(
+        d => () => this.getDepth(repo, path.join(repo.root, d.path))
+      ),
       MAX_CONCURRENT_INFO
     );
 
@@ -798,21 +571,29 @@ export default class SparseCheckoutProvider
   ): ISparseItem[] {
     // Case-insensitive Set for Windows/macOS compatibility
     const localNamesLower = new Set(localItems.map(i => i.name.toLowerCase()));
-    return serverItems
-      .filter(s => !localNamesLower.has(s.name.toLowerCase()))
-      // Reject path traversal from malicious server responses
-      .filter(s => !s.name.includes("/") && !s.name.includes("\\") && s.name !== ".." && s.name !== ".")
-      .map(s => ({
-        name: s.name,
-        path: relativeFolder ? path.join(relativeFolder, s.name) : s.name,
-        kind: (s.kind === "dir" ? "dir" : "file") as "file" | "dir",
-        isGhost: true,
-        // Include commit metadata from server
-        revision: s.commit?.revision,
-        author: s.commit?.author,
-        date: s.commit?.date,
-        size: s.size
-      }));
+    return (
+      serverItems
+        .filter(s => !localNamesLower.has(s.name.toLowerCase()))
+        // Reject path traversal from malicious server responses
+        .filter(
+          s =>
+            !s.name.includes("/") &&
+            !s.name.includes("\\") &&
+            s.name !== ".." &&
+            s.name !== "."
+        )
+        .map(s => ({
+          name: s.name,
+          path: relativeFolder ? path.join(relativeFolder, s.name) : s.name,
+          kind: (s.kind === "dir" ? "dir" : "file") as "file" | "dir",
+          isGhost: true,
+          // Include commit metadata from server
+          revision: s.commit?.revision,
+          author: s.commit?.author,
+          date: s.commit?.date,
+          size: s.size
+        }))
+    );
   }
 
   /** Get file extension (lowercase, without dot) */
@@ -836,7 +617,10 @@ export default class SparseCheckoutProvider
       }
     }
 
-    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+    const collator = new Intl.Collator(undefined, {
+      numeric: true,
+      sensitivity: "base"
+    });
     return items.sort((a, b) => {
       // Dirs first
       if (a.kind !== b.kind) {
@@ -1259,7 +1043,10 @@ export default class SparseCheckoutProvider
       const errStr = String(err);
       if (needsCleanupFromFullError(errStr)) {
         window
-          .showErrorMessage("Working copy is locked. Run cleanup to fix.", "Run Cleanup")
+          .showErrorMessage(
+            "Working copy is locked. Run cleanup to fix.",
+            "Run Cleanup"
+          )
           .then(choice => {
             if (choice === "Run Cleanup") {
               commands.executeCommand("sven.cleanup");
@@ -1376,7 +1163,8 @@ export default class SparseCheckoutProvider
     const unsafeItems = this.getUnsafeItems(validNodes);
     if (unsafeItems.length > 0) {
       const fileList = unsafeItems.slice(0, 5).join("\n");
-      const more = unsafeItems.length > 5 ? `\n...and ${unsafeItems.length - 5} more` : "";
+      const more =
+        unsafeItems.length > 5 ? `\n...and ${unsafeItems.length - 5} more` : "";
       const choice = await window.showWarningMessage(
         `${unsafeItems.length} uncommitted/unversioned file(s) will be lost:\n\n${fileList}${more}\n\nCommit or move them first, or proceed to discard.`,
         { modal: true },
@@ -1386,9 +1174,11 @@ export default class SparseCheckoutProvider
     }
 
     // Check if confirmation is enabled (skip if user already confirmed unsafe dialog)
-    const confirmEnabled = unsafeItems.length === 0 && workspace
-      .getConfiguration("sven.sparse")
-      .get<boolean>("confirmExclude", true);
+    const confirmEnabled =
+      unsafeItems.length === 0 &&
+      workspace
+        .getConfiguration("sven.sparse")
+        .get<boolean>("confirmExclude", true);
 
     if (confirmEnabled) {
       const confirm = await window.showWarningMessage(
@@ -1484,7 +1274,10 @@ export default class SparseCheckoutProvider
       const errStr = String(err);
       if (needsCleanupFromFullError(errStr)) {
         window
-          .showErrorMessage("Working copy is locked. Run cleanup to fix.", "Run Cleanup")
+          .showErrorMessage(
+            "Working copy is locked. Run cleanup to fix.",
+            "Run Cleanup"
+          )
           .then(choice => {
             if (choice === "Run Cleanup") {
               commands.executeCommand("sven.cleanup");
