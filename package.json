@@ -867,6 +867,12 @@
         "title": "Load All Remaining Revisions"
       },
       {
+        "command": "sven.incomingChanges",
+        "category": "SVN",
+        "title": "Incoming Changes...",
+        "icon": "$(cloud-download)"
+      },
+      {
         "command": "sven.repolog.refreshHard",
         "category": "SVN",
         "title": "Refresh History (Discard Cache)",
@@ -1283,6 +1289,10 @@
         {
           "command": "sven.repolog.fetchAll",
           "when": "false"
+        },
+        {
+          "command": "sven.incomingChanges",
+          "when": "svnOpenRepositoryCount != 0"
         },
         {
           "command": "sven.repolog.refreshHard",

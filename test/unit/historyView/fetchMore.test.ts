@@ -3,6 +3,7 @@ import { Uri } from "vscode";
 import {
   ensureRevisionLoaded,
   fetchMore,
+  fetchNewer,
   ICachedLog
 } from "../../../src/historyView/common";
 import { buildSvnLogArgs } from "../../../src/historyView/historyFilter";
@@ -165,5 +166,49 @@ describe("ensureRevisionLoaded (goToRevision auto-fetch)", () => {
 
     expect(found).toBe(false);
     expect(repo.log).not.toHaveBeenCalled();
+  });
+});
+
+describe("fetchNewer (incoming revisions preview)", () => {
+  it("prepends server revisions newer than the cached head", async () => {
+    const log = vi.fn(async () => [entry("3002"), entry("3001")]);
+    const cached = makeCached({ log }, [entry("3000"), entry("2999")]);
+    cached.entries.forEach(e => cached.revisionSet.add(e.revision));
+
+    const added = await fetchNewer(cached);
+
+    expect(log).toHaveBeenCalledWith(
+      "HEAD",
+      "3001",
+      expect.any(Number),
+      expect.anything()
+    );
+    expect(added).toBe(2);
+    expect(cached.entries.map(e => e.revision)).toEqual([
+      "3002",
+      "3001",
+      "3000",
+      "2999"
+    ]);
+  });
+
+  it("returns 0 when the server has nothing newer (range error)", async () => {
+    const log = vi.fn(async () => {
+      throw new Error("svn: E160006: No such revision 3001");
+    });
+    const cached = makeCached({ log }, [entry("3000")]);
+    cached.revisionSet.add("3000");
+
+    expect(await fetchNewer(cached)).toBe(0);
+    expect(cached.entries).toHaveLength(1);
+  });
+
+  it("dedupes overlap with already-cached revisions", async () => {
+    const log = vi.fn(async () => [entry("3001"), entry("3000")]);
+    const cached = makeCached({ log }, [entry("3000")]);
+    cached.revisionSet.add("3000");
+
+    expect(await fetchNewer(cached)).toBe(1);
+    expect(cached.entries.map(e => e.revision)).toEqual(["3001", "3000"]);
   });
 });

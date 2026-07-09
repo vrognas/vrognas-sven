@@ -38,6 +38,7 @@ import { PickCommitMessage } from "./commands/pickCommitMessage";
 import { PromptAuth } from "./commands/promptAuth";
 import { PromptRemove } from "./commands/promptRemove";
 import { PullIncomingChange } from "./commands/pullIncomingChange";
+import { IncomingChanges } from "./commands/incomingChanges";
 import { ClearCredentials } from "./commands/clearCredentials";
 import { Refresh } from "./commands/refresh";
 import { RefreshRemoteChanges } from "./commands/refreshRemoteChanges";
@@ -119,6 +120,7 @@ export function registerCommands(
   disposables.push(new UnstageAll());
   disposables.push(new Update());
   disposables.push(new PullIncomingChange());
+  disposables.push(new IncomingChanges());
   disposables.push(new PatchAll());
   disposables.push(new Patch());
   disposables.push(new PatchChangeList());

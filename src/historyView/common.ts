@@ -361,6 +361,42 @@ export async function fetchMore(cached: ICachedLog, limitOverride?: number) {
 }
 
 /**
+ * Fetch revisions NEWER than the cached head (incoming server commits) and
+ * prepend them. fetchMore only ever pages DOWNWARD, so before this existed
+ * server-only revisions couldn't stream into an already-populated view.
+ * Returns how many new entries were added; 0 when the server has nothing
+ * newer (svn rejects the inverted range with "no such revision").
+ */
+export async function fetchNewer(
+  cached: ICachedLog,
+  limit = 500
+): Promise<number> {
+  const head = cached.entries[0];
+  const newest = head ? parseInt(head.revision, 10) : NaN;
+  if (isNaN(newest)) {
+    await fetchMore(cached, limit);
+    return cached.entries.length;
+  }
+  let commits: ISvnLogEntry[] = [];
+  try {
+    commits = await cached.repo.log(
+      "HEAD",
+      String(newest + 1),
+      limit,
+      cached.svnTarget
+    );
+  } catch {
+    return 0;
+  }
+  const fresh = commits.filter(c => !cached.revisionSet.has(c.revision));
+  for (const c of fresh) {
+    cached.revisionSet.add(c.revision);
+  }
+  cached.entries.unshift(...fresh);
+  return fresh.length;
+}
+
+/**
  * Page older history until `revision` is in the cache, the cache is
  * exhausted, or paging has passed the target. Revisions are monotonic, so
  * once the oldest loaded entry is <= the target and it hasn't appeared,

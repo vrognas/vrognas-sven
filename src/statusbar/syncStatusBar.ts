@@ -111,8 +111,8 @@ export class SyncStatusBar {
       tooltip = "Run update to complete";
     } else if (this.state.remoteChangedFiles > 0) {
       icon = "$(cloud-download)";
-      command = "sven.update";
-      tooltip = "Update Revision";
+      command = "sven.incomingChanges";
+      tooltip = "Preview or pull incoming changes";
       text = `${this.state.remoteChangedFiles}↓`;
     } else {
       command = "sven.update";

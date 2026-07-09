@@ -28,6 +28,7 @@ import {
   createLoadMoreItem,
   ensureRevisionLoaded,
   fetchMore,
+  fetchNewer,
   getCommitIcon,
   getCommitLabel,
   getCommitToolTip,
@@ -168,6 +169,11 @@ export class RepoLogProvider
         this
       ),
       commands.registerCommand("sven.repolog.fetchAll", this.fetchAll, this),
+      commands.registerCommand(
+        "sven.repolog.showIncoming",
+        this.showIncoming,
+        this
+      ),
       commands.registerCommand(
         "sven.repolog.refreshHard",
         this.refreshHard,
@@ -441,6 +447,42 @@ export class RepoLogProvider
       return;
     }
     return this.refresh(element, fetchMoreClick, true);
+  }
+
+  /**
+   * Reveal incoming (server-only) revisions: fetch anything newer than the
+   * cached head and focus the top of the view. The at-newest refresh keep
+   * and downward-only fetchMore mean incoming commits otherwise only
+   * appear after an update - too late for a preview.
+   */
+  public async showIncoming() {
+    await commands.executeCommand("sven.repolog.focus");
+    let cached = this.getCached();
+    if (!cached) {
+      return;
+    }
+    if (this.filterService.hasActiveFilter()) {
+      this.filterService.clearFilter();
+      if (this.pendingFilterRefresh) {
+        await this.pendingFilterRefresh;
+      }
+      cached = this.getCached();
+      if (!cached) {
+        return;
+      }
+    }
+    const added = await fetchNewer(cached);
+    this._onDidChangeTreeData.fire(undefined);
+    const top = cached.entries[0];
+    if (top) {
+      await this.goToRevision(parseInt(top.revision, 10));
+    }
+    if (added === 0) {
+      window.setStatusBarMessage(
+        "History already shows the latest server revisions",
+        3000
+      );
+    }
   }
 
   /**

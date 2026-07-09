@@ -67,10 +67,16 @@ export class SvnConnectionsProvider implements ConnectionsDriver {
    * Execute SVN checkout command
    */
   async connect(code: string): Promise<void> {
-    // Execute the generated SVN command
-    // For now, show the command to user
-    await commands.executeCommand("sven.showOutput");
-    logWarning("SVN Connection: Would execute", code);
+    // `code` is our own generateCode() output: "svn checkout <url> [target]".
+    // Hand the URL to the real checkout command (it prompts for the target
+    // folder and handles auth/depth). This used to log "Would execute" and
+    // no-op - the Connections pane's only action point did nothing.
+    const url = code.replace(/^svn checkout\s+/, "").split(/\s+/)[0];
+    if (!url) {
+      logWarning("SVN Connection: no URL in generated code", code);
+      return;
+    }
+    await commands.executeCommand("sven.checkout", url);
   }
 
   /**
