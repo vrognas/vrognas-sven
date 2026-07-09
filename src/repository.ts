@@ -575,6 +575,13 @@ export class Repository implements IRemoteRepository {
           void this.promptLockIfNeeded(document.uri);
           void this.promptUpdateIfRemoteChanges(document.uri);
         }
+      }),
+      // First-edit lock guard (cheap: a Set lookup per event after the
+      // first prompt per file)
+      workspace.onDidChangeTextDocument(e => {
+        if (e.document.uri.scheme === "file" && e.contentChanges.length > 0) {
+          void this.promptLockOnEdit(e.document.uri);
+        }
       })
     );
   }
@@ -2762,6 +2769,11 @@ export class Repository implements IRemoteRepository {
    * Check if file needs lock and prompt user to lock it.
    * Called when opening a file that might need locking.
    */
+  /** Files already warned about lock contention (once per session). */
+  private readonly lockPromptShown = new Set<string>();
+  /** Files already lock-guarded on first edit (once per session). */
+  private readonly lockEditPromptShown = new Set<string>();
+
   public async promptLockIfNeeded(uri: Uri): Promise<void> {
     // Only check files in this repository's working copy
     // Use case-insensitive comparison for Windows (drive letter case)
@@ -2771,10 +2783,22 @@ export class Repository implements IRemoteRepository {
       return;
     }
 
-    // Check if file already has a lock (any lock status means it's locked)
     const resource = this.getResourceFromFile(uri.fsPath);
+
+    // We hold the lock (K): nothing to do
+    if (resource?.lockStatus === LockStatus.K) {
+      return;
+    }
+
+    // Locked by someone else, or our token is broken/stolen. This branch
+    // used to return silently and the user found out at save/commit time.
     if (resource?.lockStatus || resource?.locked) {
-      return; // Already locked
+      if (this.lockPromptShown.has(normalizedUri)) {
+        return;
+      }
+      this.lockPromptShown.add(normalizedUri);
+      await this.warnLockContention(uri, resource);
+      return;
     }
 
     // Check if file has needs-lock property
@@ -2790,6 +2814,81 @@ export class Repository implements IRemoteRepository {
       "Not Now"
     );
 
+    if (choice === "Lock File") {
+      await commands.executeCommand("sven.lock", uri);
+    }
+  }
+
+  /**
+   * Informed contention warning: who holds the lock and the action that
+   * resolves it (steal for O/T, re-lock for a broken token).
+   */
+  private async warnLockContention(uri: Uri, resource: Resource) {
+    const owner = resource.lockOwner ? ` by ${resource.lockOwner}` : "";
+    let message: string;
+    let action: string;
+    let command: string;
+    switch (resource.lockStatus) {
+      case LockStatus.B:
+        message = `Your lock on this file was broken${owner ? ` (now held${owner})` : ""}. It is no longer valid on the server.`;
+        action = "Lock Again";
+        command = "sven.lock";
+        break;
+      case LockStatus.T:
+        message = `Your lock on this file was stolen${owner}.`;
+        action = "Steal Lock";
+        command = "sven.stealLock";
+        break;
+      default:
+        message = `This file is locked${owner}. Changes can't be committed until the lock is released or stolen.`;
+        action = "Steal Lock";
+        command = "sven.stealLock";
+    }
+    const choice = await window.showWarningMessage(message, action, "Dismiss");
+    if (choice === action) {
+      await commands.executeCommand(command, uri);
+    }
+  }
+
+  /**
+   * First-edit lock guard. VS Code happily lets you type into an
+   * OS-read-only file and only fails at save (offering an "Overwrite"
+   * that strips the read-only bit - bypassing SVN lock discipline
+   * entirely). Prompt on the FIRST keystroke instead, once per file.
+   */
+  public async promptLockOnEdit(uri: Uri): Promise<void> {
+    const normalizedUri = uri.fsPath.toLowerCase();
+    if (this.lockEditPromptShown.has(normalizedUri)) {
+      return;
+    }
+    const normalizedRoot = this.workspaceRoot.toLowerCase();
+    if (!normalizedUri.startsWith(normalizedRoot)) {
+      return;
+    }
+
+    const resource = this.getResourceFromFile(uri.fsPath);
+    if (resource?.lockStatus === LockStatus.K) {
+      return; // we hold the lock - never nag while typing
+    }
+
+    // Mark before any await: keystrokes arrive faster than the checks run
+    this.lockEditPromptShown.add(normalizedUri);
+
+    if (resource?.lockStatus || resource?.locked) {
+      await this.warnLockContention(uri, resource);
+      return;
+    }
+
+    const needsLock = await this.hasNeedsLock(uri.fsPath);
+    if (!needsLock) {
+      return;
+    }
+
+    const choice = await window.showWarningMessage(
+      "This file requires a lock: it is read-only and saving will fail until you lock it.",
+      "Lock File",
+      "Dismiss"
+    );
     if (choice === "Lock File") {
       await commands.executeCommand("sven.lock", uri);
     }

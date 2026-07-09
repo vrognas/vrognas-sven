@@ -47,14 +47,27 @@ export class StealLock extends BaseFileLockCommand {
   }
 
   public async execute(...args: unknown[]) {
-    const confirmed = await confirmDestructive(
-      "Steal lock from another user? They will lose their lock.",
-      "Steal Lock"
-    );
-    if (!confirmed) return;
-
     await this.executeFileLockOperation({
       args,
+      // Confirm AFTER paths resolve so the prompt can say WHO loses the
+      // lock (owner comes from the cached status - no network call)
+      confirm: async (repository, paths) => {
+        const owners = new Set<string>();
+        for (const p of paths) {
+          const owner = repository.getResourceFromFile(p)?.lockOwner;
+          if (owner) {
+            owners.add(owner);
+          }
+        }
+        const held =
+          owners.size > 0
+            ? `held by ${[...owners].join(", ")}`
+            : "from another user";
+        return confirmDestructive(
+          `Steal lock ${held}? They will lose their lock.`,
+          "Steal Lock"
+        );
+      },
       operation: (repository, paths) => repository.lock(paths, { force: true }),
       successMessage: count => `Stole lock on ${count} file(s)`,
       resultErrorPrefix: "Steal lock failed",

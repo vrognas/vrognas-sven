@@ -8,6 +8,10 @@ import { Command } from "./command";
 
 interface FileLockOperationConfig {
   args: unknown[];
+  /** Runs after repository/paths resolve, before the operation - so the
+   *  confirmation can name who actually holds the lock. Return false to
+   *  abort silently. */
+  confirm?: (repository: Repository, paths: string[]) => Promise<boolean>;
   operation: (
     repository: Repository,
     paths: string[]
@@ -25,6 +29,9 @@ export abstract class BaseFileLockCommand extends Command {
     await this.executeOnUrisOrResources(
       config.args,
       async (repository, paths) => {
+        if (config.confirm && !(await config.confirm(repository, paths))) {
+          return;
+        }
         const result = await config.operation(repository, paths);
 
         if (
