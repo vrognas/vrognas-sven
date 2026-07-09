@@ -1270,8 +1270,10 @@ export class RepoLogProvider
           ? applyFilterToEntries(cached.entries, activeFilter)
           : cached.entries;
 
-      // Show loading indicator while fetching
-      if (cached.isLoading) {
+      // Lone loading indicator only when there is nothing to show yet;
+      // fetchAll fires per chunk to STREAM entries in - hiding loaded
+      // history behind a spinner for its whole run defeated that
+      if (cached.isLoading && logentries.length === 0) {
         return [createLoadingItem()];
       }
 
@@ -1309,7 +1311,10 @@ export class RepoLogProvider
         cached.isComplete = true;
       }
 
-      if (!cached.isComplete) {
+      if (cached.isLoading) {
+        // Bulk fetch in flight: append progress instead of paging items
+        result.push(createLoadingItem());
+      } else if (!cached.isComplete) {
         result.push(
           createLoadMoreItem("sven.repolog.fetch", [undefined, true]),
           createLoadAllItem("sven.repolog.fetchAll")
