@@ -2830,7 +2830,9 @@ export class Repository implements IRemoteRepository {
     let command: string;
     switch (resource.lockStatus) {
       case LockStatus.B:
-        message = `Your lock on this file was broken${owner ? ` (now held${owner})` : ""}. It is no longer valid on the server.`;
+        // B = the server has NO lock anymore; the parser's lockOwner is
+        // the user's own stale local token - never name it as a holder
+        message = `Your lock on this file was broken. It is no longer valid on the server.`;
         action = "Lock Again";
         command = "sven.lock";
         break;
@@ -2875,7 +2877,12 @@ export class Repository implements IRemoteRepository {
     this.lockEditPromptShown.add(normalizedUri);
 
     if (resource?.lockStatus || resource?.locked) {
-      await this.warnLockContention(uri, resource);
+      // Same warning as the on-open prompt - share its once-per-file
+      // gate so open-then-edit doesn't stack two identical dialogs
+      if (!this.lockPromptShown.has(normalizedUri)) {
+        this.lockPromptShown.add(normalizedUri);
+        await this.warnLockContention(uri, resource);
+      }
       return;
     }
 

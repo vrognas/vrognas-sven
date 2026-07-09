@@ -98,6 +98,43 @@ describe("informed lock UX", () => {
     );
   });
 
+  it("does not name a holder for a broken lock (B = server has none)", async () => {
+    // statusParser sets lockOwner from the LOCAL token in B state - that
+    // is the user's own name, and B means nobody holds the lock anymore
+    const mockThis = makeMockThis({
+      getResourceFromFile: () =>
+        resourceStub({
+          lockStatus: LockStatus.B,
+          lockOwner: "myself",
+          locked: true
+        })
+    });
+    vi.mocked(window.showWarningMessage).mockResolvedValue(undefined as never);
+
+    await proto("promptLockIfNeeded").call(mockThis, uri);
+
+    const msg = String(vi.mocked(window.showWarningMessage).mock.calls[0]?.[0]);
+    expect(msg).toMatch(/broken/i);
+    expect(msg).not.toContain("myself");
+  });
+
+  it("warns about contention ONCE across open + first edit", async () => {
+    const mockThis = makeMockThis({
+      getResourceFromFile: () =>
+        resourceStub({
+          lockStatus: LockStatus.O,
+          lockOwner: "alice",
+          locked: true
+        })
+    });
+    vi.mocked(window.showWarningMessage).mockResolvedValue(undefined as never);
+
+    await proto("promptLockIfNeeded").call(mockThis, uri); // open
+    await proto("promptLockOnEdit").call(mockThis, uri); // first keystroke
+
+    expect(vi.mocked(window.showWarningMessage)).toHaveBeenCalledTimes(1);
+  });
+
   it("guards the FIRST edit of a read-only needs-lock file, once", async () => {
     const mockThis = makeMockThis({
       hasNeedsLock: async () => true
