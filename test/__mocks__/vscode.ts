@@ -163,6 +163,33 @@ export class EventEmitter<T> {
   }
 }
 
+export class TreeItem {
+  id?: string;
+  description?: string;
+  tooltip?: unknown;
+  iconPath?: unknown;
+  contextValue?: string;
+  resourceUri?: Uri;
+  command?: unknown;
+  constructor(
+    public label?: unknown,
+    public collapsibleState?: number
+  ) {}
+}
+
+export enum TreeItemCollapsibleState {
+  None = 0,
+  Collapsed = 1,
+  Expanded = 2
+}
+
+export class ThemeIcon {
+  constructor(
+    public id: string,
+    public color?: unknown
+  ) {}
+}
+
 export class ThemeColor {
   constructor(public readonly id: string) {}
 }

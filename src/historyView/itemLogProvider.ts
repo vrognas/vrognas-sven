@@ -423,6 +423,8 @@ export class ItemLogProvider
     if (element.kind === LogTreeItemKind.Commit) {
       const commit = element.data;
       ti = new TreeItem(getCommitLabel(commit), TreeItemCollapsibleState.None);
+      // Unique id so reveal() can't mis-match commits with equal messages
+      ti.id = `commit:${commit.revision}`;
       ti.description = getCommitDescription(commit);
       ti.iconPath = getCommitIcon(commit.author);
       ti.tooltip = getCommitToolTip(commit);

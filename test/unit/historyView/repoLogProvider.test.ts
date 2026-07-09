@@ -110,3 +110,34 @@ describe("RepoLogProvider - Revision Expansion E2E", () => {
     expect(logEntries[0].paths[1]._).toBe("/Main Development");
   });
 });
+
+describe("commit tree items carry unique ids (reveal correctness)", () => {
+  it("two commits with IDENTICAL messages get distinct TreeItem ids", async () => {
+    const { RepoLogProvider } = await import(
+      "../../../src/historyView/repoLogProvider"
+    );
+    const { LogTreeItemKind } = await import("../../../src/historyView/common");
+    const mk = (revision: string) => ({
+      kind: LogTreeItemKind.Commit,
+      data: {
+        revision,
+        author: "a",
+        msg: "update", // duplicate first line = duplicate label
+        date: "2026-01-01T00:00:00.000000Z",
+        paths: []
+      }
+    });
+    const getTreeItem = (
+      RepoLogProvider.prototype as unknown as Record<string, unknown>
+    ).getTreeItem as (this: unknown, e: unknown) => { id?: string };
+
+    const a = getTreeItem.call({}, mk("100"));
+    const b = getTreeItem.call({}, mk("200"));
+
+    // Without ids, VS Code derives reveal handles from the LABEL - equal
+    // messages made "Show in History" land on the wrong commit
+    expect(a.id).toBeTruthy();
+    expect(b.id).toBeTruthy();
+    expect(a.id).not.toBe(b.id);
+  });
+});

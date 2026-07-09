@@ -1157,6 +1157,10 @@ export class RepoLogProvider
         getCommitLabel(commit),
         TreeItemCollapsibleState.Collapsed
       );
+      // Stable unique id: reveal() matches by label-derived handles when
+      // ids are absent, so duplicate commit messages sent "Show in
+      // History" to the WRONG commit
+      ti.id = `commit:${commit.revision}`;
       ti.description = getCommitDescription(commit);
       ti.tooltip = getCommitToolTip(commit);
       ti.iconPath = getCommitIcon(commit.author);

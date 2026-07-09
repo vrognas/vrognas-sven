@@ -121,6 +121,19 @@ async function init(
 
   // Register blame commands
   disposables.push(
+    commands.registerCommand(
+      "sven.blame.showDiff",
+      async (uriStr: string, rev: string) => {
+        const uri = Uri.parse(uriStr);
+        const repository = sourceControlManager.getRepository(uri);
+        if (!repository) {
+          window.showErrorMessage("No SVN repository found for this file");
+          return;
+        }
+        const { openBlameRevisionDiff } = await import("./blame/blameDiff");
+        await openBlameRevisionDiff(repository.repository, uri, rev);
+      }
+    ),
     commands.registerCommand("sven.blame.copyRevision", async (rev: string) => {
       await env.clipboard.writeText(rev);
       window.setStatusBarMessage(`Copied r${rev} to clipboard`, 3000);

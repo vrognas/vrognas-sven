@@ -486,7 +486,8 @@ export class BlameProvider implements Disposable {
         blameLine,
         blameLine.revision
           ? this.messageCache.get(blameLine.revision)
-          : undefined
+          : undefined,
+        editor.document.uri
       )
     };
   }

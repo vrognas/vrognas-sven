@@ -566,8 +566,14 @@ export async function openDiff(
  * `right` lets callers that must resolve the previous revision first (an
  * `svn log` lookup) start the right-side fetch concurrently with it.
  */
+/** Minimal surface needed to fetch revision content + patches. */
+export type IRevisionContentSource = Pick<
+  IRemoteRepository,
+  "show" | "patchRevision"
+>;
+
 export async function openDiffCompared(
-  repo: IRemoteRepository,
+  repo: IRevisionContentSource,
   target: Uri,
   r1: string,
   r2: string,
@@ -621,7 +627,7 @@ export async function openFileRemote(
  * Show SVN patch output in a temp file (for property-only changes)
  */
 export async function openPatch(
-  repo: IRemoteRepository,
+  repo: IRevisionContentSource,
   remotePath: Uri,
   revision: string
 ): Promise<void> {

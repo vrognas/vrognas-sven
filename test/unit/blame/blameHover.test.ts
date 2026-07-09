@@ -23,13 +23,30 @@ describe("buildBlameHover", () => {
     expect(md.value).toContain("command:sven.blame.copyRevision?");
   });
 
-  it("restricts executable commands to the two link targets", () => {
+  it("restricts executable commands to exactly the link targets", () => {
     const md = buildBlameHover(line);
 
     expect(md.isTrusted).toEqual({
-      enabledCommands: ["sven.repolog.goToRevision", "sven.blame.copyRevision"]
+      enabledCommands: [
+        "sven.repolog.goToRevision",
+        "sven.blame.copyRevision",
+        "sven.blame.showDiff"
+      ]
     });
     // no message provided: metadata line still renders, no undefined leak
     expect(md.value).not.toContain("undefined");
+    // no file uri provided: the diff link is omitted entirely
+    expect(md.value).not.toContain("sven.blame.showDiff");
+  });
+
+  it("adds the Diff with Previous link when the file uri is known", () => {
+    const md = buildBlameHover(line, undefined, {
+      toString: () => "file:///ws/a.R"
+    } as never);
+
+    expect(md.value).toContain("command:sven.blame.showDiff?");
+    expect(md.value).toContain(
+      encodeURIComponent(JSON.stringify(["file:///ws/a.R", "4711"]))
+    );
   });
 });

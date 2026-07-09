@@ -1,7 +1,7 @@
 // Copyright (c) 2025-present Viktor Rognas
 // Licensed under MIT License
 
-import { MarkdownString } from "vscode";
+import { MarkdownString, Uri } from "vscode";
 import { ISvnBlameLine } from "../common/types";
 import { formatBlameDate } from "../util/formatting";
 
@@ -16,12 +16,17 @@ import { formatBlameDate } from "../util/formatting";
  */
 export function buildBlameHover(
   blameLine: ISvnBlameLine,
-  message?: string
+  message?: string,
+  fileUri?: Uri
 ): MarkdownString {
   const rev = blameLine.revision ?? "";
   const md = new MarkdownString(undefined, true);
   md.isTrusted = {
-    enabledCommands: ["sven.repolog.goToRevision", "sven.blame.copyRevision"]
+    enabledCommands: [
+      "sven.repolog.goToRevision",
+      "sven.blame.copyRevision",
+      "sven.blame.showDiff"
+    ]
   };
 
   const date = blameLine.date
@@ -33,13 +38,19 @@ export function buildBlameHover(
   if (message) {
     md.appendMarkdown(`${message}\n\n`);
   }
+  const diffLink = fileUri
+    ? ` · [$(git-compare) Diff with Previous](command:sven.blame.showDiff?${encodeURIComponent(
+        JSON.stringify([fileUri.toString(), rev])
+      )} "Diff this file: previous revision vs r${rev}")`
+    : "";
   md.appendMarkdown(
     `[$(history) Show in History](command:sven.repolog.goToRevision?${encodeURIComponent(
       JSON.stringify([parseInt(rev, 10)])
     )} "Reveal r${rev} in the Repo History view") · ` +
       `[$(copy) Copy Revision](command:sven.blame.copyRevision?${encodeURIComponent(
         JSON.stringify([rev])
-      )} "Copy r${rev} to the clipboard")`
+      )} "Copy r${rev} to the clipboard")` +
+      diffLink
   );
   return md;
 }
