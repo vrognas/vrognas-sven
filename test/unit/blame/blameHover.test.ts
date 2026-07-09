@@ -1,0 +1,35 @@
+import { describe, it, expect } from "vitest";
+import { buildBlameHover } from "../../../src/blame/blameHover";
+import { ISvnBlameLine } from "../../../src/common/types";
+
+const line: ISvnBlameLine = {
+  lineNumber: 5,
+  revision: "4711",
+  author: "alice",
+  date: "2026-03-01T10:00:00.000000Z"
+};
+
+describe("buildBlameHover", () => {
+  it("links to the commit in Repo History and to copy-revision", () => {
+    const md = buildBlameHover(line, "fix: parser crash");
+
+    expect(md.value).toContain("**r4711**");
+    expect(md.value).toContain("alice");
+    expect(md.value).toContain("fix: parser crash");
+    // goToRevision takes the revision as a NUMBER argument
+    expect(md.value).toContain(
+      `command:sven.repolog.goToRevision?${encodeURIComponent(JSON.stringify([4711]))}`
+    );
+    expect(md.value).toContain("command:sven.blame.copyRevision?");
+  });
+
+  it("restricts executable commands to the two link targets", () => {
+    const md = buildBlameHover(line);
+
+    expect(md.isTrusted).toEqual({
+      enabledCommands: ["sven.repolog.goToRevision", "sven.blame.copyRevision"]
+    });
+    // no message provided: metadata line still renders, no undefined leak
+    expect(md.value).not.toContain("undefined");
+  });
+});

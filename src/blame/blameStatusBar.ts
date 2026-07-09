@@ -5,6 +5,7 @@
 "use strict";
 
 import {
+  commands,
   Disposable,
   env,
   StatusBarAlignment,
@@ -407,9 +408,12 @@ export class BlameStatusBar implements Disposable {
   ): Promise<void> {
     switch (action) {
       case "show":
-        // Show commit details - delegate to log command
-        window.showInformationMessage(
-          `Commit r${blameLine.revision} by ${blameLine.author} on ${blameLine.date}`
+        // Pivot into Repo History: focus the view, then reveal the commit
+        // (goToRevision auto-fetches older history as needed)
+        await commands.executeCommand("sven.repolog.focus");
+        await commands.executeCommand(
+          "sven.repolog.goToRevision",
+          parseInt(blameLine.revision!, 10)
         );
         break;
 

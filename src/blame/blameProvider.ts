@@ -30,6 +30,7 @@ import {
 } from "./templateCompiler";
 import { logError } from "../util/errorLogger";
 import { classifyBlameError, BlameErrorKind } from "./classifyBlameError";
+import { buildBlameHover } from "./blameHover";
 import { Operation, Status } from "../common/types";
 import { BLAME_INVALIDATING_OPERATIONS, isDescendant } from "../util";
 import {
@@ -481,7 +482,12 @@ export class BlameProvider implements Disposable {
           color: inlineColor
         }
       },
-      hoverMessage: `SVN: r${blameLine.revision} by ${blameLine.author}`
+      hoverMessage: buildBlameHover(
+        blameLine,
+        blameLine.revision
+          ? this.messageCache.get(blameLine.revision)
+          : undefined
+      )
     };
   }
 

@@ -6,6 +6,7 @@ import * as path from "path";
 import {
   commands,
   Disposable,
+  env,
   ExtensionContext,
   OutputChannel,
   Uri,
@@ -120,6 +121,10 @@ async function init(
 
   // Register blame commands
   disposables.push(
+    commands.registerCommand("sven.blame.copyRevision", async (rev: string) => {
+      await env.clipboard.writeText(rev);
+      window.setStatusBarMessage(`Copied r${rev} to clipboard`, 3000);
+    }),
     commands.registerCommand("sven.showBlameCommit", () => {
       void blameStatusBar.showCommitDetails();
     })

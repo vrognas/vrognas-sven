@@ -1,0 +1,45 @@
+// Copyright (c) 2025-present Viktor Rognas
+// Licensed under MIT License
+
+import { MarkdownString } from "vscode";
+import { ISvnBlameLine } from "../common/types";
+import { formatBlameDate } from "../util/formatting";
+
+/**
+ * Rich hover for blame decorations: commit metadata plus command links
+ * into the neighboring features. The hover was previously a plain string
+ * dead-end ("SVN: rN by author") while the history machinery to answer
+ * "show me that commit" sat one command away.
+ *
+ * Only the two commands below may run from this hover (least privilege via
+ * MarkdownString.isTrusted.enabledCommands).
+ */
+export function buildBlameHover(
+  blameLine: ISvnBlameLine,
+  message?: string
+): MarkdownString {
+  const rev = blameLine.revision ?? "";
+  const md = new MarkdownString(undefined, true);
+  md.isTrusted = {
+    enabledCommands: ["sven.repolog.goToRevision", "sven.blame.copyRevision"]
+  };
+
+  const date = blameLine.date
+    ? formatBlameDate(blameLine.date, "absolute")
+    : "";
+  md.appendMarkdown(
+    `**r${rev}** — ${blameLine.author ?? "unknown"}${date ? ` — ${date}` : ""}\n\n`
+  );
+  if (message) {
+    md.appendMarkdown(`${message}\n\n`);
+  }
+  md.appendMarkdown(
+    `[$(history) Show in History](command:sven.repolog.goToRevision?${encodeURIComponent(
+      JSON.stringify([parseInt(rev, 10)])
+    )} "Reveal r${rev} in the Repo History view") · ` +
+      `[$(copy) Copy Revision](command:sven.blame.copyRevision?${encodeURIComponent(
+        JSON.stringify([rev])
+      )} "Copy r${rev} to the clipboard")`
+  );
+  return md;
+}
