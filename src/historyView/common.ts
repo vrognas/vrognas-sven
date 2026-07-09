@@ -471,17 +471,62 @@ export async function openDiff(
   r2: string,
   arg2?: Uri
 ) {
-  // For added files (r1 = undefined), create empty temp file
-  const uri1 = r1
-    ? await downloadFile(repo, arg1, r1)
-    : tempSvnFs.createTempSvnRevisionFile(arg1, "empty", "");
-  const uri2 = await downloadFile(repo, arg2 || arg1, r2);
+  // For added files (r1 = undefined), create empty temp file.
+  // Both sides fetch in parallel - they were sequential round-trips before.
+  const [uri1, uri2] = await Promise.all([
+    r1
+      ? downloadFile(repo, arg1, r1)
+      : Promise.resolve(tempSvnFs.createTempSvnRevisionFile(arg1, "empty", "")),
+    downloadFile(repo, arg2 || arg1, r2)
+  ]);
   const opts: TextDocumentShowOptions = {
     preview: true
   };
   const title = r1
     ? `${path.basename(arg1.path)} (${r1} : ${r2})`
     : `${path.basename(arg1.path)} (added in ${r2})`;
+  return commands.executeCommand<void>("vscode.diff", uri1, uri2, title, opts);
+}
+
+/**
+ * Open the diff for a file modified in a commit. Fetches BOTH revisions in
+ * parallel and detects property-only changes by content equality (identical
+ * content means the commit only touched properties), showing the patch in
+ * that case. Replaces the old flow of a discarded `svn diff` pre-check
+ * followed by two sequential cats - 3 serial round-trips down to 1 wave.
+ *
+ * `right` lets callers that must resolve the previous revision first (an
+ * `svn log` lookup) start the right-side fetch concurrently with it.
+ */
+export async function openDiffCompared(
+  repo: IRemoteRepository,
+  target: Uri,
+  r1: string,
+  r2: string,
+  right?: Promise<string>
+): Promise<void> {
+  let out1: string;
+  let out2: string;
+  try {
+    [out1, out2] = await Promise.all([
+      repo.show(target, r1),
+      right ?? repo.show(target, r2)
+    ]);
+  } catch {
+    window.showErrorMessage("Failed to open path");
+    return;
+  }
+
+  if (out1 === out2) {
+    return openPatch(repo, target, r2);
+  }
+
+  const uri1 = tempSvnFs.createTempSvnRevisionFile(target, r1, out1);
+  const uri2 = tempSvnFs.createTempSvnRevisionFile(target, r2, out2);
+  const opts: TextDocumentShowOptions = {
+    preview: true
+  };
+  const title = `${path.basename(target.path)} (${r1} : ${r2})`;
   return commands.executeCommand<void>("vscode.diff", uri1, uri2, title, opts);
 }
 
@@ -502,23 +547,6 @@ export async function openFileRemote(
     preview: true
   };
   return commands.executeCommand<void>("vscode.open", localUri, opts);
-}
-
-/**
- * Check if SVN diff output contains content changes (not just property changes)
- * Property-only diffs start with "Property changes on:" but have no content hunks
- */
-export function hasContentChanges(patchContent: string): boolean {
-  // Look for unified diff content markers (not property markers)
-  // Content diffs have lines starting with @@ (hunk headers)
-  const lines = patchContent.split("\n");
-  for (const line of lines) {
-    // Hunk header indicates content changes
-    if (line.startsWith("@@")) {
-      return true;
-    }
-  }
-  return false;
 }
 
 /**
@@ -552,27 +580,4 @@ export async function openPatch(
     preview: true
   };
   return commands.executeCommand<void>("vscode.open", patchUri, opts);
-}
-
-/**
- * Check if a revision is property-only change and show patch if so.
- * Used by history view diff commands to avoid showing empty diffs.
- *
- * @returns true if it was a property-only change (patch shown), false otherwise
- */
-export async function showPatchIfPropertyOnly(
-  repo: IRemoteRepository,
-  target: Uri,
-  revision: string
-): Promise<boolean> {
-  try {
-    const patch = await repo.patchRevision(revision, target);
-    if (patch && !hasContentChanges(patch)) {
-      await openPatch(repo, target, revision);
-      return true;
-    }
-  } catch {
-    // Fall through to normal diff on error
-  }
-  return false;
 }

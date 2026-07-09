@@ -36,7 +36,7 @@ import {
   LogTreeItemKind,
   openDiff,
   openFileRemote,
-  showPatchIfPropertyOnly,
+  openDiffCompared,
   transform,
   getCommitDescription
 } from "./common";
@@ -289,13 +289,12 @@ export class RepoLogProvider
       return openDiff(item.repo, remotePath, undefined, parent.revision);
     }
 
-    // For modified files, check if it's property-only change
-    if (
-      commit.action === "M" &&
-      (await showPatchIfPropertyOnly(item.repo, remotePath, parent.revision))
-    ) {
-      return;
-    }
+    // Start the right-side content fetch NOW - it runs concurrently with
+    // the prev-revision log lookup below. The noop catch prevents an
+    // unhandled rejection if the log lookup fails first; openDiffCompared
+    // still observes the real rejection when it awaits.
+    const rightContent = item.repo.show(remotePath, parent.revision);
+    rightContent.catch(() => undefined);
 
     let prevRev: ISvnLogEntry;
     try {
@@ -321,7 +320,15 @@ export class RepoLogProvider
       return;
     }
 
-    return openDiff(item.repo, remotePath, prevRev.revision, parent.revision);
+    // Parallel left fetch + content-equality property-only detection
+    // (replaces the discarded-on-every-click `svn diff` pre-check)
+    return openDiffCompared(
+      item.repo,
+      remotePath,
+      prevRev.revision,
+      parent.revision,
+      rightContent
+    );
   }
 
   public async revealInExplorerCmd(element: ILogTreeItem) {

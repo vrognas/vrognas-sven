@@ -33,7 +33,7 @@ import {
   LogTreeItemKind,
   openDiff,
   openFileRemote,
-  showPatchIfPropertyOnly,
+  openDiffCompared,
   transform,
   getCommitDescription
 } from "./common";
@@ -264,19 +264,10 @@ export class ItemLogProvider
       );
     }
 
-    // Property-only change - show patch instead of empty diff
-    if (
-      await showPatchIfPropertyOnly(
-        this.currentItem.repo,
-        this.currentItem.svnTarget,
-        commit.revision
-      )
-    ) {
-      return;
-    }
-
+    // Parallel fetch of both revisions; identical content = property-only
+    // change and the patch is shown instead (no discarded pre-check RTT)
     const prevRev = this.currentItem.entries[pos + 1]!.revision;
-    return openDiff(
+    return openDiffCompared(
       this.currentItem.repo,
       this.currentItem.svnTarget,
       prevRev,
