@@ -13,7 +13,11 @@ import {
   window
 } from "vscode";
 import { ISvnLogEntry, ISvnLogEntryPath } from "../common/types";
-import { IHistoryFilter, filterEntriesByAction } from "./historyFilter";
+import {
+  IHistoryFilter,
+  filterEntriesByAction,
+  isFilterEmpty
+} from "./historyFilter";
 import SvnError from "../svnError";
 import { svnErrorCodes } from "../svn";
 import { exists, lstat } from "../fs";
@@ -65,6 +69,9 @@ export interface ICachedLog {
   // Local working copy file path (for file-level history)
   localPath?: string;
   isComplete: boolean;
+  /** True when entries hold the COMPLETE UNFILTERED history - enables
+   *  instant client-side filtering (applyFilterToEntries) */
+  fullHistory?: boolean;
   isLoading?: boolean; // True while fetching from SVN
   repo: IRemoteRepository;
   persisted: {
@@ -271,6 +278,9 @@ export async function fetchMore(cached: ICachedLog, limitOverride?: number) {
     // Already at r1 or invalid revision, nothing more to fetch
     if (isNaN(lastRev) || lastRev <= 1) {
       cached.isComplete = true;
+      if (isFilterEmpty(filter)) {
+        cached.fullHistory = true;
+      }
       return;
     }
     rfrom = (lastRev - 1).toString();
@@ -329,6 +339,11 @@ export async function fetchMore(cached: ICachedLog, limitOverride?: number) {
   // Check needFetch BEFORE action filtering (action filter reduces count)
   if (!needFetch(entries, moreCommits, limit)) {
     cached.isComplete = true;
+    // Complete + no filter constraining the fetch = full history cached;
+    // filters can now be answered locally without server round-trips
+    if (isFilterEmpty(filter)) {
+      cached.fullHistory = true;
+    }
   }
 
   // Apply client-side action filter AFTER needFetch check

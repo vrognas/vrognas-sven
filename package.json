@@ -867,6 +867,12 @@
         "title": "Load All Remaining Revisions"
       },
       {
+        "command": "sven.repolog.refreshHard",
+        "category": "SVN",
+        "title": "Refresh History (Discard Cache)",
+        "icon": "$(sync-ignored)"
+      },
+      {
         "command": "sven.repolog.revealInExplorer",
         "category": "SVN",
         "title": "Reveal in File Explorer"
@@ -1279,6 +1285,10 @@
           "when": "false"
         },
         {
+          "command": "sven.repolog.refreshHard",
+          "when": "false"
+        },
+        {
           "command": "sven.repolog.clearFilter",
           "when": "false"
         },
@@ -1386,6 +1396,11 @@
           "command": "sven.repolog.clearFilter",
           "when": "view == sven.repolog && sven.historyFilterActive",
           "group": "navigation@5"
+        },
+        {
+          "command": "sven.repolog.refreshHard",
+          "when": "view == sven.repolog",
+          "group": "1_actions@1"
         },
         {
           "command": "sven.itemlog.refresh",

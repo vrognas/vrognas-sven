@@ -80,4 +80,23 @@ describe("fetchMore", () => {
     expect(cached.isComplete).toBe(true); // 2 < 50: history exhausted
     expect(cached.entries).toHaveLength(3);
   });
+
+  it("flags fullHistory only for unfiltered completion", async () => {
+    // Unfiltered + exhausted: entries are the complete history
+    const log = vi.fn(async () => [entry("2999")]);
+    const unfiltered = makeCached({ log }, [entry("3000")]);
+    await fetchMore(unfiltered, 50);
+    expect(unfiltered.fullHistory).toBe(true);
+
+    // Filtered + exhausted: entries are a filtered subset, NOT full history
+    const logWithFilter = vi.fn<IRemoteRepository["logWithFilter"]>(
+      async () => [entry("2999")]
+    );
+    const filtered = makeCached({ logWithFilter }, [entry("3000")], {
+      author: "alice"
+    });
+    await fetchMore(filtered, 50);
+    expect(filtered.isComplete).toBe(true);
+    expect(filtered.fullHistory).toBeFalsy();
+  });
 });

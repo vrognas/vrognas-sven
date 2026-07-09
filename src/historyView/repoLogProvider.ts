@@ -42,7 +42,11 @@ import {
 } from "./common";
 import { revealFileInOS, diffWithExternalTool } from "../util/fileOperations";
 import { logError } from "../util/errorLogger";
-import { HistoryFilterService, ActionType } from "./historyFilter";
+import {
+  HistoryFilterService,
+  ActionType,
+  applyFilterToEntries
+} from "./historyFilter";
 
 export class RepoLogProvider
   implements TreeDataProvider<ILogTreeItem>, Disposable
@@ -161,6 +165,11 @@ export class RepoLogProvider
         this
       ),
       commands.registerCommand("sven.repolog.fetchAll", this.fetchAll, this),
+      commands.registerCommand(
+        "sven.repolog.refreshHard",
+        this.refreshHard,
+        this
+      ),
       commands.registerCommand(
         "sven.repolog.revealInExplorer",
         this.revealInExplorerCmd,
@@ -422,6 +431,21 @@ export class RepoLogProvider
       return;
     }
     return this.refresh(element, fetchMoreClick, true);
+  }
+
+  /**
+   * Hard refresh: discard ALL cached history and refetch from the server.
+   * Bypasses the at-newest keep, which normal Refresh uses because
+   * revision STRUCTURE is immutable - but revision PROPERTIES (svn:log
+   * commit messages, authors) are editable via propset --revprop, and this
+   * is the escape hatch that picks such edits up.
+   */
+  public refreshHard() {
+    for (const repo of this.sourceControlManager.repositories) {
+      repo.clearLogCache();
+    }
+    this.logCache.clear();
+    void this.refresh(undefined, false, true);
   }
 
   /**
@@ -802,20 +826,37 @@ export class RepoLogProvider
     // Replace cached objects (not mutate) to invalidate ongoing fetches
     // This ensures identity check in fetchMore.finally() fails for stale fetches
     const newFilter = this.filterService.getFilter();
+    let needsServerRefetch = false;
     for (const [key, cached] of this.logCache.entries()) {
-      this.logCache.set(key, {
-        ...cached,
-        entries: [],
-        revisionSet: new Set(),
-        isComplete: false,
-        isLoading: false,
-        filter: newFilter
-      });
+      if (cached.fullHistory) {
+        // Full unfiltered history is cached: the new filter is applied
+        // locally in getChildren - keep the entries, no server refetch.
+        // (New object identity still invalidates any stale in-flight fetch.)
+        this.logCache.set(key, {
+          ...cached,
+          isLoading: false,
+          filter: newFilter
+        });
+      } else {
+        needsServerRefetch = true;
+        this.logCache.set(key, {
+          ...cached,
+          entries: [],
+          revisionSet: new Set(),
+          isComplete: false,
+          fullHistory: false,
+          isLoading: false,
+          filter: newFilter
+        });
+      }
     }
     // Update tree view description and context variable
     this.updateFilterUI();
-    // Refresh tree
-    void this.refresh(undefined, false, true);
+    if (needsServerRefetch) {
+      void this.refresh(undefined, false, true);
+    } else {
+      this._onDidChangeTreeData.fire(undefined);
+    }
   }
 
   private updateFilterUI() {
@@ -968,13 +1009,19 @@ export class RepoLogProvider
             : clearEntries
               ? []
               : savedEntries.get(repoUrl) || [];
-        // Preserve isComplete if we're keeping entries
+        // Preserve isComplete/fullHistory if we're keeping entries
         const isComplete =
           alreadyCurrent && snap
             ? snap.isComplete
             : clearEntries
               ? false
               : (prev?.isComplete ?? false);
+        const fullHistory =
+          alreadyCurrent && snap
+            ? snap.fullHistory
+            : clearEntries
+              ? false
+              : (prev?.fullHistory ?? false);
 
         // LRU eviction before adding (if not updating existing)
         if (
@@ -987,6 +1034,7 @@ export class RepoLogProvider
           entries,
           revisionSet: new Set(entries.map(e => e.revision)),
           isComplete,
+          fullHistory,
           repo,
           svnTarget: remoteRoot,
           persisted,
@@ -1100,7 +1148,16 @@ export class RepoLogProvider
         return [];
       }
 
-      const logentries = cached.entries;
+      // Full history cached: answer the active filter locally (instant,
+      // no server round-trip). Partial windows keep the server-side path -
+      // local filtering over a partial window would show misleading gaps.
+      const activeFilter = this.filterService.getFilter();
+      const logentries =
+        cached.fullHistory &&
+        activeFilter &&
+        this.filterService.hasActiveFilter()
+          ? applyFilterToEntries(cached.entries, activeFilter)
+          : cached.entries;
 
       // Show loading indicator while fetching
       if (cached.isLoading) {
@@ -1126,8 +1183,9 @@ export class RepoLogProvider
       const result = transform(logentries, LogTreeItemKind.Commit, undefined);
       insertBaseMarker(cached, logentries, result);
 
-      // Check if we've reached r1 (no more revisions possible)
-      const lastEntry = logentries[logentries.length - 1];
+      // Check if we've reached r1 (no more revisions possible) - on the
+      // underlying entries, not the locally-filtered view
+      const lastEntry = cached.entries[cached.entries.length - 1];
       const atFirstRevision =
         lastEntry && parseInt(lastEntry.revision, 10) <= 1;
       if (atFirstRevision) {

@@ -243,6 +243,82 @@ function formatSvnDate(date: Date): string {
  * - SVN "R" (replaced) → "↻" (history broken)
  * - SVN "M", "D" → direct match
  */
+/** True when the filter has no populated criteria. */
+export function isFilterEmpty(filter: IHistoryFilter | undefined): boolean {
+  if (!filter) return true;
+  return !Object.values(filter).some(
+    v =>
+      v !== undefined &&
+      v !== null &&
+      v !== "" &&
+      (Array.isArray(v) ? v.length > 0 : true)
+  );
+}
+
+/**
+ * Apply a history filter to already-loaded entries, entirely client-side.
+ *
+ * Used when the FULL unfiltered history is cached (ICachedLog.fullHistory):
+ * filtering locally is instant and skips the server round-trip that
+ * `--search` performs (a full-history scan per page). Matching is slightly
+ * more precise than SVN's `--search` — each criterion checks only its own
+ * field (author matches authors, not messages), which is what the filter UI
+ * implies anyway. Criteria combine with AND; dates are inclusive per day.
+ */
+export function applyFilterToEntries(
+  entries: ISvnLogEntry[],
+  filter: IHistoryFilter
+): ISvnLogEntry[] {
+  const msg = filter.message?.toLowerCase();
+  const author = filter.author?.toLowerCase();
+  const pathNeedle = filter.path?.toLowerCase();
+  // Inclusive day bounds: [start of dateFrom, start of day after dateTo)
+  const fromMs = filter.dateFrom
+    ? new Date(
+        filter.dateFrom.getFullYear(),
+        filter.dateFrom.getMonth(),
+        filter.dateFrom.getDate()
+      ).getTime()
+    : undefined;
+  const toMs = filter.dateTo
+    ? new Date(
+        filter.dateTo.getFullYear(),
+        filter.dateTo.getMonth(),
+        filter.dateTo.getDate() + 1
+      ).getTime()
+    : undefined;
+
+  let result = entries.filter(e => {
+    if (msg && !e.msg?.toLowerCase().includes(msg)) return false;
+    if (author && !e.author?.toLowerCase().includes(author)) return false;
+    if (
+      pathNeedle &&
+      !e.paths?.some(p => p._.toLowerCase().includes(pathNeedle))
+    ) {
+      return false;
+    }
+    const rev = parseInt(e.revision, 10);
+    if (filter.revisionFrom !== undefined && rev < filter.revisionFrom) {
+      return false;
+    }
+    if (filter.revisionTo !== undefined && rev > filter.revisionTo) {
+      return false;
+    }
+    if (fromMs !== undefined || toMs !== undefined) {
+      const t = new Date(e.date).getTime();
+      if (isNaN(t)) return false;
+      if (fromMs !== undefined && t < fromMs) return false;
+      if (toMs !== undefined && t >= toMs) return false;
+    }
+    return true;
+  });
+
+  if (filter.actions?.length) {
+    result = filterEntriesByAction(result, filter.actions);
+  }
+  return result;
+}
+
 export function filterEntriesByAction(
   entries: ISvnLogEntry[],
   actions: ActionType[] | undefined

@@ -2,9 +2,11 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   HistoryFilterService,
   IHistoryFilter,
+  applyFilterToEntries,
   buildSvnLogArgs,
   filterEntriesByAction,
-  hasTextSearchFilter
+  hasTextSearchFilter,
+  isFilterEmpty
 } from "../../../src/historyView/historyFilter";
 import { ISvnLogEntry, ISvnLogEntryPath } from "../../../src/common/types";
 
@@ -308,3 +310,85 @@ function createEntryWithPaths(
     paths
   };
 }
+
+describe("isFilterEmpty", () => {
+  it("treats undefined, {} and all-undefined-fields as empty", () => {
+    expect(isFilterEmpty(undefined)).toBe(true);
+    expect(isFilterEmpty({})).toBe(true);
+    expect(isFilterEmpty({ message: undefined, actions: [] })).toBe(true);
+  });
+
+  it("detects any populated field", () => {
+    expect(isFilterEmpty({ author: "john" })).toBe(false);
+    expect(isFilterEmpty({ revisionTo: 5 })).toBe(false);
+    expect(isFilterEmpty({ actions: ["A"] })).toBe(false);
+  });
+});
+
+describe("applyFilterToEntries (client-side filtering over full history)", () => {
+  const mk = (
+    revision: string,
+    author: string,
+    msg: string,
+    date: string,
+    paths: Array<{ _: string; action: string }> = []
+  ): ISvnLogEntry =>
+    ({
+      revision,
+      author,
+      msg,
+      date,
+      paths: paths.map(p => ({ ...p, kind: "file" }))
+    }) as unknown as ISvnLogEntry;
+
+  const entries = [
+    mk("300", "alice", "fix: parser crash", "2026-03-01T10:00:00.000000Z", [
+      { _: "/trunk/src/parser.ts", action: "M" }
+    ]),
+    mk("200", "bob", "feat: add exporter", "2025-06-15T10:00:00.000000Z", [
+      { _: "/trunk/src/export.ts", action: "A" }
+    ]),
+    mk("100", "alice", "docs update", "2024-01-10T10:00:00.000000Z", [
+      { _: "/trunk/README.md", action: "M" }
+    ])
+  ];
+
+  it("matches message, author and path case-insensitively", () => {
+    expect(
+      applyFilterToEntries(entries, { message: "PARSER" }).map(e => e.revision)
+    ).toEqual(["300"]);
+    expect(
+      applyFilterToEntries(entries, { author: "Alice" }).map(e => e.revision)
+    ).toEqual(["300", "100"]);
+    expect(
+      applyFilterToEntries(entries, { path: "readme" }).map(e => e.revision)
+    ).toEqual(["100"]);
+  });
+
+  it("applies revision and date bounds inclusively", () => {
+    expect(
+      applyFilterToEntries(entries, {
+        revisionFrom: 100,
+        revisionTo: 200
+      }).map(e => e.revision)
+    ).toEqual(["200", "100"]);
+    expect(
+      applyFilterToEntries(entries, {
+        dateFrom: new Date("2025-01-01"),
+        dateTo: new Date("2025-06-15") // same-day commit stays (inclusive)
+      }).map(e => e.revision)
+    ).toEqual(["200"]);
+  });
+
+  it("combines criteria (AND) and reuses the action filter", () => {
+    expect(
+      applyFilterToEntries(entries, {
+        author: "alice",
+        message: "docs"
+      }).map(e => e.revision)
+    ).toEqual(["100"]);
+    expect(
+      applyFilterToEntries(entries, { actions: ["A"] }).map(e => e.revision)
+    ).toEqual(["200"]);
+  });
+});
