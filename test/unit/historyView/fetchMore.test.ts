@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { Uri } from "vscode";
-import { fetchMore, ICachedLog } from "../../../src/historyView/common";
+import {
+  ensureRevisionLoaded,
+  fetchMore,
+  ICachedLog
+} from "../../../src/historyView/common";
 import { buildSvnLogArgs } from "../../../src/historyView/historyFilter";
 import { ISvnLogEntry } from "../../../src/common/types";
 import { IRemoteRepository } from "../../../src/remoteRepository";
@@ -98,5 +102,68 @@ describe("fetchMore", () => {
     await fetchMore(filtered, 50);
     expect(filtered.isComplete).toBe(true);
     expect(filtered.fullHistory).toBeFalsy();
+  });
+});
+
+describe("ensureRevisionLoaded (goToRevision auto-fetch)", () => {
+  /** repo.log mock serving contiguous descending pages of `pageSize`. */
+  function pagedRepo(pageSize: number) {
+    return {
+      log: vi.fn(async (rfrom: string) => {
+        const start = rfrom === "HEAD" ? 3000 : parseInt(rfrom, 10);
+        const out: ISvnLogEntry[] = [];
+        for (let r = start; r > Math.max(start - pageSize, 0); r--) {
+          out.push(entry(String(r)));
+        }
+        return out;
+      })
+    };
+  }
+
+  it("pages older history until the target revision is loaded", async () => {
+    const repo = pagedRepo(500);
+    const cached = makeCached(repo, [entry("3000")]);
+    cached.revisionSet.add("3000");
+
+    const found = await ensureRevisionLoaded(cached, 1750, 500);
+
+    expect(found).toBe(true);
+    expect(cached.revisionSet.has("1750")).toBe(true);
+    // 3000 -> needs to reach 1750: 3 pages of 500
+    expect(repo.log).toHaveBeenCalledTimes(3);
+  });
+
+  it("stops as soon as paging passes the target (monotonic bound)", async () => {
+    // Pages skip the target: 3000..2001 then 2000..1001 - but the repo's
+    // log for this path never contains r1500 (sparse subtree history)
+    const repo = {
+      log: vi.fn(async (rfrom: string) => {
+        const start = rfrom === "HEAD" ? 3000 : parseInt(rfrom, 10);
+        const out: ISvnLogEntry[] = [];
+        for (let r = start; r > start - 1000; r -= 2) {
+          out.push(entry(String(r))); // even revisions only
+        }
+        return out;
+      })
+    };
+    const cached = makeCached(repo, [entry("3000")]);
+    cached.revisionSet.add("3000");
+
+    const found = await ensureRevisionLoaded(cached, 1501, 1000);
+
+    expect(found).toBe(false);
+    // once lastRev <= 1501 the loop must stop - no scan to r1
+    expect(repo.log.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+
+  it("respects the shouldContinue cancellation hook", async () => {
+    const repo = pagedRepo(500);
+    const cached = makeCached(repo, [entry("3000")]);
+    cached.revisionSet.add("3000");
+
+    const found = await ensureRevisionLoaded(cached, 100, 500, () => false);
+
+    expect(found).toBe(false);
+    expect(repo.log).not.toHaveBeenCalled();
   });
 });

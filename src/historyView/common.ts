@@ -361,6 +361,38 @@ export async function fetchMore(cached: ICachedLog, limitOverride?: number) {
 }
 
 /**
+ * Page older history until `revision` is in the cache, the cache is
+ * exhausted, or paging has passed the target. Revisions are monotonic, so
+ * once the oldest loaded entry is <= the target and it hasn't appeared,
+ * it cannot appear further down - it doesn't touch this checkout's path
+ * (e.g. a commit in another subtree). Returns whether it was found.
+ */
+export async function ensureRevisionLoaded(
+  cached: ICachedLog,
+  revision: number,
+  chunkSize = 500,
+  shouldContinue: () => boolean = () => true
+): Promise<boolean> {
+  const key = String(revision);
+  while (!cached.revisionSet.has(key) && !cached.isComplete) {
+    const last = cached.entries[cached.entries.length - 1];
+    const lastRev = last ? parseInt(last.revision, 10) : NaN;
+    if (!isNaN(lastRev) && lastRev <= revision) {
+      break;
+    }
+    if (!shouldContinue()) {
+      break;
+    }
+    const before = cached.entries.length;
+    await fetchMore(cached, chunkSize);
+    if (cached.entries.length === before && !cached.isComplete) {
+      break; // no progress (e.g. network error swallowed) - avoid spinning
+    }
+  }
+  return cached.revisionSet.has(key);
+}
+
+/**
  * Get commit author icon for history view
  * Returns colored dot (if enabled) or standard git-commit icon
  */

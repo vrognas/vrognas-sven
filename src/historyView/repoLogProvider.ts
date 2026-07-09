@@ -26,6 +26,7 @@ import {
   createLoadingItem,
   createLoadAllItem,
   createLoadMoreItem,
+  ensureRevisionLoaded,
   fetchMore,
   getCommitIcon,
   getCommitLabel,
@@ -69,6 +70,8 @@ export class RepoLogProvider
 
   // History filtering
   private readonly filterService = new HistoryFilterService();
+  /** In-flight cache rebuild triggered by a filter change (see onFilterChange) */
+  private pendingFilterRefresh: Promise<void> | undefined;
 
   private evictOldestLogEntry(): void {
     let oldestKey: string | null = null;
@@ -860,7 +863,10 @@ export class RepoLogProvider
     // Update tree view description and context variable
     this.updateFilterUI();
     if (needsServerRefetch) {
-      void this.refresh(undefined, false, true);
+      // Kept awaitable so flows that must land on a post-filter cache
+      // object (goToRevision) can synchronize instead of racing it
+      this.pendingFilterRefresh = this.refresh(undefined, false, true);
+      void this.pendingFilterRefresh;
     } else {
       this._onDidChangeTreeData.fire(undefined);
     }
@@ -889,13 +895,58 @@ export class RepoLogProvider
     if (!this.treeView) {
       return;
     }
-    const cached = this.getCached();
+    let cached = this.getCached();
     if (!cached) {
       return;
     }
-    const baseRev = cached.persisted.baseRevision;
 
-    // Find the commit in entries
+    // The reveal below needs the revision VISIBLE. A server-side-filtered
+    // cache may exclude it entirely; a local (fullHistory) filter hides it
+    // from the displayed list. Clearing the filter is what "go to r123"
+    // means anyway.
+    if (this.filterService.hasActiveFilter()) {
+      this.filterService.clearFilter();
+      if (this.pendingFilterRefresh) {
+        await this.pendingFilterRefresh;
+      }
+      cached = this.getCached();
+      if (!cached) {
+        return;
+      }
+    }
+
+    // Auto-fetch older history until the target is loaded (was: a toast
+    // telling the user to click "Load more" repeatedly). Monotonic
+    // revisions bound the loop exactly.
+    if (!cached.revisionSet.has(String(revision))) {
+      const repoUrl = cached.svnTarget.toString(true);
+      const target = cached;
+      const found = await window.withProgress(
+        {
+          location: ProgressLocation.Notification,
+          title: `SVN: Locating r${revision} in history`,
+          cancellable: true
+        },
+        (_progress, token) =>
+          ensureRevisionLoaded(
+            target,
+            revision,
+            500,
+            () =>
+              !token.isCancellationRequested &&
+              this.logCache.get(repoUrl) === target
+          )
+      );
+      this._onDidChangeTreeData.fire(undefined);
+      if (!found) {
+        window.showInformationMessage(
+          `Revision ${revision} not found in this repository's history.`
+        );
+        return;
+      }
+    }
+
+    const baseRev = cached.persisted.baseRevision;
     for (const entry of cached.entries) {
       if (parseInt(entry.revision, 10) === revision) {
         const item: ILogTreeItem = {
@@ -911,10 +962,6 @@ export class RepoLogProvider
         return;
       }
     }
-    // Revision not in current entries - could fetch more, but for now just notify
-    window.showInformationMessage(
-      `Revision ${revision} not loaded. Use "Load more" to fetch older revisions.`
-    );
   }
 
   public async refresh(
