@@ -2,6 +2,7 @@
 // Licensed under MIT License
 
 import {
+  commands,
   InputBoxValidationSeverity,
   QuickPickItem,
   QuickPickItemKind,
@@ -42,6 +43,8 @@ export interface CommitFlowResult {
 export interface CommitFlowOptions {
   updateBeforeCommit?: boolean;
   conventionalCommits?: boolean;
+  /** Marks files with pending server changes in the selection picker */
+  hasRemoteChange?: (filePath: string) => boolean;
 }
 
 interface TypePickItem extends QuickPickItem {
@@ -58,6 +61,43 @@ interface FilePickItem extends QuickPickItem {
   filePath: string;
 }
 
+function defaultFileName(filePath: string): string {
+  const parts = filePath.replace(/\\/g, "/").split("/");
+  return parts[parts.length - 1] || filePath;
+}
+
+function defaultRelativePath(filePath: string): string {
+  const parts = filePath.replace(/\\/g, "/").split("/");
+  if (parts.length <= 2) {
+    return "";
+  }
+  return parts.slice(0, -1).join("/");
+}
+
+/**
+ * Build the file-selection QuickPick items, badging files the server has
+ * newer versions of ("commit safety": the author learns about the pending
+ * incoming change BEFORE committing on top of it, not from the conflict).
+ */
+export function buildFilePickItems(
+  filePaths: string[],
+  hasRemoteChange?: (filePath: string) => boolean,
+  getName: (p: string) => string = defaultFileName,
+  getRelative: (p: string) => string = defaultRelativePath
+): FilePickItem[] {
+  return filePaths.map(filePath => {
+    const changedOnServer = hasRemoteChange?.(filePath) ?? false;
+    return {
+      label: `$(file) ${getName(filePath)}`,
+      description: changedOnServer
+        ? `${getRelative(filePath)}  $(cloud-download) changed on server`.trim()
+        : getRelative(filePath),
+      filePath,
+      picked: true
+    };
+  });
+}
+
 /**
  * Service orchestrating the multi-step commit QuickPick flow.
  * Implements VS Code UX guidelines for multi-step Quick Picks.
@@ -66,10 +106,13 @@ export class CommitFlowService {
   private conventionalService: ConventionalCommitService;
   private updateService: PreCommitUpdateService;
 
-  constructor(conventionalService?: ConventionalCommitService) {
+  constructor(
+    conventionalService?: ConventionalCommitService,
+    updateService?: PreCommitUpdateService
+  ) {
     this.conventionalService =
       conventionalService || new ConventionalCommitService();
-    this.updateService = new PreCommitUpdateService();
+    this.updateService = updateService || new PreCommitUpdateService();
   }
 
   /**
@@ -83,20 +126,17 @@ export class CommitFlowService {
     const { updateBeforeCommit = false, conventionalCommits = false } = options;
 
     // Step 0: File selection with checkboxes
-    const selectedFiles = await this.showFileSelectionStep(filePaths);
+    const selectedFiles = await this.showFileSelectionStep(
+      filePaths,
+      options.hasRemoteChange
+    );
     if (!selectedFiles || selectedFiles.length === 0) {
       return { cancelled: true };
     }
 
     // Start pre-commit update in background (runs during message input)
-    // Targets only committed files for speed; falls back to full update on failure
-    // .catch prevents unhandled rejection if it fails while user is in message flow
     const updatePromise = updateBeforeCommit
-      ? this.updateService
-          .runUpdate(repository, selectedFiles)
-          .catch(
-            (err): UpdateResult => ({ success: false, error: String(err) })
-          )
+      ? this.startPreCommitUpdate(repository, selectedFiles)
       : undefined;
 
     // Build commit message (user interacts while update runs)
@@ -112,29 +152,68 @@ export class CommitFlowService {
       return { cancelled: true };
     }
 
-    // Wait for update to complete before committing
-    // If still running, the original runUpdate notification remains visible and cancellable
     if (updatePromise) {
-      const updateResult = await updatePromise;
-
-      if (updateResult.cancelled) {
-        return { cancelled: true };
-      }
-
-      if (updateResult.hasConflicts) {
-        const choice = await this.updateService.promptConflictResolution();
-        if (choice === "abort") {
-          return { cancelled: true };
-        }
-      }
-
-      if (!updateResult.success && !updateResult.hasConflicts) {
-        window.showErrorMessage(`Update failed: ${updateResult.error}`);
+      const proceed = await this.settlePreCommitUpdate(
+        updatePromise,
+        repository,
+        message
+      );
+      if (!proceed) {
         return { cancelled: true };
       }
     }
 
     return { message, selectedFiles, cancelled: false };
+  }
+
+  /**
+   * Kick off the pre-commit update in the background. Targets only the
+   * committed files for speed; the .catch prevents an unhandled rejection
+   * while the user is still in the message flow.
+   */
+  public startPreCommitUpdate(
+    repository: ICommitMessageInput & IPreCommitUpdateRepository,
+    files: string[]
+  ): Promise<UpdateResult> {
+    return this.updateService
+      .runUpdate(repository, files)
+      .catch((err): UpdateResult => ({ success: false, error: String(err) }));
+  }
+
+  /**
+   * Await the pre-commit update and route its outcome. Returns whether the
+   * commit should proceed. On conflict-abort or failure the TYPED MESSAGE
+   * is preserved into the SCM input box (it used to be silently lost) and
+   * the Source Control view is revealed so the conflicts are in sight.
+   */
+  public async settlePreCommitUpdate(
+    updatePromise: Promise<UpdateResult>,
+    repository: ICommitMessageInput,
+    message: string
+  ): Promise<boolean> {
+    const updateResult = await updatePromise;
+
+    if (updateResult.cancelled) {
+      repository.inputBox.value = message;
+      return false;
+    }
+
+    if (updateResult.hasConflicts) {
+      const choice = await this.updateService.promptConflictResolution();
+      if (choice === "abort") {
+        repository.inputBox.value = message;
+        void commands.executeCommand("workbench.view.scm");
+        return false;
+      }
+    }
+
+    if (!updateResult.success && !updateResult.hasConflicts) {
+      window.showErrorMessage(`Update failed: ${updateResult.error}`);
+      repository.inputBox.value = message;
+      return false;
+    }
+
+    return true;
   }
 
   /**
@@ -366,7 +445,8 @@ export class CommitFlowService {
    * All files selected by default, user can deselect
    */
   private async showFileSelectionStep(
-    filePaths: string[]
+    filePaths: string[],
+    hasRemoteChange?: (filePath: string) => boolean
   ): Promise<string[] | undefined> {
     if (filePaths.length === 0) {
       return [];
@@ -377,12 +457,12 @@ export class CommitFlowService {
       return filePaths;
     }
 
-    const items: FilePickItem[] = filePaths.map(filePath => ({
-      label: `$(file) ${this.getFileName(filePath)}`,
-      description: this.getRelativePath(filePath),
-      filePath,
-      picked: true // All selected by default
-    }));
+    const items = buildFilePickItems(
+      filePaths,
+      hasRemoteChange,
+      p => this.getFileName(p),
+      p => this.getRelativePath(p)
+    );
 
     const selected = await window.showQuickPick(items, {
       title: `Select files to commit (${filePaths.length} changed)`,

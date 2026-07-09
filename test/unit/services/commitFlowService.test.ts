@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
+  buildFilePickItems,
   CommitFlowService,
   ICommitMessageInput
 } from "../../../src/services/commitFlowService";
@@ -16,9 +17,14 @@ const mockWindow = vi.hoisted(() => ({
   showErrorMessage: vi.fn()
 }));
 
+const mockCommands = vi.hoisted(() => ({
+  executeCommand: vi.fn()
+}));
+
 // Mock vscode
 vi.mock("vscode", () => ({
   window: mockWindow,
+  commands: mockCommands,
   ProgressLocation: { Notification: 15 },
   QuickPickItemKind: { Separator: -1 }
 }));
@@ -408,5 +414,84 @@ describe("CommitFlowService", () => {
 
       expect(result.message).toBe("feat: corrected message");
     });
+  });
+});
+
+describe("commit safety pack", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("badges files changed on the server in the selection picker", () => {
+    const items = buildFilePickItems(["/ws/a.txt", "/ws/b.txt"], p =>
+      p.endsWith("b.txt")
+    );
+
+    expect(items[0]!.description).not.toContain("changed on server");
+    expect(items[1]!.description).toContain("changed on server");
+    expect(items[1]!.description).toContain("$(cloud-download)");
+  });
+
+  it("preserves the typed message and reveals SCM when conflicts abort the commit", async () => {
+    const repository = createMockRepository();
+    // The pre-commit update comes back with conflicts
+    repository.updateRevision.mockResolvedValue({
+      revision: 101,
+      conflicts: ["/ws/a.txt"],
+      message: "Updated with conflicts"
+    });
+    // User types a message, then chooses "Resolve First" (abort)
+    mockWindow.showInputBox.mockResolvedValue("feat: my carefully typed msg");
+    mockWindow.showWarningMessage.mockResolvedValue("Resolve First");
+    mockWindow.withProgress.mockImplementation(
+      async (_o: unknown, task: (p: unknown, t: unknown) => Promise<unknown>) =>
+        task(
+          { report: vi.fn() },
+          { isCancellationRequested: false, onCancellationRequested: vi.fn() }
+        )
+    );
+
+    const service = new CommitFlowService();
+    const result = await service.runCommitFlow(repository, ["/ws/a.txt"], {
+      updateBeforeCommit: true,
+      conventionalCommits: false
+    });
+
+    expect(result.cancelled).toBe(true);
+    // The typed message must survive into the SCM input box for retry
+    expect(repository.inputBox.value).toBe("feat: my carefully typed msg");
+    // ...and the conflicts are brought into view
+    expect(mockCommands.executeCommand).toHaveBeenCalledWith(
+      "workbench.view.scm"
+    );
+  });
+
+  it("gates the plain input-box path through the same pre-commit update", async () => {
+    const repository = createMockRepository();
+    repository.updateRevision.mockResolvedValue({
+      revision: 102,
+      conflicts: [],
+      message: "ok"
+    });
+    mockWindow.withProgress.mockImplementation(
+      async (_o: unknown, task: (p: unknown, t: unknown) => Promise<unknown>) =>
+        task(
+          { report: vi.fn() },
+          { isCancellationRequested: false, onCancellationRequested: vi.fn() }
+        )
+    );
+
+    const service = new CommitFlowService();
+    const updatePromise = service.startPreCommitUpdate(repository, [
+      "/ws/a.txt"
+    ]);
+    const proceed = await service.settlePreCommitUpdate(
+      updatePromise,
+      repository,
+      "msg"
+    );
+
+    expect(proceed).toBe(true);
+    expect(repository.updateRevision).toHaveBeenCalled();
   });
 });

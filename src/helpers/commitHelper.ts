@@ -2,7 +2,7 @@
 // Licensed under MIT License
 
 import * as path from "path";
-import { window } from "vscode";
+import { window, workspace } from "vscode";
 import { Status } from "../common/types";
 import { configuration } from "./configuration";
 import { inputCommitMessage } from "../messages";
@@ -169,6 +169,40 @@ function getCommitFlowService(
 }
 
 /**
+ * Warn when files about to be committed have unsaved editor changes -
+ * worse in SVN than git since there's no amend to patch it up after.
+ * Returns whether the commit should proceed (saving first if asked).
+ */
+export async function ensureNoUnsavedChanges(
+  displayPaths: string[]
+): Promise<boolean> {
+  const normalize = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+  const committing = new Set(displayPaths.map(normalize));
+  const dirty = workspace.textDocuments.filter(
+    doc => doc.isDirty && committing.has(normalize(doc.uri.fsPath))
+  );
+  if (dirty.length === 0) {
+    return true;
+  }
+
+  const names = dirty
+    .slice(0, 3)
+    .map(d => path.basename(d.uri.fsPath))
+    .join(", ");
+  const more = dirty.length > 3 ? ` (+${dirty.length - 3} more)` : "";
+  const choice = await window.showWarningMessage(
+    `${dirty.length} file(s) being committed have unsaved changes: ${names}${more}`,
+    "Save All & Commit",
+    "Commit Anyway"
+  );
+  if (choice === "Save All & Commit") {
+    await Promise.all(dirty.map(doc => doc.save()));
+    return true;
+  }
+  return choice === "Commit Anyway";
+}
+
+/**
  * Run the shared commit flow: get config, show UI, return message/paths.
  * Used by commitAll and commitStaged commands.
  */
@@ -186,11 +220,21 @@ export async function runCommitMessageFlow(
   let message: string | undefined;
   let selectedPaths: string[] | undefined;
 
+  // Commit safety: surface unsaved editors BEFORE any message typing
+  if (!(await ensureNoUnsavedChanges(displayPaths))) {
+    return { cancelled: true };
+  }
+
   if (useQuickPick) {
     const result = await getCommitFlowService(userTypes).runCommitFlow(
       repository,
       displayPaths,
-      { conventionalCommits, updateBeforeCommit }
+      {
+        conventionalCommits,
+        updateBeforeCommit,
+        // Badge files the server has newer versions of (cache lookup)
+        hasRemoteChange: p => repository.hasRemoteChangeForFile(p)
+      }
     );
 
     if (result.cancelled) {
@@ -199,12 +243,31 @@ export async function runCommitMessageFlow(
     message = result.message;
     selectedPaths = result.selectedFiles;
   } else {
+    // The plain input-box path used to SKIP the pre-commit update the
+    // quickpick path runs - same gate now, started before typing so it
+    // runs concurrently with message input.
+    const flowService = getCommitFlowService(userTypes);
+    const updatePromise = updateBeforeCommit
+      ? flowService.startPreCommitUpdate(repository, displayPaths)
+      : undefined;
+
     message = await inputCommitMessage(
       repository.inputBox.value,
       true,
       displayPaths
     );
     selectedPaths = displayPaths;
+
+    if (message !== undefined && updatePromise) {
+      const proceed = await flowService.settlePreCommitUpdate(
+        updatePromise,
+        repository,
+        message
+      );
+      if (!proceed) {
+        return { cancelled: true };
+      }
+    }
   }
 
   if (message === undefined || !selectedPaths) {
