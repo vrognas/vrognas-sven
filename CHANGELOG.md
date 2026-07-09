@@ -7,6 +7,27 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.77] - 2026-07-09
+
+Repository history overhaul: faster diffs, working filters, full-history loading.
+
+### Fixed
+
+- **Branch Changes view restored**: the entire view (and its welcome content) never appeared — its visibility was gated on a `svn.hasBranch` context key left over from the svn→sven rename. Same fix restored the **Clear Filters** button in the Repo History title bar and the active-state filter icon.
+- **Load-more under a date filter never advanced**: pagination emitted two separate `-r` ranges (revision + date), so SVN re-served the same page forever. Now one combined range (`-r 2999:{2024-01-01}`).
+- **Slow diff on history file clicks**: opening a modified file's diff cost 4 sequential server round-trips (a discarded property-only `svn diff` pre-check, a prev-revision lookup, then two `svn cat`s in series). Both contents now fetch in parallel (concurrently with the prev-revision lookup in Repo History), and property-only changes are detected by content equality instead of a pre-check — Repo History: 4→2 waves, File History: 3→1.
+
+### Added
+
+- **Load all remaining revisions** in Repo History: pages the entire remaining history in 500-revision chunks with a cancellable progress notification, streaming entries in as they arrive.
+- **Instant filters over full history**: once the complete history is loaded (e.g. after Load All), filter changes are answered locally — no server round-trips, results are immediate. Partial windows keep the server-side search so results never show gaps.
+- **Clear all filters** entry at the top of the Filter History picker (alongside the restored title-bar button).
+- **Refresh History (Discard Cache)** in the view's overflow menu: bypasses the immutability cache — the escape hatch for picking up edited commit messages/authors (`svn propset --revprop`).
+
+### Internal
+
+- Manifest-integrity tests now verify every when-clause context key is set in code, every `config.*` gate is a declared setting, and every viewsWelcome entry targets a real view id — the svn→sven rename-leftover bug class can't recur silently.
+
 ## [0.2.76] - 2026-07-09
 
 ### Fixed
