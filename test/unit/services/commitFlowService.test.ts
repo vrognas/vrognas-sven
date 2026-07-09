@@ -160,6 +160,55 @@ describe("CommitFlowService", () => {
     });
   });
 
+  describe("cancelled message with in-flight update", () => {
+    it("abandonPreCommitUpdate surfaces conflicts the orphaned update produced", async () => {
+      await service.abandonPreCommitUpdate(
+        Promise.resolve({ success: true, hasConflicts: true })
+      );
+
+      expect(mockWindow.showWarningMessage).toHaveBeenCalled();
+      expect(mockCommands.executeCommand).toHaveBeenCalledWith(
+        "workbench.view.scm"
+      );
+    });
+
+    it("abandonPreCommitUpdate stays silent when the update was clean", async () => {
+      await service.abandonPreCommitUpdate(
+        Promise.resolve({ success: true, hasConflicts: false })
+      );
+
+      expect(mockWindow.showWarningMessage).not.toHaveBeenCalled();
+    });
+
+    it("Esc on the message step still surfaces update conflicts", async () => {
+      // update pulls a conflicting change while the user types...
+      const updateService = {
+        runUpdate: vi.fn(async () => ({ success: true, hasConflicts: true })),
+        promptConflictResolution: vi.fn()
+      };
+      const svc = new CommitFlowService(
+        new ConventionalCommitService(),
+        updateService as never
+      );
+      // ...and the user presses Esc (single file skips the picker)
+      mockWindow.showInputBox.mockResolvedValueOnce(undefined);
+
+      const result = await svc.runCommitFlow(
+        mockRepository,
+        ["/path/file.txt"],
+        { updateBeforeCommit: true }
+      );
+      await vi.waitFor(() => {
+        expect(mockWindow.showWarningMessage).toHaveBeenCalled();
+      });
+
+      expect(result.cancelled).toBe(true);
+      expect(mockCommands.executeCommand).toHaveBeenCalledWith(
+        "workbench.view.scm"
+      );
+    });
+  });
+
   describe("pre-commit update", () => {
     it("runs update before commit when enabled", async () => {
       mockWindow.withProgress.mockImplementation(

@@ -1,5 +1,5 @@
 import * as assert from "assert";
-import { SourceControlInputBox, Uri, window } from "vscode";
+import { SourceControlInputBox, Uri, window, workspace } from "vscode";
 import { vi } from "vitest";
 import { Commit } from "../../../commands/commit";
 import { CommitWithMessage } from "../../../commands/commitWithMessage";
@@ -42,6 +42,9 @@ suite("Commit Commands Tests", () => {
     vi.clearAllMocks();
     commitFilesCalls = [];
     mockInputBox = { value: "" };
+    // The pre-commit update gate (default autoUpdate="both") is covered
+    // by commitFlowService tests; these target message flow + commitFiles
+    void workspace.getConfiguration("sven").update("commit.autoUpdate", "none");
 
     mockRepository = {
       root: "/test/repo",
@@ -58,12 +61,21 @@ suite("Commit Commands Tests", () => {
     };
   });
 
+  teardown(() => {
+    void workspace
+      .getConfiguration("sven")
+      .update("commit.autoUpdate", undefined);
+  });
+
   test("Commit exits with warning when files are not staged", async () => {
     const commit = new Commit();
     const warningSpy = vi.fn().mockResolvedValue(undefined);
     (window as any).showWarningMessage = warningSpy;
 
-    const resource = new Resource(Uri.file("/test/repo/file.txt"), Status.MODIFIED);
+    const resource = new Resource(
+      Uri.file("/test/repo/file.txt"),
+      Status.MODIFIED
+    );
     (commit as any).getResourceStatesOrExit = async () => [resource];
     vi.mocked(inputCommitMessage).mockResolvedValue("message");
 
@@ -100,7 +112,9 @@ suite("Commit Commands Tests", () => {
 
     assert.strictEqual(commitFilesCalls.length, 1);
     assert.strictEqual(commitFilesCalls[0]!.message, "fix: staged file");
-    assert.deepStrictEqual(commitFilesCalls[0]!.paths, [resource.resourceUri.fsPath]);
+    assert.deepStrictEqual(commitFilesCalls[0]!.paths, [
+      resource.resourceUri.fsPath
+    ]);
     assert.strictEqual((mockRepository.inputBox as any).value, "");
     commit.dispose();
   });
@@ -136,7 +150,9 @@ suite("Commit Commands Tests", () => {
 
     assert.strictEqual(commitFilesCalls.length, 1);
     assert.strictEqual(commitFilesCalls[0]!.message, "feat: commit selected");
-    assert.deepStrictEqual(commitFilesCalls[0]!.paths, [resource.resourceUri.fsPath]);
+    assert.deepStrictEqual(commitFilesCalls[0]!.paths, [
+      resource.resourceUri.fsPath
+    ]);
     command.dispose();
   });
 });

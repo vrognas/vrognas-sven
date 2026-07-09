@@ -62,6 +62,11 @@ export abstract class BaseStagedCommitCommand extends Command {
 
     const { message, commitPaths } = flowResult;
 
+    // The composed message lives only in transient QuickPick state -
+    // park it in the input box so a failed commit doesn't lose it
+    // (executeCommit clears the box on success)
+    repository.inputBox.value = message;
+
     await this.handleRepositoryOperation(
       () => executeCommit(repository, message, commitPaths),
       "Unable to commit"

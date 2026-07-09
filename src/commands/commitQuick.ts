@@ -2,7 +2,11 @@
 // Licensed under MIT License
 
 import * as path from "path";
-import { executeCommit } from "../helpers/commitHelper";
+import {
+  ensureNoUnsavedChanges,
+  executeCommit,
+  withPreCommitUpdate
+} from "../helpers/commitHelper";
 import { Repository } from "../repository";
 import { BaseStagedCommitCommand } from "./baseStagedCommitCommand";
 
@@ -30,6 +34,20 @@ export class CommitQuick extends BaseStagedCommitCommand {
       const primaryFile = path.basename(stagedResources[0]!.resourceUri.fsPath);
       message =
         fileCount === 1 ? `Update ${primaryFile}` : `Update ${fileCount} files`;
+    }
+
+    // Quick != unguarded: unsaved-editor warning and the pre-commit
+    // update gate still apply (getMessage resolves instantly here)
+    if (!(await ensureNoUnsavedChanges(context.displayPaths))) {
+      return;
+    }
+    const gated = await withPreCommitUpdate(
+      repository,
+      context.displayPaths,
+      async () => message
+    );
+    if (gated === undefined) {
+      return;
     }
 
     await this.handleRepositoryOperation(

@@ -5,7 +5,9 @@
 import { inputCommitFiles } from "../changelistItems";
 import {
   buildExpandedCommitPaths,
-  executeCommit
+  ensureNoUnsavedChanges,
+  executeCommit,
+  withPreCommitUpdate
 } from "../helpers/commitHelper";
 import { inputCommitMessage } from "../messages";
 import { Repository } from "../repository";
@@ -28,10 +30,13 @@ export class CommitWithMessage extends Command {
     // Build initial paths for message input
     const initialPaths = this.resourcesToPaths(resources);
 
-    const message = await inputCommitMessage(
-      repository.inputBox.value,
-      false,
-      initialPaths
+    // Same commit-safety gates as the staged flows: unsaved editors
+    // first, pre-commit update concurrent with message input
+    if (!(await ensureNoUnsavedChanges(initialPaths))) {
+      return;
+    }
+    const message = await withPreCommitUpdate(repository, initialPaths, () =>
+      inputCommitMessage(repository.inputBox.value, false, initialPaths)
     );
     if (message === undefined) {
       return;
@@ -39,6 +44,9 @@ export class CommitWithMessage extends Command {
 
     // Build paths including parent dirs and track renames
     const { commitPaths } = buildExpandedCommitPaths(resources, repository);
+
+    // Recoverable if the commit itself fails; cleared on success
+    repository.inputBox.value = message;
 
     await this.handleRepositoryOperation(
       () => executeCommit(repository, message, commitPaths),

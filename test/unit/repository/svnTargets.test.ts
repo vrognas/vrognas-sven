@@ -13,19 +13,21 @@ import { ISvnInfo } from "../../../src/common/types";
 const LOG_XML = `<?xml version="1.0"?><log><logentry revision="42"><author>a</author><date>2024-01-01T00:00:00.000000Z</date><msg>m</msg></logentry></log>`;
 
 function makeRepo() {
-  const exec = vi.fn(async () => ({
-    exitCode: 0,
-    stdout: LOG_XML,
-    stderr: ""
-  }));
+  const exec = vi.fn(
+    async (_cwd: string, _args: string[], _opts?: unknown) => ({
+      exitCode: 0,
+      stdout: LOG_XML,
+      stderr: ""
+    })
+  );
   const svn = { exec } as never;
   const info = { url: "http://srv/repo/trunk" } as unknown as ISvnInfo;
   const repo = new Repository(svn, "/ws", "/ws", info);
   return { repo, exec };
 }
 
-const lastArg = (exec: ReturnType<typeof vi.fn>): string => {
-  const args = exec.mock.calls[0]![1] as string[];
+const lastArg = (exec: ReturnType<typeof makeRepo>["exec"]): string => {
+  const args = exec.mock.calls[0]![1];
   return args[args.length - 1]!;
 };
 

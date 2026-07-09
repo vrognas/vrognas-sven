@@ -5,7 +5,9 @@
 import { SourceControlResourceState, window } from "vscode";
 import {
   buildExpandedCommitPaths,
-  executeCommit
+  ensureNoUnsavedChanges,
+  executeCommit,
+  withPreCommitUpdate
 } from "../helpers/commitHelper";
 import { inputCommitMessage } from "../messages";
 import { Command } from "./command";
@@ -38,10 +40,12 @@ export class Commit extends Command {
         repository
       );
 
-      const message = await inputCommitMessage(
-        repository.inputBox.value,
-        true,
-        displayPaths
+      // Same commit-safety gates as the staged flows
+      if (!(await ensureNoUnsavedChanges(displayPaths))) {
+        return;
+      }
+      const message = await withPreCommitUpdate(repository, displayPaths, () =>
+        inputCommitMessage(repository.inputBox.value, true, displayPaths)
       );
 
       if (message === undefined) {

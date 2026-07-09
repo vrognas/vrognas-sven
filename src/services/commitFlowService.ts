@@ -149,6 +149,12 @@ export class CommitFlowService {
     }
 
     if (message === undefined) {
+      if (updatePromise) {
+        // Cancelled input doesn't cancel the update - surface whatever
+        // it does to the working copy instead of letting conflicts
+        // land silently (fire-and-forget: Esc must not block)
+        void this.abandonPreCommitUpdate(updatePromise);
+      }
       return { cancelled: true };
     }
 
@@ -178,6 +184,24 @@ export class CommitFlowService {
     return this.updateService
       .runUpdate(repository, files)
       .catch((err): UpdateResult => ({ success: false, error: String(err) }));
+  }
+
+  /**
+   * The user cancelled the message step while the background update kept
+   * running (and possibly mutating the working copy). Await it and
+   * surface any conflicts it produced - they must not land silently only
+   * to be discovered at the next save or commit.
+   */
+  public async abandonPreCommitUpdate(
+    updatePromise: Promise<UpdateResult>
+  ): Promise<void> {
+    const result = await updatePromise;
+    if (result.hasConflicts) {
+      window.showWarningMessage(
+        "The pre-commit update brought in conflicting changes. Resolve the conflicts in the Source Control view."
+      );
+      void commands.executeCommand("workbench.view.scm");
+    }
   }
 
   /**

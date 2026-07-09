@@ -203,6 +203,44 @@ export async function ensureNoUnsavedChanges(
 }
 
 /**
+ * Run a message-producing step under the pre-commit update gate: the
+ * update starts before the input shows (concurrent with typing), a
+ * cancelled input abandons the update but still surfaces conflicts it
+ * produced, and a confirmed input settles the update before committing.
+ * Returns the message, or undefined when cancelled/aborted.
+ */
+export async function withPreCommitUpdate(
+  repository: Repository,
+  displayPaths: string[],
+  getMessage: () => Promise<string | undefined>
+): Promise<string | undefined> {
+  const autoUpdate = configuration.commitAutoUpdate();
+  const updateBeforeCommit = autoUpdate === "both" || autoUpdate === "before";
+  const userTypes = configuration.get<CommitTypeConfig[]>("commit.types", []);
+  const flowService = getCommitFlowService(userTypes);
+  const updatePromise = updateBeforeCommit
+    ? flowService.startPreCommitUpdate(repository, displayPaths)
+    : undefined;
+
+  const message = await getMessage();
+
+  if (updatePromise) {
+    if (message === undefined) {
+      void flowService.abandonPreCommitUpdate(updatePromise);
+    } else if (
+      !(await flowService.settlePreCommitUpdate(
+        updatePromise,
+        repository,
+        message
+      ))
+    ) {
+      return undefined;
+    }
+  }
+  return message;
+}
+
+/**
  * Run the shared commit flow: get config, show UI, return message/paths.
  * Used by commitAll and commitStaged commands.
  */
@@ -246,28 +284,10 @@ export async function runCommitMessageFlow(
     // The plain input-box path used to SKIP the pre-commit update the
     // quickpick path runs - same gate now, started before typing so it
     // runs concurrently with message input.
-    const flowService = getCommitFlowService(userTypes);
-    const updatePromise = updateBeforeCommit
-      ? flowService.startPreCommitUpdate(repository, displayPaths)
-      : undefined;
-
-    message = await inputCommitMessage(
-      repository.inputBox.value,
-      true,
-      displayPaths
+    message = await withPreCommitUpdate(repository, displayPaths, () =>
+      inputCommitMessage(repository.inputBox.value, true, displayPaths)
     );
     selectedPaths = displayPaths;
-
-    if (message !== undefined && updatePromise) {
-      const proceed = await flowService.settlePreCommitUpdate(
-        updatePromise,
-        repository,
-        message
-      );
-      if (!proceed) {
-        return { cancelled: true };
-      }
-    }
   }
 
   if (message === undefined || !selectedPaths) {
