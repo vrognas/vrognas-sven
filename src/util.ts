@@ -340,8 +340,15 @@ export function unwrap<T>(maybeT?: T): T {
   return maybeT;
 }
 
-export function fixPegRevision(file: string) {
-  // Fix Peg Revision Algorithm (http://svnbook.red-bean.com/en/1.8/svn.advanced.pegrevs.html)
+export function fixPegRevision(file: string, pegRevision?: string) {
+  // Peg Revision Algorithm (http://svnbook.red-bean.com/en/1.8/svn.advanced.pegrevs.html)
+  // svn resolves the peg at the LAST '@' of a target. With an explicit peg
+  // the path must be appended UNESCAPED (name@2x.png@123); pre-escaping
+  // would make svn read the literal path 'name@2x.png@'. The trailing-@
+  // escape only applies to peg-less targets containing '@'.
+  if (pegRevision) {
+    return `${file}@${pegRevision}`;
+  }
   if (/@/.test(file)) {
     file += "@";
   }

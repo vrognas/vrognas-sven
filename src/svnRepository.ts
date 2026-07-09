@@ -248,14 +248,24 @@ export class Repository {
    * Adds @revision suffix for non-working-copy revisions (not BASE/COMMITTED/PREV).
    */
   private buildPegPath(path: string, revision?: string): string {
-    const escaped = fixPegRevision(path);
-    if (
+    const peg =
       revision &&
       !["BASE", "COMMITTED", "PREV"].includes(revision.toUpperCase())
-    ) {
-      return `${escaped}@${revision}`;
+        ? revision
+        : undefined;
+    return fixPegRevision(path, peg);
+  }
+
+  /**
+   * Resolve a log/diff target for the svn CLI. svn treats any scheme://
+   * target as a REPOSITORY URL, so working-copy file Uris must be passed
+   * as filesystem paths or svn fails with E170013.
+   */
+  private static resolveCliTarget(target?: string | Uri): string {
+    if (target instanceof Uri) {
+      return target.scheme === "file" ? target.fsPath : target.toString(true);
     }
-    return escaped;
+    return target || "";
   }
 
   /**
@@ -872,7 +882,7 @@ export class Repository {
       revision.toUpperCase() !== "HEAD" &&
       revision.toUpperCase() !== "BASE"
     ) {
-      args.push(fixPegRevision(relativePath) + "@" + revision);
+      args.push(fixPegRevision(relativePath, revision));
     } else {
       args.push(fixPegRevision(relativePath));
     }
@@ -1110,7 +1120,8 @@ export class Repository {
 
     if (file instanceof Uri) {
       uri = file;
-      filePath = file.toString(true);
+      // file-scheme Uris are working-copy paths, not repository URLs
+      filePath = file.scheme === "file" ? file.fsPath : file.toString(true);
     } else {
       uri = Uri.file(file);
       filePath = file;
@@ -1677,13 +1688,9 @@ export class Repository {
    * Includes property changes in addition to content changes
    */
   public async patchRevision(revision: string, url: Uri): Promise<string> {
+    const target = Repository.resolveCliTarget(url);
     const fetch = async () => {
-      const result = await this.exec([
-        "diff",
-        "-c",
-        revision,
-        url.toString(true)
-      ]);
+      const result = await this.exec(["diff", "-c", revision, target]);
       return result.stdout;
     };
 
@@ -1693,7 +1700,7 @@ export class Repository {
       return fetch();
     }
     return withCachedInFlight(
-      `${revision}@${url.toString(true)}`,
+      `${revision}@${target}`,
       this._patchRevisionCache,
       this._patchRevisionInFlight,
       fetch
@@ -1791,8 +1798,7 @@ export class Repository {
     target?: string | Uri,
     pegRevision?: string
   ): Promise<ISvnLogEntry[]> {
-    const targetStr =
-      target instanceof Uri ? target.toString(true) : target || "";
+    const targetStr = Repository.resolveCliTarget(target);
     const cacheKey = `log:${targetStr}:${rfrom}:${rto}:${limit}:${pegRevision || ""}`;
 
     // Check cache
@@ -1810,12 +1816,7 @@ export class Repository {
       "-v"
     ];
     if (target !== undefined) {
-      // Fix: Build peg revision path correctly - escape @ in path, then add peg revision
-      let targetPath = fixPegRevision(targetStr);
-      if (pegRevision) {
-        targetPath += "@" + pegRevision;
-      }
-      args.push(targetPath);
+      args.push(fixPegRevision(targetStr, pegRevision));
     }
     const result = await this.exec(args);
     const entries = await parseSvnLog(result.stdout);
@@ -1834,8 +1835,7 @@ export class Repository {
     limit: number,
     target?: string | Uri
   ): Promise<ISvnLogEntry[]> {
-    const targetStr =
-      target instanceof Uri ? target.toString(true) : target || "";
+    const targetStr = Repository.resolveCliTarget(target);
 
     // Build cache key including filter
     const filterKey = JSON.stringify(filter, (_, v) =>
@@ -1933,8 +1933,7 @@ export class Repository {
     const minRev = Math.min(...revNums);
     const maxRev = Math.max(...revNums);
 
-    const targetStr =
-      target instanceof Uri ? target.toString(true) : target || "";
+    const targetStr = Repository.resolveCliTarget(target);
     const cacheKey = `logBatch:${targetStr}:${minRev}:${maxRev}:${pegRevision || ""}`;
 
     // Check cache - stores full range, filter to requested
@@ -1948,12 +1947,7 @@ export class Repository {
     const args = ["log", "-r", `${minRev}:${maxRev}`, "--xml", "-v"];
 
     if (target !== undefined) {
-      // Fix: Build peg revision path correctly - escape @ in path, then add peg revision
-      let targetPath = fixPegRevision(targetStr);
-      if (pegRevision) {
-        targetPath += "@" + pegRevision;
-      }
-      args.push(targetPath);
+      args.push(fixPegRevision(targetStr, pegRevision));
     }
 
     const result = await this.exec(args);
