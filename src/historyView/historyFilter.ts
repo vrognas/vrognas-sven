@@ -199,23 +199,25 @@ export function buildSvnLogArgs(filter: IHistoryFilter): string[] {
     args.push("--search", filter.path);
   }
 
-  // Revision range: SVN -r syntax is "start:end" where results go from start toward end
-  // We want newest-first, so start at upper bound (revisionTo) and descend to lower bound (revisionFrom)
-  if (filter.revisionFrom !== undefined || filter.revisionTo !== undefined) {
-    const upper = filter.revisionTo ?? "HEAD"; // Start here (newest)
-    const lower = filter.revisionFrom ?? 1; // Go back to here (oldest)
+  // Revision/date bounds: ONE combined -r range, newest-first. SVN accepts
+  // mixed forms like `-r 2999:{2024-01-01}`. Emitting two -r args (the old
+  // separate revision + date branches) made SVN treat them as independent
+  // ranges, so load-more pagination (which adds revisionTo to a date
+  // filter) kept re-fetching the same page. Revision bounds win over date
+  // bounds on the same side; pagination only ever sets revisionTo.
+  if (
+    filter.revisionFrom !== undefined ||
+    filter.revisionTo !== undefined ||
+    filter.dateFrom ||
+    filter.dateTo
+  ) {
+    const upper =
+      filter.revisionTo ??
+      (filter.dateTo ? `{${formatSvnDate(filter.dateTo)}}` : "HEAD");
+    const lower =
+      filter.revisionFrom ??
+      (filter.dateFrom ? `{${formatSvnDate(filter.dateFrom)}}` : 1);
     args.push("-r", `${upper}:${lower}`);
-  }
-
-  // Date range: same logic - start at newer date, descend to older
-  if (filter.dateFrom || filter.dateTo) {
-    const olderDate = filter.dateFrom
-      ? `{${formatSvnDate(filter.dateFrom)}}`
-      : "{1970-01-01}";
-    const newerDate = filter.dateTo
-      ? `{${formatSvnDate(filter.dateTo)}}`
-      : "{" + formatSvnDate(new Date()) + "}";
-    args.push("-r", `${newerDate}:${olderDate}`);
   }
 
   // Note: actions filter is client-side only, not included here

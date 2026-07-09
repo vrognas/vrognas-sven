@@ -242,6 +242,15 @@ export function createLoadMoreItem(
   return { kind: LogTreeItemKind.TItem, data: ti };
 }
 
+/** Create "Load all" tree item: pages until history is exhausted */
+export function createLoadAllItem(command: string): ILogTreeItem {
+  const ti = new TreeItem("Load all remaining revisions");
+  ti.tooltip = "Fetches the entire remaining history in chunks (cancellable)";
+  ti.command = { command, arguments: [], title: "load all" };
+  ti.iconPath = new ThemeIcon("cloud-download");
+  return { kind: LogTreeItemKind.TItem, data: ti };
+}
+
 /** Create loading indicator tree item */
 export function createLoadingItem(): ILogTreeItem {
   const item = new TreeItem("Loading...");
@@ -250,9 +259,9 @@ export function createLoadingItem(): ILogTreeItem {
 }
 
 /// @note: cached.svnTarget should be valid
-export async function fetchMore(cached: ICachedLog) {
+export async function fetchMore(cached: ICachedLog, limitOverride?: number) {
   const entries = cached.entries;
-  const limit = getLimit();
+  const limit = limitOverride ?? getLimit();
   const filter = cached.filter;
 
   // Build revision range based on existing entries

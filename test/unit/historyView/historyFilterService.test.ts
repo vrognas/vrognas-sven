@@ -201,6 +201,28 @@ describe("buildSvnLogArgs", () => {
     const args = buildSvnLogArgs({ actions: ["A", "M"] });
     expect(args).toEqual([]);
   });
+
+  it("emits a SINGLE -r range when both revision and date bounds set", () => {
+    // The load-more pagination adds revisionTo to a date filter; two -r
+    // args would make SVN treat them as separate ranges and the page
+    // never advances within the date window
+    const args = buildSvnLogArgs({
+      revisionTo: 2999,
+      dateFrom: new Date("2024-01-01")
+    });
+    expect(args.filter(a => a === "-r").length).toBe(1);
+    // upper bound = paginated revision, lower bound = date window start
+    expect(args[args.indexOf("-r") + 1]).toBe("2999:{2024-01-01}");
+  });
+
+  it("date-only range still spans dateTo down to dateFrom", () => {
+    const args = buildSvnLogArgs({
+      dateFrom: new Date("2024-01-01"),
+      dateTo: new Date("2024-12-31")
+    });
+    expect(args.filter(a => a === "-r").length).toBe(1);
+    expect(args[args.indexOf("-r") + 1]).toBe("{2024-12-31}:{2024-01-01}");
+  });
 });
 
 describe("filterEntriesByAction", () => {

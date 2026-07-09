@@ -862,6 +862,11 @@
         "icon": "$(git-fetch)"
       },
       {
+        "command": "sven.repolog.fetchAll",
+        "category": "SVN",
+        "title": "Load All Remaining Revisions"
+      },
+      {
         "command": "sven.repolog.revealInExplorer",
         "category": "SVN",
         "title": "Reveal in File Explorer"
@@ -1267,6 +1272,10 @@
         },
         {
           "command": "sven.repolog.filterHistory",
+          "when": "false"
+        },
+        {
+          "command": "sven.repolog.fetchAll",
           "when": "false"
         },
         {

@@ -8,6 +8,7 @@ import {
   Disposable,
   Event,
   EventEmitter,
+  ProgressLocation,
   TreeDataProvider,
   TreeItem,
   TreeItemCollapsibleState,
@@ -23,6 +24,7 @@ import {
   checkIfFile,
   copyCommitToClipboard,
   createLoadingItem,
+  createLoadAllItem,
   createLoadMoreItem,
   fetchMore,
   getCommitIcon,
@@ -158,6 +160,7 @@ export class RepoLogProvider
         this.explicitRefreshCmd,
         this
       ),
+      commands.registerCommand("sven.repolog.fetchAll", this.fetchAll, this),
       commands.registerCommand(
         "sven.repolog.revealInExplorer",
         this.revealInExplorerCmd,
@@ -419,6 +422,47 @@ export class RepoLogProvider
       return;
     }
     return this.refresh(element, fetchMoreClick, true);
+  }
+
+  /**
+   * Page through the ENTIRE remaining history in large chunks, with
+   * progress + cancellation. Streams entries into the tree as chunks land.
+   */
+  public async fetchAll() {
+    const cached = this.getCached();
+    if (!cached || cached.isLoading || cached.isComplete) {
+      return;
+    }
+    const repoUrl = cached.svnTarget.toString(true);
+    const CHUNK = 500;
+
+    cached.isLoading = true;
+    try {
+      await window.withProgress(
+        {
+          location: ProgressLocation.Notification,
+          title: "SVN: Loading full history",
+          cancellable: true
+        },
+        async (progress, token) => {
+          while (!cached.isComplete && !token.isCancellationRequested) {
+            // Filter change replaces the cache object - stop streaming
+            // into an orphaned entry
+            if (this.logCache.get(repoUrl) !== cached) {
+              return;
+            }
+            await fetchMore(cached, CHUNK);
+            progress.report({
+              message: `${cached.entries.length} revisions loaded`
+            });
+            this._onDidChangeTreeData.fire(undefined);
+          }
+        }
+      );
+    } finally {
+      cached.isLoading = false;
+      this._onDidChangeTreeData.fire(undefined);
+    }
   }
 
   private onVisibilityChanged(visible: boolean): void {
@@ -1092,7 +1136,8 @@ export class RepoLogProvider
 
       if (!cached.isComplete) {
         result.push(
-          createLoadMoreItem("sven.repolog.fetch", [undefined, true])
+          createLoadMoreItem("sven.repolog.fetch", [undefined, true]),
+          createLoadAllItem("sven.repolog.fetchAll")
         );
       }
       return result;
