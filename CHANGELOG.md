@@ -7,6 +7,21 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.78] - 2026-07-09
+
+"Repo History is the hub": blame, the incoming-changes counter, and revision jumps now all land in the history view instead of dead-ending in toasts.
+
+### Added
+
+- **Rich blame hovers**: hovering a blamed line shows revision, author, date, the commit message (when already cached — no extra network), and links to **Show in History** and **Copy Revision**. The blame status bar's "Show Commit" now actually reveals the commit in Repo History (it previously showed an info toast).
+- **Incoming changes preview**: clicking the `N↓` status-bar counter opens a picker — _Update Working Copy_, _Show Incoming Revisions_ (reveals the server-only commits in Repo History before you pull), or _Show Changed Files_ — instead of immediately running a full `svn update`. Also available as **SVN: Incoming Changes…** in the palette.
+
+### Fixed
+
+- **Go-to-revision dead end**: jumping to a revision that wasn't loaded yet (from blame links, file history, or the BASE marker) told you to click "Load more" repeatedly. It now auto-fetches older history with cancellable progress until the revision is found — or tells you definitively that it isn't in this checkout's history.
+- **Incoming commits never appeared in history**: history only ever paged downward, so server-only revisions couldn't stream into an already-populated view until after an update. They now fetch on demand.
+- **Positron Connections pane**: the connect action logged "Would execute" and did nothing; it now launches the real checkout flow with the entered URL.
+
 ## [0.2.77] - 2026-07-09
 
 Repository history overhaul: faster diffs, working filters, full-history loading.
