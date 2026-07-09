@@ -106,6 +106,90 @@ describe("fetchMore", () => {
   });
 });
 
+describe("fetchMore failure handling", () => {
+  it("never marks complete/fullHistory off a failed page", async () => {
+    const log = vi.fn(async () => {
+      throw new Error("svn: E175002: connection reset");
+    });
+    const cached = makeCached({ log }, [entry("3000")]);
+
+    await fetchMore(cached, 50);
+
+    // the old catch swallowed this, then needFetch([],...) claimed the
+    // history was complete AND full - silently truncating it forever
+    expect(cached.isComplete).toBe(false);
+    expect(cached.fullHistory).toBeFalsy();
+    expect(cached.lastFetchFailed).toBe(true);
+  });
+
+  it("clears the failure flag on the next successful page", async () => {
+    let fail = true;
+    const log = vi.fn(async () => {
+      if (fail) throw new Error("svn: E175002: connection reset");
+      return [entry("2999")];
+    });
+    const cached = makeCached({ log }, [entry("3000")]);
+
+    await fetchMore(cached, 50);
+    fail = false;
+    await fetchMore(cached, 50);
+
+    expect(cached.lastFetchFailed).toBe(false);
+    expect(cached.entries.map(e => e.revision)).toEqual(["3000", "2999"]);
+  });
+});
+
+describe("fetchMore pagination cursor", () => {
+  function entryWithAction(revision: string, action: string): ISvnLogEntry {
+    return {
+      revision,
+      author: "a",
+      msg: "m",
+      date: "2026-01-01T00:00:00.000000Z",
+      paths: [{ _: "/f", action } as never]
+    } as unknown as ISvnLogEntry;
+  }
+
+  it("advances past pages fully dropped by the action filter", async () => {
+    // newest 50 commits contain no deletion; r2950 has one
+    const log = vi.fn(async (rfrom: string) => {
+      const start = rfrom === "HEAD" ? 3000 : parseInt(rfrom, 10);
+      const out: ISvnLogEntry[] = [];
+      for (let r = start; r > start - 50; r--) {
+        out.push(entryWithAction(String(r), r === 2950 ? "D" : "M"));
+      }
+      return out;
+    });
+    const cached = makeCached({ log }, [], { actions: ["D"] });
+
+    await fetchMore(cached, 50); // 3000..2951: all filtered out
+    expect(cached.entries).toHaveLength(0);
+    expect(cached.isComplete).toBe(false);
+
+    await fetchMore(cached, 50); // MUST resume below 2951, not at HEAD
+
+    expect(log).toHaveBeenLastCalledWith("2950", "1", 50, expect.anything());
+    expect(cached.entries.map(e => e.revision)).toEqual(["2950"]);
+  });
+
+  it("stops instead of emitting an inverted range below revisionFrom", async () => {
+    const logWithFilter = vi.fn<IRemoteRepository["logWithFilter"]>(
+      async () => []
+    );
+    // page boundary landed exactly on the filter's lower bound
+    const cached = makeCached({ logWithFilter }, [entry("100")], {
+      revisionFrom: 100,
+      revisionTo: 199
+    });
+
+    await fetchMore(cached, 100);
+
+    // -r 99:100 would fetch r99 - OUTSIDE the user's range
+    expect(logWithFilter).not.toHaveBeenCalled();
+    expect(cached.isComplete).toBe(true);
+  });
+});
+
 describe("ensureRevisionLoaded (goToRevision auto-fetch)", () => {
   /** repo.log mock serving contiguous descending pages of `pageSize`. */
   function pagedRepo(pageSize: number) {
@@ -201,6 +285,18 @@ describe("fetchNewer (incoming revisions preview)", () => {
 
     expect(await fetchNewer(cached)).toBe(0);
     expect(cached.entries).toHaveLength(1);
+  });
+
+  it("rethrows real errors instead of claiming 'nothing newer'", async () => {
+    const log = vi.fn(async () => {
+      throw new Error("svn: E170013: Unable to connect to a repository");
+    });
+    const cached = makeCached({ log }, [entry("3000")]);
+    cached.revisionSet.add("3000");
+
+    // a swallowed network error here became a false positive
+    // "History already shows the latest server revisions"
+    await expect(fetchNewer(cached)).rejects.toThrow(/E170013/);
   });
 
   it("dedupes overlap with already-cached revisions", async () => {

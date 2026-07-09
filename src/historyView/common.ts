@@ -73,6 +73,13 @@ export interface ICachedLog {
    *  instant client-side filtering (applyFilterToEntries) */
   fullHistory?: boolean;
   isLoading?: boolean; // True while fetching from SVN
+  /** Oldest revision a page has already COVERED, even if client-side
+   *  filters dropped every entry of it - the pagination cursor must
+   *  advance past such pages instead of refetching them forever */
+  oldestSeenRevision?: number;
+  /** Last fetch attempt threw: callers must not auto-retry in a loop,
+   *  and completion state must never be derived from the failed page */
+  lastFetchFailed?: boolean;
   repo: IRemoteRepository;
   persisted: {
     readonly commitFrom: string;
@@ -271,19 +278,38 @@ export async function fetchMore(cached: ICachedLog, limitOverride?: number) {
   const limit = limitOverride ?? getLimit();
   const filter = cached.filter;
 
-  // Build revision range based on existing entries
+  // Pagination floor: oldest loaded entry, or the oldest revision a
+  // previous page already covered (a client-side action filter can drop
+  // a whole page - the cursor must still advance past it)
+  const lastEntry = entries[entries.length - 1];
+  const tailRev = lastEntry ? Number.parseInt(lastEntry.revision, 10) : NaN;
+  if (lastEntry && isNaN(tailRev)) {
+    // Invalid revision in cache, nothing more to fetch
+    cached.isComplete = true;
+    if (isFilterEmpty(filter)) {
+      cached.fullHistory = true;
+    }
+    return;
+  }
+  const seen = cached.oldestSeenRevision;
+  const floor =
+    seen === undefined
+      ? tailRev
+      : isNaN(tailRev)
+        ? seen
+        : Math.min(tailRev, seen);
+
   let rfrom = cached.persisted.commitFrom;
-  if (entries.length) {
-    const lastRev = Number.parseInt(entries[entries.length - 1]!.revision, 10);
-    // Already at r1 or invalid revision, nothing more to fetch
-    if (isNaN(lastRev) || lastRev <= 1) {
+  if (!isNaN(floor)) {
+    // Already at r1, nothing more to fetch
+    if (floor <= 1) {
       cached.isComplete = true;
       if (isFilterEmpty(filter)) {
         cached.fullHistory = true;
       }
       return;
     }
-    rfrom = (lastRev - 1).toString();
+    rfrom = (floor - 1).toString();
   }
 
   let moreCommits: ISvnLogEntry[] = [];
@@ -307,6 +333,17 @@ export async function fetchMore(cached: ICachedLog, limitOverride?: number) {
       const paginatedRevisionTo = filter.revisionTo
         ? Math.min(filter.revisionTo, validRfrom ?? Infinity)
         : validRfrom;
+      // Paged below the filter's lower bound: the range is exhausted.
+      // Emitting the inverted -r (upper < lower) would make svn fetch
+      // revisions OUTSIDE the user's range.
+      if (
+        paginatedRevisionTo !== undefined &&
+        filter.revisionFrom !== undefined &&
+        paginatedRevisionTo < filter.revisionFrom
+      ) {
+        cached.isComplete = true;
+        return;
+      }
       const paginatedFilter: IHistoryFilter = {
         ...filter,
         revisionTo: paginatedRevisionTo
@@ -321,6 +358,10 @@ export async function fetchMore(cached: ICachedLog, limitOverride?: number) {
       moreCommits = await cached.repo.log(rfrom, "1", limit, cached.svnTarget);
     }
   } catch (e) {
+    // A failed page must never flow into the completion marking below:
+    // that hid Load more/all, satisfied fetchAll/goToRevision loops, and
+    // let filters answer locally from a silently truncated window
+    cached.lastFetchFailed = true;
     // Show user-friendly message for connection errors
     if (e instanceof SvnError) {
       if (
@@ -330,10 +371,22 @@ export async function fetchMore(cached: ICachedLog, limitOverride?: number) {
         window.showErrorMessage(
           "Unable to connect to SVN server. Check VPN/network."
         );
-        return;
       }
     }
-    // Silently ignore other errors (e.g., item didn't exist)
+    return;
+  }
+  cached.lastFetchFailed = false;
+
+  // Advance the cursor from the UNFILTERED page so client-side action
+  // filtering can't stall pagination on a page with zero matches
+  const oldestFetched = moreCommits.length
+    ? Number.parseInt(moreCommits[moreCommits.length - 1]!.revision, 10)
+    : NaN;
+  if (!isNaN(oldestFetched)) {
+    cached.oldestSeenRevision =
+      cached.oldestSeenRevision === undefined
+        ? oldestFetched
+        : Math.min(cached.oldestSeenRevision, oldestFetched);
   }
 
   // Check needFetch BEFORE action filtering (action filter reduces count)
@@ -385,8 +438,16 @@ export async function fetchNewer(
       limit,
       cached.svnTarget
     );
-  } catch {
-    return 0;
+  } catch (e) {
+    // svn rejects the inverted range when nothing is newer (E160006) -
+    // the expected "up to date" case. Anything else (network, auth)
+    // must not masquerade as "already latest".
+    const err = e as { message?: string; stderrFormated?: string };
+    const text = `${err.message ?? ""} ${err.stderrFormated ?? ""}`;
+    if (text.includes("E160006") || /no such revision/i.test(text)) {
+      return 0;
+    }
+    throw e;
   }
   const fresh = commits.filter(c => !cached.revisionSet.has(c.revision));
   for (const c of fresh) {

@@ -471,7 +471,15 @@ export class RepoLogProvider
         return;
       }
     }
-    const added = await fetchNewer(cached);
+    let added: number;
+    try {
+      added = await fetchNewer(cached);
+    } catch {
+      window.showErrorMessage(
+        "Could not reach the SVN server to check for incoming revisions."
+      );
+      return;
+    }
     this._onDidChangeTreeData.fire(undefined);
     const top = cached.entries[0];
     if (top) {
@@ -528,6 +536,11 @@ export class RepoLogProvider
               return;
             }
             await fetchMore(cached, CHUNK);
+            // Failed page (e.g. server unreachable): without this exit
+            // the loop re-spawned svn + an error toast per iteration
+            if (cached.lastFetchFailed) {
+              return;
+            }
             progress.report({
               message: `${cached.entries.length} revisions loaded`
             });
@@ -1264,8 +1277,14 @@ export class RepoLogProvider
         return [createLoadingItem()];
       }
 
-      // Fetch more if needed (non-blocking)
-      if (logentries.length === 0 && !cached.isComplete) {
+      // Fetch more if needed (non-blocking). A failed fetch must not
+      // auto-retry from here (render -> fetch -> render loop); the user
+      // retries via Load more / refresh instead.
+      if (
+        logentries.length === 0 &&
+        !cached.isComplete &&
+        !cached.lastFetchFailed
+      ) {
         cached.isLoading = true;
         const repoUrl = cached.svnTarget.toString(true);
         // Fetch in background, refresh when done
