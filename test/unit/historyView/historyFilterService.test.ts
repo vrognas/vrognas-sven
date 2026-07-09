@@ -193,10 +193,11 @@ describe("buildSvnLogArgs", () => {
     expect(args[args.indexOf("-r") + 1]).toMatch(/\{.*\}:\{.*\}/);
   });
 
-  it("combines multiple --search args", () => {
+  it("ANDs additional text criteria via --search-and", () => {
+    // multiple --search patterns are OR'd by svn (match ANY); the filter
+    // UI is additive, so criteria after the first must use --search-and
     const args = buildSvnLogArgs({ message: "fix", author: "john" });
-    const searchCount = args.filter(a => a === "--search").length;
-    expect(searchCount).toBe(2);
+    expect(args).toEqual(["--search", "fix", "--search-and", "john"]);
   });
 
   it("does not include action filter in args (client-side only)", () => {
@@ -219,11 +220,19 @@ describe("buildSvnLogArgs", () => {
 
   it("date-only range still spans dateTo down to dateFrom", () => {
     const args = buildSvnLogArgs({
-      dateFrom: new Date("2024-01-01"),
-      dateTo: new Date("2024-12-31")
+      dateFrom: new Date(2024, 0, 1),
+      dateTo: new Date(2024, 11, 31)
     });
     expect(args.filter(a => a === "-r").length).toBe(1);
-    expect(args[args.indexOf("-r") + 1]).toBe("{2024-12-31}:{2024-01-01}");
+    // svn resolves {DATE} to the youngest revision BEFORE that day
+    // starts - an inclusive dateTo must name the day AFTER
+    expect(args[args.indexOf("-r") + 1]).toBe("{2025-01-01}:{2024-01-01}");
+  });
+
+  it("dateTo upper bound includes the whole dateTo day", () => {
+    const args = buildSvnLogArgs({ dateTo: new Date(2024, 5, 30) });
+    // bare {2024-06-30} would exclude EVERY commit made on June 30
+    expect(args[args.indexOf("-r") + 1]).toBe("{2024-07-01}:1");
   });
 });
 

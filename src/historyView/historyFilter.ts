@@ -187,17 +187,16 @@ export function hasTextSearchFilter(
 export function buildSvnLogArgs(filter: IHistoryFilter): string[] {
   const args: string[] = [];
 
-  // Text search filters (message, author, path)
-  // SVN --search searches in log message, author, and paths
-  if (filter.message) {
-    args.push("--search", filter.message);
-  }
-  if (filter.author) {
-    args.push("--search", filter.author);
-  }
-  if (filter.path) {
-    args.push("--search", filter.path);
-  }
+  // Text search filters (message, author, path). SVN --search matches
+  // log message, author and paths; multiple --search patterns are OR'd
+  // (match ANY). The filter UI is additive, so criteria after the first
+  // must AND via --search-and.
+  const textCriteria = [filter.message, filter.author, filter.path].filter(
+    (v): v is string => !!v
+  );
+  textCriteria.forEach((value, i) => {
+    args.push(i === 0 ? "--search" : "--search-and", value);
+  });
 
   // Revision/date bounds: ONE combined -r range, newest-first. SVN accepts
   // mixed forms like `-r 2999:{2024-01-01}`. Emitting two -r args (the old
@@ -213,7 +212,7 @@ export function buildSvnLogArgs(filter: IHistoryFilter): string[] {
   ) {
     const upper =
       filter.revisionTo ??
-      (filter.dateTo ? `{${formatSvnDate(filter.dateTo)}}` : "HEAD");
+      (filter.dateTo ? `{${formatSvnDate(dayAfter(filter.dateTo))}}` : "HEAD");
     const lower =
       filter.revisionFrom ??
       (filter.dateFrom ? `{${formatSvnDate(filter.dateFrom)}}` : 1);
@@ -233,6 +232,63 @@ function formatSvnDate(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+/**
+ * svn resolves {DATE} to the youngest revision BEFORE that day starts,
+ * so an INCLUSIVE upper bound must name the day after dateTo.
+ */
+function dayAfter(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+}
+
+/**
+ * Inclusive day bounds for a filter: [start of dateFrom, start of the
+ * day after dateTo) in epoch ms.
+ */
+function dateBoundsMs(filter: IHistoryFilter): {
+  fromMs?: number;
+  toMs?: number;
+} {
+  const fromMs = filter.dateFrom
+    ? new Date(
+        filter.dateFrom.getFullYear(),
+        filter.dateFrom.getMonth(),
+        filter.dateFrom.getDate()
+      ).getTime()
+    : undefined;
+  const toMs = filter.dateTo
+    ? new Date(
+        filter.dateTo.getFullYear(),
+        filter.dateTo.getMonth(),
+        filter.dateTo.getDate() + 1
+      ).getTime()
+    : undefined;
+  return { fromMs, toMs };
+}
+
+/**
+ * Keep only entries within the filter's inclusive day bounds. svn's
+ * server-side {DATE} bounds are day-start approximations (the lower
+ * bound admits the last pre-range commit) and lose outright to revision
+ * bounds in the single -r range - fetched pages are re-checked exactly,
+ * client-side.
+ */
+export function filterEntriesByDate(
+  entries: ISvnLogEntry[],
+  filter: IHistoryFilter
+): ISvnLogEntry[] {
+  const { fromMs, toMs } = dateBoundsMs(filter);
+  if (fromMs === undefined && toMs === undefined) {
+    return entries;
+  }
+  return entries.filter(e => {
+    const t = new Date(e.date).getTime();
+    if (isNaN(t)) return false;
+    if (fromMs !== undefined && t < fromMs) return false;
+    if (toMs !== undefined && t >= toMs) return false;
+    return true;
+  });
 }
 
 /**
@@ -273,20 +329,7 @@ export function applyFilterToEntries(
   const author = filter.author?.toLowerCase();
   const pathNeedle = filter.path?.toLowerCase();
   // Inclusive day bounds: [start of dateFrom, start of day after dateTo)
-  const fromMs = filter.dateFrom
-    ? new Date(
-        filter.dateFrom.getFullYear(),
-        filter.dateFrom.getMonth(),
-        filter.dateFrom.getDate()
-      ).getTime()
-    : undefined;
-  const toMs = filter.dateTo
-    ? new Date(
-        filter.dateTo.getFullYear(),
-        filter.dateTo.getMonth(),
-        filter.dateTo.getDate() + 1
-      ).getTime()
-    : undefined;
+  const { fromMs, toMs } = dateBoundsMs(filter);
 
   let result = entries.filter(e => {
     if (msg && !e.msg?.toLowerCase().includes(msg)) return false;

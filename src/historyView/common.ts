@@ -16,6 +16,7 @@ import { ISvnLogEntry, ISvnLogEntryPath } from "../common/types";
 import {
   IHistoryFilter,
   filterEntriesByAction,
+  filterEntriesByDate,
   isFilterEmpty
 } from "./historyFilter";
 import SvnError from "../svnError";
@@ -402,6 +403,12 @@ export async function fetchMore(cached: ICachedLog, limitOverride?: number) {
   // Apply client-side action filter AFTER needFetch check
   if (filter?.actions?.length) {
     moreCommits = filterEntriesByAction(moreCommits, filter.actions);
+  }
+  // Re-apply date bounds exactly: svn's {DATE} form is a day-start
+  // approximation and is dropped entirely when a revision bound wins
+  // the single -r range
+  if (filter && (filter.dateFrom || filter.dateTo)) {
+    moreCommits = filterEntriesByDate(moreCommits, filter);
   }
   // Deduplicate using persistent Set (O(1) lookup)
   const newCommits = moreCommits.filter(

@@ -190,6 +190,28 @@ describe("fetchMore pagination cursor", () => {
   });
 });
 
+describe("fetchMore date bounds", () => {
+  it("re-applies dateTo client-side when a revision bound wins the -r range", async () => {
+    // buildSvnLogArgs lets revisionTo take the -r slot, silently
+    // dropping dateTo server-side - the page must be re-checked here
+    const logWithFilter = vi.fn<IRemoteRepository["logWithFilter"]>(
+      async () => [
+        { ...entry("200"), date: "2026-01-05T10:00:00.000000Z" },
+        { ...entry("199"), date: "2025-12-30T10:00:00.000000Z" }
+      ]
+    );
+    const cached = makeCached({ logWithFilter }, [], {
+      revisionTo: 200,
+      dateTo: new Date(2026, 0, 1)
+    });
+
+    await fetchMore(cached, 50);
+
+    // r200 is inside the revision range but past dateTo
+    expect(cached.entries.map(e => e.revision)).toEqual(["199"]);
+  });
+});
+
 describe("ensureRevisionLoaded (goToRevision auto-fetch)", () => {
   /** repo.log mock serving contiguous descending pages of `pageSize`. */
   function pagedRepo(pageSize: number) {

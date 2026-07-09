@@ -818,14 +818,24 @@ export class RepoLogProvider
     });
     if (toStr === undefined) return;
 
-    const dateFrom = fromStr ? new Date(fromStr) : undefined;
-    const dateTo = toStr ? new Date(toStr) : undefined;
+    // Parse as a LOCAL date: new Date("YYYY-MM-DD") is UTC midnight,
+    // which shifts every bound a day early for users west of UTC
+    const parseLocalDate = (s: string): Date | undefined => {
+      const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s.trim());
+      if (!m) {
+        return undefined;
+      }
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      return isNaN(d.getTime()) ? undefined : d;
+    };
+    const dateFrom = fromStr ? parseLocalDate(fromStr) : undefined;
+    const dateTo = toStr ? parseLocalDate(toStr) : undefined;
 
-    if (fromStr && isNaN(dateFrom!.getTime())) {
+    if (fromStr && !dateFrom) {
       window.showErrorMessage("Invalid 'from' date format. Use YYYY-MM-DD");
       return;
     }
-    if (toStr && isNaN(dateTo!.getTime())) {
+    if (toStr && !dateTo) {
       window.showErrorMessage("Invalid 'to' date format. Use YYYY-MM-DD");
       return;
     }
