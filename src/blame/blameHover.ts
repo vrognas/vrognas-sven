@@ -17,9 +17,14 @@ import { formatBlameDate } from "../util/formatting";
 export function buildBlameHover(
   blameLine: ISvnBlameLine,
   message?: string,
-  fileUri?: Uri
+  fileUri?: Uri,
+  addRevision?: string
 ): MarkdownString {
   const rev = blameLine.revision ?? "";
+  // The blamed revision IS the file's add revision: say so, and skip
+  // the diff link - there is no previous revision of this file to
+  // diff against
+  const isAddRevision = !!rev && rev === addRevision;
   const md = new MarkdownString(undefined, true);
   md.isTrusted = {
     enabledCommands: [
@@ -32,17 +37,19 @@ export function buildBlameHover(
   const date = blameLine.date
     ? formatBlameDate(blameLine.date, "absolute")
     : "";
+  const addedNote = isAddRevision ? " · $(diff-added) added this file" : "";
   md.appendMarkdown(
-    `**r${rev}** — ${blameLine.author ?? "unknown"}${date ? ` — ${date}` : ""}\n\n`
+    `**r${rev}** · ${blameLine.author ?? "unknown"}${date ? ` · ${date}` : ""}${addedNote}\n\n`
   );
   if (message) {
     md.appendMarkdown(`${message}\n\n`);
   }
-  const diffLink = fileUri
-    ? ` · [$(git-compare) Diff with Previous](command:sven.blame.showDiff?${encodeURIComponent(
-        JSON.stringify([fileUri.toString(), rev])
-      )} "Diff this file: previous revision vs r${rev}")`
-    : "";
+  const diffLink =
+    fileUri && !isAddRevision
+      ? ` · [$(git-compare) Diff with Previous](command:sven.blame.showDiff?${encodeURIComponent(
+          JSON.stringify([fileUri.toString(), rev])
+        )} "Diff this file: previous revision vs r${rev}")`
+      : "";
   md.appendMarkdown(
     `[$(history) Show in History](command:sven.repolog.goToRevision?${encodeURIComponent(
       JSON.stringify([parseInt(rev, 10)])

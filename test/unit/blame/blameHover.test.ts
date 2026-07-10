@@ -49,4 +49,35 @@ describe("buildBlameHover", () => {
       encodeURIComponent(JSON.stringify(["file:///ws/a.R", "4711"]))
     );
   });
+
+  it("separates metadata with dots like the history descriptions", () => {
+    const md = buildBlameHover(line);
+
+    expect(md.value).toContain("·");
+    expect(md.value).not.toContain("—");
+  });
+
+  it("marks the file's ADD revision and drops the diff link (no previous rev exists)", () => {
+    const md = buildBlameHover(
+      line,
+      undefined,
+      { toString: () => "file:///ws/a.R" } as never,
+      "4711" // the blamed revision IS the file's add revision
+    );
+
+    expect(md.value).toContain("added this file");
+    expect(md.value).not.toContain("sven.blame.showDiff");
+  });
+
+  it("keeps the diff link when the line is newer than the add revision", () => {
+    const md = buildBlameHover(
+      line,
+      undefined,
+      { toString: () => "file:///ws/a.R" } as never,
+      "12" // file added long before this line's r4711
+    );
+
+    expect(md.value).not.toContain("added this file");
+    expect(md.value).toContain("command:sven.blame.showDiff?");
+  });
 });

@@ -7,6 +7,17 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.83] - 2026-07-10
+
+### Added
+
+- **Blame marks lines from the file's ADD revision**: when the blamed revision is the first revision of the file's lineage (`svn log -r 1:HEAD --limit=1`, fetched in parallel with the blame itself), the hover shows "added this file" — and the "Diff with Previous" link is omitted, since no previous revision of the file exists there.
+
+### Changed
+
+- **Blame hover metadata uses dot separators** (`r401 · alice · 2026-03-01`) matching the repo/file history descriptions, instead of em dashes.
+- **Selective-download item descriptions use dot separators too** (`r401 · alice · Mar 1 · 2 KB`), instead of vertical lines.
+
 ## [0.2.82] - 2026-07-10
 
 Feedback lands where the action happened, not in a far corner.

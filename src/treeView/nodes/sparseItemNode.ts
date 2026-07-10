@@ -96,7 +96,8 @@ export default class SparseItemNode extends BaseNode {
     // Lock indicator now shown via badge decoration (like explorer view)
 
     if (descParts.length > 0) {
-      treeItem.description = descParts.join(" | ");
+      // Same dot separators as the repo/file history descriptions
+      treeItem.description = descParts.join(" · ");
     }
 
     return treeItem;

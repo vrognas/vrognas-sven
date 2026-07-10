@@ -267,7 +267,9 @@ export class BlameProvider implements Disposable {
       // serial subprocess spawn before the first paint
       const [blameData, lineMapping] = await Promise.all([
         this.getBlameData(target.document.uri, target),
-        this.getLineMapping(target.document.uri, target)
+        this.getLineMapping(target.document.uri, target),
+        // Parallel with the (much slower) blame: marks add-revision lines
+        this.ensureAddRevision(target.document.uri)
       ]);
 
       if (!blameData) {
@@ -352,6 +354,7 @@ export class BlameProvider implements Disposable {
     this.blameCache.delete(key);
     this.lineMappingCache.delete(key); // Clear line mapping too
     this.cacheAccessOrder.delete(key); // Clean up access tracking
+    this.addRevisionCache.delete(key);
     // Cancel any in-flight message fetches for this URI
     this.inFlightMessageFetches.delete(key);
   }
@@ -503,9 +506,39 @@ export class BlameProvider implements Disposable {
         blameLine.revision
           ? this.messageCache.get(blameLine.revision)
           : undefined,
-        editor.document.uri
+        editor.document.uri,
+        this.addRevisionCache.get(editor.document.uri.toString())
       )
     };
+  }
+
+  /** Oldest revision that touched each file - marks "added here" lines. */
+  private addRevisionCache = new Map<string, string>();
+
+  /**
+   * Resolve the file's ADD revision (`svn log -r 1:HEAD --limit=1`, the
+   * first revision of its lineage) once per file. Best-effort: without
+   * it the hover just lacks the added-here marker.
+   */
+  private async ensureAddRevision(uri: Uri): Promise<void> {
+    const key = uri.toString();
+    if (this.addRevisionCache.has(key)) {
+      return;
+    }
+    try {
+      const entries = await this.repository.repository.log(
+        "1",
+        "HEAD",
+        1,
+        uri.fsPath
+      );
+      const first = entries[0]?.revision;
+      if (first) {
+        this.addRevisionCache.set(key, first);
+      }
+    } catch {
+      // unversioned/offline - no marker
+    }
   }
 
   /**
@@ -747,6 +780,7 @@ export class BlameProvider implements Disposable {
     this.blameCache.clear();
     this.lineMappingCache.clear();
     this.cacheAccessOrder.clear();
+    this.addRevisionCache.clear();
     this.inFlightMessageFetches.clear();
 
     const editor = window.activeTextEditor;

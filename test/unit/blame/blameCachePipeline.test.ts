@@ -115,6 +115,7 @@ describe("updateDecorations pipeline", () => {
         releaseMapping();
         return undefined;
       }),
+      ensureAddRevision: vi.fn(async () => undefined),
       createAllDecorations: vi.fn(async () => ({
         gutter: [],
         icon: [],
