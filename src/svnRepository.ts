@@ -767,7 +767,8 @@ export class Repository {
   public async blame(
     file: string,
     revision: string = "BASE",
-    skipCache: boolean = false
+    skipCache: boolean = false,
+    pegRevision?: string
   ): Promise<ISvnBlameLine[]> {
     // Convert to relative path
     const relativePath = this.removeAbsolutePath(file);
@@ -798,8 +799,11 @@ export class Repository {
     // 2-min info TTL and the full info clear on mutating operations.
     revision = keyRevision;
 
-    // Cache key includes revision for per-revision caching
-    const cacheKey = `${relativePath}@${keyRevision}`;
+    // Cache key includes revision for per-revision caching; an explicit
+    // peg names a different lineage resolution, so it keys separately
+    const cacheKey = pegRevision
+      ? `${relativePath}@${keyRevision}@${pegRevision}`
+      : `${relativePath}@${keyRevision}`;
 
     if (!skipCache) {
       // Fast-path cache check OUTSIDE @sequentialize (getInfo pattern) so
@@ -842,7 +846,8 @@ export class Repository {
       relativePath,
       revision,
       cacheKey,
-      skipCache
+      skipCache,
+      pegRevision
     );
 
     if (!skipCache) {
@@ -866,7 +871,8 @@ export class Repository {
     relativePath: string,
     revision: string,
     cacheKey: string,
-    skipCache: boolean
+    skipCache: boolean,
+    pegRevision?: string
   ): Promise<ISvnBlameLine[]> {
     // Re-check cache in case a queued fetch populated it while waiting
     // (skipCache callers demanded a fresh exec - don't hand them a cache hit)
@@ -892,10 +898,13 @@ export class Repository {
       revision
     ];
 
-    // Add peg revision for specific revisions to handle renamed/moved/deleted files
-    // BASE = working copy revision (matches what's in editor)
-    // HEAD = server's latest (might not match working copy)
-    if (
+    // Peg the target so the lineage resolves deterministically.
+    // An EXPLICIT peg decouples "which lineage" from "which revision to
+    // annotate": pegging at a revision where the current name is valid
+    // (e.g. BASE) lets svn trace back THROUGH renames to an older -r.
+    if (pegRevision !== undefined) {
+      args.push(this.buildPegPath(relativePath, pegRevision));
+    } else if (
       revision.toUpperCase() !== "HEAD" &&
       revision.toUpperCase() !== "BASE"
     ) {
@@ -1147,7 +1156,8 @@ export class Repository {
    */
   private async prepareCatArgs(
     file: string | Uri,
-    revision?: string
+    revision?: string,
+    pegRevision?: string
   ): Promise<{ args: string[]; uri: Uri; filePath: string }> {
     const args = ["cat"];
 
@@ -1191,13 +1201,24 @@ export class Repository {
       }
     }
 
-    args.push(this.buildPegPath(target, revision));
+    // An explicit peg overrides the operative revision as the lineage
+    // anchor (peg at a revision where the current name exists, fetch an
+    // older -r through renames)
+    args.push(this.buildPegPath(target, pegRevision ?? revision));
 
     return { args, uri, filePath };
   }
 
-  public async show(file: string | Uri, revision?: string): Promise<string> {
-    const { args, uri, filePath } = await this.prepareCatArgs(file, revision);
+  public async show(
+    file: string | Uri,
+    revision?: string,
+    pegRevision?: string
+  ): Promise<string> {
+    const { args, uri, filePath } = await this.prepareCatArgs(
+      file,
+      revision,
+      pegRevision
+    );
 
     // Use showBuffer's dedup with pre-built args to avoid calling prepareCatArgs twice
     const buffer = await this.showBufferWithArgs(args);

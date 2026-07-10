@@ -28,7 +28,11 @@ export interface IRemoteRepository {
     target?: string | Uri
   ): Promise<ISvnLogEntry[]>;
 
-  show(filePath: string | Uri, revision?: string): Promise<string>;
+  show(
+    filePath: string | Uri,
+    revision?: string,
+    pegRevision?: string
+  ): Promise<string>;
 
   clearLogCache(): void;
 
@@ -78,9 +82,10 @@ export class RemoteRepository implements IRemoteRepository {
 
   public async show(
     filePath: string | Uri,
-    revision?: string
+    revision?: string,
+    pegRevision?: string
   ): Promise<string> {
-    return this.repo.show(filePath, revision);
+    return this.repo.show(filePath, revision, pegRevision);
   }
 
   public clearLogCache(): void {

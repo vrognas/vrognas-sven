@@ -12,6 +12,7 @@ function makeSource(revs: string[]) {
   return {
     log: vi.fn(async () => revs.map(entry)),
     show: vi.fn(async (_t: unknown, rev?: string) => `content@${rev}`),
+    getInfo: vi.fn(async () => ({ revision: "3000" })),
     patchRevision: vi.fn(async () => "Property changes only\n")
   };
 }
@@ -28,8 +29,9 @@ describe("openBlameRevisionDiff (blame hover: diff with previous)", () => {
 
     await openBlameRevisionDiff(source, uri, "100");
 
-    // pegged log: 2 entries from r100 downward for THIS file
-    expect(source.log).toHaveBeenCalledWith("100", "1", 2, uri, "100");
+    // UNPEGGED log on the WC path: the default BASE peg makes svn trace
+    // the file's lineage back through renames from r100 downward
+    expect(source.log).toHaveBeenCalledWith("100", "1", 2, uri);
     const diffCall = vi
       .mocked(commands.executeCommand)
       .mock.calls.find(c => c[0] === "vscode.diff");

@@ -646,14 +646,15 @@ export async function openDiffCompared(
   target: Uri,
   r1: string,
   r2: string,
-  right?: Promise<string>
+  right?: Promise<string>,
+  pegRevision?: string
 ): Promise<void> {
   let out1: string;
   let out2: string;
   try {
     [out1, out2] = await Promise.all([
-      repo.show(target, r1),
-      right ?? repo.show(target, r2)
+      repo.show(target, r1, pegRevision),
+      right ?? repo.show(target, r2, pegRevision)
     ]);
   } catch {
     window.showErrorMessage("Failed to open path");

@@ -96,14 +96,16 @@ describe("walkLineHistory (blame chaining)", () => {
         }
         return c;
       }),
-      blame: vi.fn(async (_f: string, rev?: string) =>
-        (blames[rev ?? "BASE"] ?? []).map((revision, i) => ({
-          lineNumber: i + 1,
-          revision,
-          author: "a",
-          date: "2026-01-01"
-        }))
+      blame: vi.fn(
+        async (_f: string, rev?: string, _skipCache?: boolean, _peg?: string) =>
+          (blames[rev ?? "BASE"] ?? []).map((revision, i) => ({
+            lineNumber: i + 1,
+            revision,
+            author: "a",
+            date: "2026-01-01"
+          }))
       ),
+      getInfo: vi.fn(async () => ({ revision: "3000" })),
       patchRevision: vi.fn(
         async (rev: string) =>
           `@@ -2,1 +2,1 @@\n-old\n+${rev === "20" ? "B2" : "B0"}\n`
@@ -119,8 +121,15 @@ describe("walkLineHistory (blame chaining)", () => {
     expect(changes.map(c => c.revision)).toEqual(["20", "10"]);
     // the tracked line's text AT each revision anchors the peek later
     expect(changes.map(c => c.lineText)).toEqual(["B2", "B0"]);
-    // second hop blames pegged at the pre-change revision
-    expect(source.blame).toHaveBeenCalledWith("/ws/model.R", "19");
+    // hops peg the target at the BASE revision (where the current name
+    // is valid) so svn traces the lineage back THROUGH renames
+    expect(source.blame).toHaveBeenCalledWith(
+      "/ws/model.R",
+      "19",
+      false,
+      "3000"
+    );
+    expect(source.show).toHaveBeenCalledWith("/ws/model.R", "19", "3000");
   });
 
   it("stops when the line has no ancestor in the older content", async () => {
@@ -159,6 +168,7 @@ describe("peekLineHistory", () => {
           lineNumber: i + 1,
           revision
         })),
+      getInfo: async () => ({ revision: "3000" }),
       patchRevision: async (rev: string) =>
         `@@ -2,1 +2,1 @@\n+${rev === "20" ? "B2" : "B0"}\n`
     };

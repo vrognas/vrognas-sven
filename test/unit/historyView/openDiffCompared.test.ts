@@ -75,7 +75,7 @@ describe("openDiffCompared", () => {
     await openDiffCompared(repo, target, "99", "100", right);
     // Left fetched via show, right came from the provided promise
     expect(repo.show).toHaveBeenCalledTimes(1);
-    expect(repo.show).toHaveBeenCalledWith(target, "99");
+    expect(repo.show).toHaveBeenCalledWith(target, "99", undefined);
 
     const failing = makeRepo({
       show: vi.fn(async () => {

@@ -22,8 +22,18 @@ export interface IBlamePeekSource {
 
 /** The additional slice the line-history walk needs. */
 export interface ILineHistorySource extends IBlamePeekSource {
-  blame(file: string, revision?: string): Promise<ISvnBlameLine[]>;
-  show(file: string | Uri, revision?: string): Promise<string>;
+  blame(
+    file: string,
+    revision?: string,
+    skipCache?: boolean,
+    pegRevision?: string
+  ): Promise<ISvnBlameLine[]>;
+  show(
+    file: string | Uri,
+    revision?: string,
+    pegRevision?: string
+  ): Promise<string>;
+  getInfo(file: string): Promise<{ revision: string }>;
 }
 
 /** One revision in a line's change history. */
@@ -138,10 +148,26 @@ export async function walkLineHistory(
   }
   let lastRevNum = Infinity;
 
+  // Peg all historical lookups at the BASE revision - the one revision
+  // where the file's CURRENT name is guaranteed valid - so svn traces
+  // the lineage back THROUGH renames instead of failing on old names
+  let peg: string | undefined;
+  try {
+    const info = await source.getInfo(filePath);
+    if (/^\d+$/.test(info.revision)) {
+      peg = info.revision;
+    }
+  } catch {
+    // unpegged fallback: the walk still works up to a rename boundary
+  }
+
   while (changes.length < maxSteps && shouldContinue()) {
     let blame: ISvnBlameLine[];
     try {
-      blame = await source.blame(filePath, curRev ?? "BASE");
+      blame =
+        curRev === undefined
+          ? await source.blame(filePath, "BASE")
+          : await source.blame(filePath, curRev, false, peg);
     } catch {
       break;
     }
@@ -164,7 +190,9 @@ export async function walkLineHistory(
     }
     let prevLines: string[];
     try {
-      prevLines = (await source.show(filePath, String(prevRev))).split(/\r?\n/);
+      prevLines = (await source.show(filePath, String(prevRev), peg)).split(
+        /\r?\n/
+      );
     } catch {
       break; // file didn't exist before this change - reached the add
     }

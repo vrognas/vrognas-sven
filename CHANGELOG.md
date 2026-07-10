@@ -7,6 +7,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.86] - 2026-07-10
+
+### Fixed
+
+- **Line History and Diff with Previous now follow renames**: historical lookups peg the target at the BASE revision — the one revision where the file's _current_ name is guaranteed valid — while the operative `-r` walks backwards, so svn traces the lineage through renames instead of failing on a name that didn't exist yet. `blame` and `cat` gained an explicit peg parameter (peg-decoupled fetches are pinned and cached under their own keys); the blame-diff's previous-revision log runs unpegged on the working-copy path for the same effect.
+
 ## [0.2.85] - 2026-07-10
 
 ### Added
