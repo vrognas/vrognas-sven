@@ -37,11 +37,19 @@ function processEntry(
   const serverChecked = !!entry.reposStatus;
   const serverHasLock = !!entry.reposStatus?.lock;
 
+  let serverLockOwner: string | undefined;
+  let serverLockToken: string | undefined;
   if (serverHasLock) {
     const lock = entry.reposStatus!.lock as Record<string, unknown>;
     if (lock.owner && typeof lock.owner === "string") {
-      lockOwner = lock.owner;
+      serverLockOwner = lock.owner;
     }
+    if (lock.token && typeof lock.token === "string") {
+      serverLockToken = lock.token;
+    }
+    // The server lock is the CURRENT one - its owner outranks our
+    // (possibly stale) local token owner
+    lockOwner = serverLockOwner;
   }
 
   // Check for local lock token:
@@ -49,10 +57,12 @@ function processEntry(
   // 2. wcStatus.wcLocked = working copy is administratively locked (different thing)
   // The presence of wcStatus.lock means WE have a lock token (K status)
   const hasLockToken = !!entry.wcStatus.lock;
+  const wcLockOwner = entry.wcStatus.lock?.owner;
+  const wcLockToken = entry.wcStatus.lock?.token;
 
-  // If we have local lock, extract owner from local lock info
-  if (hasLockToken && entry.wcStatus.lock?.owner) {
-    lockOwner = entry.wcStatus.lock.owner;
+  // Local token owner only when the server gave us nothing better
+  if (hasLockToken && !lockOwner && wcLockOwner) {
+    lockOwner = wcLockOwner;
   }
 
   // Compute lock status: K, O, B, T
@@ -61,14 +71,17 @@ function processEntry(
     if (serverChecked && !serverHasLock) {
       // We have token but server shows no lock - broken
       lockStatus = LockStatus.B;
-    } else if (serverChecked && serverHasLock && lockOwner) {
-      // We have token and server has lock by someone
-      // TODO: Compare lockOwner with current user for T detection
-      // For now, if we have token and server has lock, assume it's ours (K)
-      // T would be: hasLockToken && serverHasLock && lockOwner !== currentUser
-      lockStatus = LockStatus.K;
+    } else if (
+      serverChecked &&
+      serverHasLock &&
+      ((serverLockToken && wcLockToken && serverLockToken !== wcLockToken) ||
+        (serverLockOwner && wcLockOwner && serverLockOwner !== wcLockOwner))
+    ) {
+      // Our token is stale: the server lock belongs to someone else.
+      // lockOwner already names the thief (server owner outranks ours).
+      lockStatus = LockStatus.T;
     } else {
-      // No server check or server shows our lock
+      // No server check, or the server confirms our lock
       lockStatus = LockStatus.K;
     }
   } else if (serverHasLock) {

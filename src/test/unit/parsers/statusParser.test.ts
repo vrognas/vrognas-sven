@@ -162,4 +162,67 @@ suite("StatusParser", () => {
     // Lock owner comes from local token
     assert.strictEqual(result[0]!.wcStatus.lockOwner, "myuser");
   });
+
+  test("lockStatus T when our token is stale and someone else holds the lock", async () => {
+    // svn status -u after a teammate ran `svn lock --force`: wc-status
+    // still carries OUR token, repos-status shows THEIR current lock
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<status>
+  <target path=".">
+    <entry path="stolen.txt">
+      <wc-status props="none" item="normal">
+        <commit revision="80"/>
+        <lock>
+          <token>opaquelocktoken:mine</token>
+          <owner>myuser</owner>
+          <created>2025-01-01T10:00:00.000000Z</created>
+        </lock>
+      </wc-status>
+      <repos-status props="none" item="none">
+        <lock>
+          <token>opaquelocktoken:theirs</token>
+          <owner>bob</owner>
+          <created>2025-06-01T10:00:00.000000Z</created>
+        </lock>
+      </repos-status>
+    </entry>
+  </target>
+</status>`;
+
+    const result = await parseStatusXml(xml);
+
+    assert.strictEqual(result[0]!.wcStatus.lockStatus, LockStatus.T);
+    // The CURRENT holder (the thief), not our stale token owner
+    assert.strictEqual(result[0]!.wcStatus.lockOwner, "bob");
+  });
+
+  test("lockStatus stays K when the server confirms our own lock", async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<status>
+  <target path=".">
+    <entry path="mine.txt">
+      <wc-status props="none" item="normal">
+        <commit revision="81"/>
+        <lock>
+          <token>opaquelocktoken:mine</token>
+          <owner>myuser</owner>
+          <created>2025-06-01T10:00:00.000000Z</created>
+        </lock>
+      </wc-status>
+      <repos-status props="none" item="none">
+        <lock>
+          <token>opaquelocktoken:mine</token>
+          <owner>myuser</owner>
+          <created>2025-06-01T10:00:00.000000Z</created>
+        </lock>
+      </repos-status>
+    </entry>
+  </target>
+</status>`;
+
+    const result = await parseStatusXml(xml);
+
+    assert.strictEqual(result[0]!.wcStatus.lockStatus, LockStatus.K);
+    assert.strictEqual(result[0]!.wcStatus.lockOwner, "myuser");
+  });
 });
