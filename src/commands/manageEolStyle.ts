@@ -6,6 +6,7 @@ import { Command } from "./command";
 import { Repository } from "../repository";
 import { confirmDestructive } from "../ui";
 import * as path from "path";
+import { showActionFeedback } from "../util/actionFeedback";
 
 interface EolStyleFileItem extends QuickPickItem {
   filePath: string;
@@ -114,7 +115,7 @@ export class ManageEolStyle extends Command {
       }
     }
 
-    window.showInformationMessage(
+    showActionFeedback(
       `Removed svn:eol-style from ${successCount} of ${files.size} file(s)`
     );
   }
@@ -166,7 +167,7 @@ export class ManageEolStyle extends Command {
           false
         );
         if (result.exitCode === 0) {
-          window.showInformationMessage(
+          showActionFeedback(
             `Changed eol-style to ${selected.label} on ${path.basename(fileItem.filePath)}`
           );
         }
@@ -174,7 +175,7 @@ export class ManageEolStyle extends Command {
     } else if (action.label.includes("Remove")) {
       const result = await repository.removeEolStyle(fileItem.filePath, false);
       if (result.exitCode === 0) {
-        window.showInformationMessage(
+        showActionFeedback(
           `Removed eol-style from ${path.basename(fileItem.filePath)}`
         );
       }

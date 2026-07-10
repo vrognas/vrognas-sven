@@ -25,6 +25,7 @@ import { blameConfiguration } from "./blameConfiguration";
 import { blameStateManager } from "./blameStateManager";
 import { logError } from "../util/errorLogger";
 import { formatBlameDate } from "../util/formatting";
+import { showActionFeedback } from "../util/actionFeedback";
 
 /**
  * BlameStatusBar manages the status bar item showing blame info for current line
@@ -180,7 +181,7 @@ export class BlameStatusBar implements Disposable {
 
     const blameLine = blameData.find(b => b.lineNumber === lineNumber);
     if (!blameLine || !blameLine.revision) {
-      window.showInformationMessage("No blame information for this line");
+      showActionFeedback("No blame information for this line");
       return;
     }
 
@@ -420,9 +421,7 @@ export class BlameStatusBar implements Disposable {
       case "copy":
         // Copy revision to clipboard
         await env.clipboard.writeText(blameLine.revision!);
-        window.showInformationMessage(
-          `Copied r${blameLine.revision} to clipboard`
-        );
+        showActionFeedback(`Copied r${blameLine.revision} to clipboard`);
         break;
 
       case "toggle":

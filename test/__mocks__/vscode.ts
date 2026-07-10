@@ -304,6 +304,7 @@ export const window = {
     tooltip: "",
     command: undefined
   })),
+  setStatusBarMessage: vi.fn(() => new Disposable(() => {})),
   registerFileDecorationProvider: vi.fn(() => new Disposable(() => {})),
   registerTreeDataProvider: vi.fn((...args: unknown[]) => {
     void args;

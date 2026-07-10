@@ -27,6 +27,7 @@ import { IRemoteRepository } from "../remoteRepository";
 import { SvnRI } from "../svnRI";
 import { tempSvnFs } from "../temp_svn_fs";
 import { getAuthorColorDot } from "./letterAvatar";
+import { showActionFeedback } from "../util/actionFeedback";
 
 /**
  * Format a date as relative time ("2 days ago", "3 months ago")
@@ -708,7 +709,7 @@ export async function openPatch(
   }
 
   if (!patch.trim()) {
-    window.showInformationMessage("No changes in this revision");
+    showActionFeedback("No changes in this revision");
     return;
   }
 

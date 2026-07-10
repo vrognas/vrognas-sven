@@ -17,7 +17,7 @@ function makeResult(
 suite("Update Command Tests", () => {
   let update: Update;
   let mockRepository: Partial<Repository>;
-  let origShowInfo: typeof window.showInformationMessage;
+  let origShowInfo: typeof window.setStatusBarMessage;
   let origShowWarning: typeof window.showWarningMessage;
   let origShowError: typeof window.showErrorMessage;
   let origWithProgress: typeof window.withProgress;
@@ -48,11 +48,11 @@ suite("Update Command Tests", () => {
       return task();
     };
 
-    // Mock window.showInformationMessage
-    origShowInfo = window.showInformationMessage;
-    (window as any).showInformationMessage = (message: string) => {
+    // Success feedback is inline (status bar), not a toast
+    origShowInfo = window.setStatusBarMessage;
+    (window as any).setStatusBarMessage = (message: string) => {
       showInfoCalls.push({ message });
-      return Promise.resolve(undefined);
+      return { dispose() {} };
     };
 
     // Mock window.showWarningMessage
@@ -95,7 +95,7 @@ suite("Update Command Tests", () => {
 
   teardown(() => {
     update.dispose();
-    (window as any).showInformationMessage = origShowInfo;
+    (window as any).setStatusBarMessage = origShowInfo;
     (window as any).showWarningMessage = origShowWarning;
     (window as any).showErrorMessage = origShowError;
     (window as any).withProgress = origWithProgress;

@@ -14,6 +14,7 @@ import {
   svnConfigExists,
   readClientAutoProps
 } from "../util/svnConfigPath";
+import { showActionFeedback } from "../util/actionFeedback";
 
 /**
  * Default auto-props template for new repositories.
@@ -181,9 +182,7 @@ export class ManageAutoProps extends Command {
           try {
             const result = await repository.setAutoProps(newContent);
             if (result.exitCode === 0) {
-              window.showInformationMessage(
-                "Auto-props configuration updated successfully"
-              );
+              showActionFeedback("Auto-props configuration updated");
             } else {
               window.showErrorMessage(
                 `Failed to set auto-props: ${result.stderr || "Unknown error"}`
@@ -229,7 +228,7 @@ export class ManageAutoProps extends Command {
     try {
       const result = await repository.removeAutoProps();
       if (result.exitCode === 0) {
-        window.showInformationMessage("Auto-props configuration removed");
+        showActionFeedback("Auto-props configuration removed");
       } else {
         window.showErrorMessage(
           `Failed to remove auto-props: ${result.stderr || "Unknown error"}`
@@ -258,9 +257,7 @@ export class ManageAutoProps extends Command {
     try {
       const result = await repository.setAutoProps(DEFAULT_AUTO_PROPS);
       if (result.exitCode === 0) {
-        window.showInformationMessage(
-          "Default auto-props template applied successfully"
-        );
+        showActionFeedback("Default auto-props template applied");
       } else {
         window.showErrorMessage(
           `Failed to apply template: ${result.stderr || "Unknown error"}`

@@ -10,6 +10,7 @@ import NewChangeListItem from "./quickPickItems/newChangeListItem";
 import RemoveChangeListItem from "./quickPickItems/removeChangeListItem";
 import { Repository } from "./repository";
 import { FileItem } from "./quickPickItems/fileItem";
+import { showActionFeedback } from "./util/actionFeedback";
 
 export function getChangelistPickOptions(
   repository: Repository,
@@ -106,7 +107,7 @@ export async function inputCommitChangelist(repository: Repository) {
   const picks: ChangeListItem[] = getCommitChangelistPickOptions(repository);
 
   if (picks.length === 0) {
-    window.showInformationMessage("There are no changes to commit.");
+    showActionFeedback("There are no changes to commit.");
     return;
   }
 

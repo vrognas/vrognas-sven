@@ -53,6 +53,7 @@ import {
   extractErrorCode,
   type ErrorContext
 } from "./errorUtils";
+import { showActionFeedback } from "../util/actionFeedback";
 
 /**
  * Type-safe command argument patterns used across all commands.
@@ -455,7 +456,7 @@ export abstract class Command implements Disposable {
         }
       }
       // Fallback if can't get repository
-      window.showInformationMessage(
+      showActionFeedback(
         `Only SVN properties changed. Use 'svn diff' to see property changes.`
       );
       return;
@@ -783,7 +784,7 @@ export abstract class Command implements Disposable {
         const ignored = await inputIgnoreList(repository, resources);
 
         if (ignored) {
-          window.showInformationMessage(
+          showActionFeedback(
             "svn:ignore set on parent folder - file(s) will be ignored"
           );
         }
@@ -1134,7 +1135,7 @@ export abstract class Command implements Disposable {
         typeof successMsg === "function"
           ? successMsg(successCount)
           : successMsg.replace("{count}", String(successCount));
-      window.showInformationMessage(msg);
+      showActionFeedback(msg);
     }
 
     if (errorMessage) {

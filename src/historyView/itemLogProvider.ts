@@ -38,6 +38,7 @@ import {
   getCommitDescription
 } from "./common";
 import { getErrorMessage, logError } from "../util/errorLogger";
+import { showActionFeedback } from "../util/actionFeedback";
 
 export class ItemLogProvider
   implements TreeDataProvider<ILogTreeItem>, Disposable
@@ -153,7 +154,7 @@ export class ItemLogProvider
       this.currentItem.persisted.baseRevision &&
       targetRevision === this.currentItem.persisted.baseRevision
     ) {
-      window.showInformationMessage(
+      showActionFeedback(
         `Already at revision ${commit.revision}. No rollback needed.`
       );
       return;

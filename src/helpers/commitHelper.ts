@@ -9,6 +9,7 @@ import { inputCommitMessage } from "../messages";
 import { Repository } from "../repository";
 import { Resource } from "../resource";
 import { CommitFlowService } from "../services/commitFlowService";
+import { showActionFeedback } from "../util/actionFeedback";
 import {
   CommitTypeConfig,
   ConventionalCommitService
@@ -21,7 +22,7 @@ import {
  */
 export function requireStaged(staged: Resource[]): boolean {
   if (staged.length === 0) {
-    window.showInformationMessage("No staged files to commit");
+    showActionFeedback("No staged files to commit");
     return false;
   }
   return true;
@@ -44,7 +45,7 @@ export async function ensureStagedOrOffer(
   }
 
   if (changes.length === 0) {
-    window.showInformationMessage("No changes to commit");
+    showActionFeedback("No changes to commit");
     return false;
   }
 
@@ -307,7 +308,7 @@ export async function executeCommit(
   commitPaths: string[]
 ): Promise<void> {
   const result = await repository.commitFiles(message, commitPaths);
-  window.showInformationMessage(result);
+  showActionFeedback(result);
   repository.inputBox.value = "";
   repository.staging.clearOriginalChangelists(commitPaths);
 }

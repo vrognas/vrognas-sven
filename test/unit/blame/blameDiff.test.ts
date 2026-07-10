@@ -42,10 +42,11 @@ describe("openBlameRevisionDiff (blame hover: diff with previous)", () => {
 
     await openBlameRevisionDiff(source, uri, "100");
 
-    // no diff - the file content at r100 opens instead
+    // no diff - the file content at r100 opens instead; the explanation
+    // is inline status-bar feedback, not a toast
     const calls = vi.mocked(commands.executeCommand).mock.calls;
     expect(calls.some(c => c[0] === "vscode.diff")).toBe(false);
     expect(calls.some(c => c[0] === "vscode.open")).toBe(true);
-    expect(vi.mocked(window.showInformationMessage)).toHaveBeenCalled();
+    expect(vi.mocked(window.setStatusBarMessage)).toHaveBeenCalled();
   });
 });

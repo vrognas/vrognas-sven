@@ -99,8 +99,10 @@ describe("PullIncomingChange notifications", () => {
       )
     );
 
-    expect(window.showInformationMessage).toHaveBeenCalledWith(
-      "Updated trunk/file.txt"
+    // Success confirmation is inline status-bar feedback, not a toast
+    expect(window.setStatusBarMessage).toHaveBeenCalledWith(
+      "Updated trunk/file.txt",
+      expect.any(Number)
     );
     expect(repository.refreshRemoteChanges).toHaveBeenCalledTimes(1);
   });
@@ -131,8 +133,9 @@ describe("PullIncomingChange notifications", () => {
       new Resource(Uri.file("/repo/b.txt") as unknown as Uri, Status.MODIFIED)
     );
 
-    expect(window.showInformationMessage).toHaveBeenCalledWith(
-      "Updated 2 files"
+    expect(window.setStatusBarMessage).toHaveBeenCalledWith(
+      "Updated 2 files",
+      expect.any(Number)
     );
     expect(repository.refreshRemoteChanges).toHaveBeenCalledTimes(1);
   });
@@ -163,6 +166,7 @@ describe("PullIncomingChange notifications", () => {
     expect(window.showErrorMessage).not.toHaveBeenCalled();
     expect(window.showWarningMessage).not.toHaveBeenCalled();
     expect(window.showInformationMessage).not.toHaveBeenCalled();
+    expect(window.setStatusBarMessage).not.toHaveBeenCalled();
     expect(repository.refreshRemoteChanges).toHaveBeenCalledTimes(1);
   });
 });

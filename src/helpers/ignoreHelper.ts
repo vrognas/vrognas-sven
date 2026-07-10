@@ -5,6 +5,7 @@ import picomatch from "picomatch";
 import { window } from "vscode";
 import { Repository } from "../repository";
 import { formatSvnError, logError } from "../util/errorLogger";
+import { showActionFeedback } from "../util/actionFeedback";
 
 export interface RemoveFromIgnoreOptions {
   /** Show confirmation for single pattern match (default: false) */
@@ -35,7 +36,7 @@ export async function removeMatchingIgnorePattern(
   );
 
   if (patterns.length === 0) {
-    window.showInformationMessage("No ignore patterns found in this directory");
+    showActionFeedback("No ignore patterns found in this directory");
     return false;
   }
 
@@ -90,9 +91,7 @@ export async function removeMatchingIgnorePattern(
   // Remove the selected pattern
   try {
     await repository.removeFromIgnore(patternToRemove, dirName);
-    window.showInformationMessage(
-      `Removed '${patternToRemove}' from svn:ignore`
-    );
+    showActionFeedback(`Removed '${patternToRemove}' from svn:ignore`);
     return true;
   } catch (error) {
     logError("Failed to remove pattern", error);

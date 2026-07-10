@@ -5,6 +5,7 @@ import { commands, TextDocumentShowOptions, Uri, window } from "vscode";
 import { ISvnLogEntry } from "../common/types";
 import { openDiffCompared } from "../historyView/common";
 import { tempSvnFs } from "../temp_svn_fs";
+import { showActionFeedback } from "../util/actionFeedback";
 
 /** The slice of the SVN wrapper the blame diff needs. */
 export interface IBlameDiffSource {
@@ -41,7 +42,7 @@ export async function openBlameRevisionDiff(
   }
 
   if (revs.length < 2) {
-    window.showInformationMessage(
+    showActionFeedback(
       `r${revision} added this file — there is no previous revision to diff against.`
     );
     try {

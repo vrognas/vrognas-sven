@@ -643,7 +643,15 @@ export class Repository implements IRemoteRepository {
       return; // Info was already updated during force refresh
     }
 
-    await this.repository.updateInfo();
+    // Event-emitter invocation: nobody awaits this handler, so a failed
+    // spawn (e.g. the working copy was deleted out from under us) must
+    // not escape as an unhandled rejection
+    try {
+      await this.repository.updateInfo();
+    } catch (err) {
+      logError("updateInfo after file change failed", err);
+      return;
+    }
     this._onDidChangeRepository.fire(e);
   }
 

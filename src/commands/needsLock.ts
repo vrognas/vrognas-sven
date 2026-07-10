@@ -5,6 +5,7 @@ import { SourceControlResourceState, Uri, window } from "vscode";
 import { BasePropertyCommand } from "./basePropertyCommand";
 import { makeReadOnly, makeWritable } from "../fs";
 import type { Repository } from "../repository";
+import { showActionFeedback } from "../util/actionFeedback";
 
 /**
  * Toggle svn:needs-lock property on files.
@@ -84,10 +85,12 @@ export class ToggleNeedsLock extends BasePropertyCommand {
 
     if (successCount > 0) {
       if (action === "removed") {
-        window.showInformationMessage(
+        showActionFeedback(
           `Removed svn:needs-lock from ${successCount} file(s)`
         );
       } else {
+        // Kept as a notification: teaches the non-obvious read-only
+        // consequence of needs-lock
         window.showInformationMessage(
           `Set svn:needs-lock on ${successCount} file(s). Files are now read-only until locked.`
         );

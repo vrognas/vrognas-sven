@@ -6,6 +6,7 @@ import { SourceControlResourceState, window } from "vscode";
 import { configuration } from "../helpers/configuration";
 import { Repository } from "../repository";
 import { Command } from "./command";
+import { showActionFeedback } from "../util/actionFeedback";
 
 interface PullBatchResult {
   results: string[];
@@ -55,12 +56,12 @@ export class PullIncomingChange extends Command {
     }
 
     if (result.results.length === 1) {
-      window.showInformationMessage(result.results[0] ?? "Updated 1 file");
+      showActionFeedback(result.results[0] ?? "Updated 1 file");
       return;
     }
 
     if (result.results.length > 1) {
-      window.showInformationMessage(`Updated ${result.results.length} files`);
+      showActionFeedback(`Updated ${result.results.length} files`);
     }
   }
 

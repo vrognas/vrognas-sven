@@ -49,6 +49,7 @@ import {
   ActionType,
   applyFilterToEntries
 } from "./historyFilter";
+import { showActionFeedback } from "../util/actionFeedback";
 
 export class RepoLogProvider
   implements TreeDataProvider<ILogTreeItem>, Disposable
@@ -1004,7 +1005,7 @@ export class RepoLogProvider
       );
       this._onDidChangeTreeData.fire(undefined);
       if (!found) {
-        window.showInformationMessage(
+        showActionFeedback(
           `Revision ${revision} not found in this repository's history.`
         );
         return;

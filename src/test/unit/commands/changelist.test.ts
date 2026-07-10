@@ -15,6 +15,7 @@ suite("ChangeList Command Tests", () => {
   let origExecuteCommand: typeof commands.executeCommand;
   let origShowError: typeof window.showErrorMessage;
   let origShowInfo: typeof window.showInformationMessage;
+  let origSetStatusBar: typeof window.setStatusBarMessage;
   let origActiveTextEditor: typeof window.activeTextEditor;
   let inputSwitchChangelistImpl: (
     repo: Repository,
@@ -103,6 +104,13 @@ suite("ChangeList Command Tests", () => {
       showInfoCalls.push(msg);
       return Promise.resolve(undefined);
     };
+    // Success confirmations are inline (status bar) since the
+    // inline-feedback pass - track them in the same array
+    origSetStatusBar = window.setStatusBarMessage;
+    (window as any).setStatusBarMessage = (msg: string) => {
+      showInfoCalls.push(msg);
+      return { dispose() {} };
+    };
 
     origActiveTextEditor = window.activeTextEditor;
     (window as any).activeTextEditor = undefined;
@@ -114,6 +122,7 @@ suite("ChangeList Command Tests", () => {
     vi.restoreAllMocks();
     (window as any).showErrorMessage = origShowError;
     (window as any).showInformationMessage = origShowInfo;
+    (window as any).setStatusBarMessage = origSetStatusBar;
     (window as any).activeTextEditor = origActiveTextEditor;
   });
 

@@ -6,6 +6,7 @@ import { window } from "vscode";
 import { configuration } from "../helpers/configuration";
 import { fixPathSeparator } from "../util";
 import { Command } from "./command";
+import { showActionFeedback } from "../util/actionFeedback";
 
 export class Upgrade extends Command {
   constructor() {
@@ -39,7 +40,7 @@ export class Upgrade extends Command {
         await sourceControlManager.upgradeWorkingCopy(folderPath);
 
       if (upgraded) {
-        window.showInformationMessage(`Working copy "${folderPath}" upgraded`);
+        showActionFeedback(`Working copy "${folderPath}" upgraded`);
         void sourceControlManager.tryOpenRepository(folderPath);
       } else {
         window.showErrorMessage(

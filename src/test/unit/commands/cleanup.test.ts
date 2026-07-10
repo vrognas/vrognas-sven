@@ -39,16 +39,19 @@ suite("Cleanup and Upgrade Commands Tests", () => {
         return task();
       }
     );
-    const infoSpy = vi
-      .spyOn(window, "showInformationMessage")
-      .mockResolvedValue(undefined);
+    // Completion is inline status-bar feedback, not a toast
+    const feedbackSpy = vi
+      .spyOn(window, "setStatusBarMessage")
+      .mockReturnValue({ dispose() {} } as any);
 
     await command.execute(repository);
 
     assert.strictEqual(cleanupAdvanced.mock.calls.length, 1);
     assert.deepStrictEqual(cleanupAdvanced.mock.calls[0]![0], {});
-    assert.ok(infoSpy.mock.calls.length > 0);
-    assert.ok(String(infoSpy.mock.calls[0]![0]).includes("Cleanup completed"));
+    assert.ok(feedbackSpy.mock.calls.length > 0);
+    assert.ok(
+      String(feedbackSpy.mock.calls[0]![0]).includes("Cleanup completed")
+    );
     command.dispose();
   });
 
@@ -61,9 +64,10 @@ suite("Cleanup and Upgrade Commands Tests", () => {
 
     vi.spyOn(configuration, "get").mockReturnValue(false as any);
     vi.spyOn(window, "showWarningMessage").mockResolvedValue("Yes" as any);
-    const infoSpy = vi
-      .spyOn(window, "showInformationMessage")
-      .mockResolvedValue(undefined);
+    // Upgrade success is inline status-bar feedback, not a toast
+    const feedbackSpy = vi
+      .spyOn(window, "setStatusBarMessage")
+      .mockReturnValue({ dispose() {} } as any);
     (command as any).getSourceControlManager = async () => manager;
 
     await command.execute("/test/path");
@@ -74,7 +78,7 @@ suite("Cleanup and Upgrade Commands Tests", () => {
       "/test/path"
     );
     assert.strictEqual(manager.tryOpenRepository.mock.calls.length, 1);
-    assert.ok(infoSpy.mock.calls.length > 0);
+    assert.ok(feedbackSpy.mock.calls.length > 0);
     command.dispose();
   });
 

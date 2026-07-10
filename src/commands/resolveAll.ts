@@ -2,10 +2,10 @@
 // Copyright (c) 2025-present Viktor Rognas
 // Licensed under MIT License
 
-import { window } from "vscode";
 import { pickConflictOption } from "../conflictItems";
 import { Repository } from "../repository";
 import { Command } from "./command";
+import { showActionFeedback } from "../util/actionFeedback";
 
 export class ResolveAll extends Command {
   constructor() {
@@ -16,7 +16,7 @@ export class ResolveAll extends Command {
     const conflicts = repository.conflicts.resourceStates;
 
     if (!conflicts.length) {
-      window.showInformationMessage("No Conflicts");
+      showActionFeedback("No Conflicts");
       return;
     }
 
@@ -33,7 +33,7 @@ export class ResolveAll extends Command {
           [conflict.resourceUri.path],
           choice.label
         );
-        window.showInformationMessage(response);
+        showActionFeedback(response);
       }, "Unable to resolve conflict");
     }
   }

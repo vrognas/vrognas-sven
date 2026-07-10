@@ -6,6 +6,7 @@ import { commands, ProgressLocation, window } from "vscode";
 import { configuration } from "../helpers/configuration";
 import { Repository } from "../repository";
 import { Command } from "./command";
+import { showActionFeedback } from "../util/actionFeedback";
 
 export class Update extends Command {
   constructor() {
@@ -54,9 +55,9 @@ export class Update extends Command {
           await commands.executeCommand("workbench.view.scm");
         }
       } else if (showUpdateMessage && result.revision !== null) {
-        window.showInformationMessage(result.message);
+        showActionFeedback(result.message);
       } else if (showUpdateMessage) {
-        window.showInformationMessage("Update completed");
+        showActionFeedback("Update completed");
       }
     }, "Unable to update");
   }

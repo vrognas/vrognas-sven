@@ -8,6 +8,7 @@ import { Repository } from "../repository";
 import { sanitizeString } from "../security/errorSanitizer";
 import { confirmDestructive } from "../ui";
 import { Command } from "./command";
+import { showActionFeedback } from "../util/actionFeedback";
 
 interface CleanupQuickPickItem extends QuickPickItem {
   id: keyof ICleanupOptions;
@@ -141,7 +142,7 @@ export class Cleanup extends Command {
       const externalsNote = options.includeExternals
         ? "Included externals."
         : "";
-      window.showInformationMessage(
+      showActionFeedback(
         `Cleanup completed. ${completedOps}${externalsNote}`.trim()
       );
     } catch (err) {

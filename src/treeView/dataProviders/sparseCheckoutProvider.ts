@@ -47,6 +47,7 @@ import {
   createFolderMonitor,
   FILE_POLL_INTERVAL_MS
 } from "./downloadProgressMonitor";
+import { showActionFeedback } from "../../util/actionFeedback";
 
 /** Max concurrent svn info subprocess calls (prevents EMFILE / WC lock contention) */
 const MAX_CONCURRENT_INFO = 5;
@@ -1002,9 +1003,10 @@ export default class SparseCheckoutProvider
             }
           });
       } else if (result.success > 0) {
-        // Success notification - users need positive feedback
+        // Positive feedback, inline - the downloaded items are already
+        // visible in the tree
         const sizeInfo = totalSize > 0 ? ` (${formatBytes(totalSize)})` : "";
-        window.showInformationMessage(
+        showActionFeedback(
           `Downloaded ${result.success} ${result.success === 1 ? "item" : "items"}${sizeInfo}`
         );
       }

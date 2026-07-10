@@ -4,12 +4,13 @@
 
 "use strict";
 
-import { Uri, window } from "vscode";
+import { Uri } from "vscode";
 import { Command } from "../command";
 import {
   blameStateManager,
   getBlameTargetUri
 } from "../../blame/blameStateManager";
+import { showActionFeedback } from "../../util/actionFeedback";
 
 export class ToggleBlame extends Command {
   constructor() {
@@ -22,6 +23,6 @@ export class ToggleBlame extends Command {
 
     const newState = blameStateManager.toggleBlame(target);
     const action = newState ? "enabled" : "disabled";
-    window.showInformationMessage(`SVN Blame ${action} for ${target.fsPath}`);
+    showActionFeedback(`SVN Blame ${action} for ${target.fsPath}`);
   }
 }

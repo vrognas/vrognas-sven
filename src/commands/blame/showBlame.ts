@@ -4,12 +4,13 @@
 
 "use strict";
 
-import { Uri, window } from "vscode";
+import { Uri } from "vscode";
 import { Command } from "../command";
 import {
   blameStateManager,
   getBlameTargetUri
 } from "../../blame/blameStateManager";
+import { showActionFeedback } from "../../util/actionFeedback";
 
 export class ShowBlame extends Command {
   constructor() {
@@ -21,6 +22,6 @@ export class ShowBlame extends Command {
     if (!target) return;
 
     blameStateManager.setBlameEnabled(target, true);
-    window.showInformationMessage(`SVN Blame enabled for ${target.fsPath}`);
+    showActionFeedback(`SVN Blame enabled for ${target.fsPath}`);
   }
 }

@@ -9,6 +9,7 @@ import { Resource } from "../resource";
 import { Status } from "../common/types";
 import { blameStateManager } from "../blame/blameStateManager";
 import { logError } from "../util/errorLogger";
+import { showActionFeedback } from "../util/actionFeedback";
 
 /**
  * Execute SVN blame on a file and display results
@@ -76,7 +77,7 @@ export class Blame extends Command {
         if (revision) {
           // Programmatic path: explicit revision, direct fetch
           const blameLines = await repository.blame(uri.fsPath, revision);
-          window.showInformationMessage(
+          showActionFeedback(
             `Blame loaded: ${blameLines.length} lines from ${uri.fsPath}`
           );
           return;

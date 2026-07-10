@@ -4,6 +4,7 @@
 import { ThemeColor, window } from "vscode";
 import { LockStatus, IExecutionResult } from "../common/types";
 import { makeWritable, makeReadOnly } from "../fs";
+import { showActionFeedback } from "./actionFeedback";
 
 /**
  * Get human-readable tooltip for lock status.
@@ -58,7 +59,7 @@ export function handleSvnResult(
   errorPrefix: string
 ): boolean {
   if (result.exitCode === 0) {
-    window.showInformationMessage(successMessage);
+    showActionFeedback(successMessage);
     return true;
   } else {
     window.showErrorMessage(

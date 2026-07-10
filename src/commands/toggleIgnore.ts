@@ -9,6 +9,7 @@ import { Repository } from "../repository";
 import { removeMatchingIgnorePattern } from "../helpers/ignoreHelper";
 import { confirm } from "../ui";
 import { formatSvnError, logError } from "../util/errorLogger";
+import { showActionFeedback } from "../util/actionFeedback";
 
 /**
  * Toggle svn:ignore for a file/folder.
@@ -100,7 +101,7 @@ export class ToggleIgnore extends Command {
       // Step 2: Add to svn:ignore on parent folder
       await repository.addToIgnore([fileName], dirName, false);
 
-      window.showInformationMessage(
+      showActionFeedback(
         `Untracked '${fileName}' and added to svn:ignore on parent folder`
       );
     } catch (error) {

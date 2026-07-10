@@ -17,6 +17,7 @@ import { Command } from "./command";
 import { confirm } from "../ui";
 import { formatBytes, formatDuration, formatSpeed } from "../util/formatting";
 import { Repository } from "../repository";
+import { showActionFeedback } from "../util/actionFeedback";
 
 /** Default download timeout in minutes */
 const DEFAULT_DOWNLOAD_TIMEOUT_MINUTES = 10;
@@ -494,7 +495,7 @@ export class SetDepth extends Command {
       );
 
       if (result.cancelled) {
-        window.showInformationMessage(`Operation cancelled`);
+        showActionFeedback(`Operation cancelled`);
         return;
       }
 
@@ -506,7 +507,7 @@ export class SetDepth extends Command {
           immediates: `"${folderName}" set to shallow`,
           infinity: `"${folderName}" fully restored`
         };
-        window.showInformationMessage(
+        showActionFeedback(
           successMessages[selected.depth] || `Checkout depth changed`
         );
         // Refresh sparse checkout tree to reflect changes

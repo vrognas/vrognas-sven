@@ -9,6 +9,7 @@ import { Repository } from "../repository";
 import { normalizePath } from "../util";
 import { logError } from "../util/errorLogger";
 import { Command } from "./command";
+import { showActionFeedback } from "../util/actionFeedback";
 
 export class ChangeList extends Command {
   constructor() {
@@ -101,7 +102,7 @@ export class ChangeList extends Command {
     } else {
       operation = async () => {
         await repository.addChangelist(paths, changelistName);
-        window.showInformationMessage(
+        showActionFeedback(
           `Added files "${pathList}" to changelist "${changelistName}"`
         );
       };

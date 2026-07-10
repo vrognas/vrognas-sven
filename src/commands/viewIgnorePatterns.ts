@@ -5,6 +5,7 @@ import { window } from "vscode";
 import { Command } from "./command";
 import { Repository } from "../repository";
 import { formatSvnError, logError } from "../util/errorLogger";
+import { showActionFeedback } from "../util/actionFeedback";
 
 interface DirectoryItem {
   label: string;
@@ -64,9 +65,7 @@ export class ViewIgnorePatterns extends Command {
     const allPatterns = await repository.getAllIgnorePatterns();
 
     if (allPatterns.size === 0) {
-      window.showInformationMessage(
-        "No svn:ignore patterns found in this repository"
-      );
+      showActionFeedback("No svn:ignore patterns found in this repository");
       return;
     }
 
@@ -174,9 +173,7 @@ export class ViewIgnorePatterns extends Command {
         }
         // Delete property
         await repository.deleteIgnoreProperty(directory);
-        window.showInformationMessage(
-          `Removed all ignore patterns from ${directory}`
-        );
+        showActionFeedback(`Removed all ignore patterns from ${directory}`);
         // Navigate back to directory picker after clearing
         await this.showDirectoryPicker(repository);
       } else {
@@ -187,7 +184,7 @@ export class ViewIgnorePatterns extends Command {
           .filter(p => p.length > 0);
 
         await repository.setIgnoreProperty(newPatterns, directory);
-        window.showInformationMessage(
+        showActionFeedback(
           `Updated ignore patterns for ${directory}: ${newPatterns.join(", ")}`
         );
         // Refresh and show updated list
@@ -241,9 +238,7 @@ export class ViewIgnorePatterns extends Command {
 
     try {
       await repository.removeFromIgnore(pick.pattern, directory);
-      window.showInformationMessage(
-        `Removed '${pick.pattern}' from ${directory}`
-      );
+      showActionFeedback(`Removed '${pick.pattern}' from ${directory}`);
 
       // Refresh and show updated list
       const updatedPatterns = (

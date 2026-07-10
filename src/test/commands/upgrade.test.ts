@@ -24,7 +24,8 @@ suite("Upgrade Command E2E Tests", () => {
     } as any;
     upgradeStub = sinon.stub(mockSourceControlManager, "upgradeWorkingCopy");
     warningStub = sinon.stub(window, "showWarningMessage" as any);
-    infoStub = sinon.stub(window, "showInformationMessage" as any);
+    // Success confirmation is inline status-bar feedback, not a toast
+    infoStub = sinon.stub(window, "setStatusBarMessage" as any);
     errorStub = sinon.stub(window, "showErrorMessage" as any);
     sinon.stub(commands, "executeCommand").resolves(mockSourceControlManager);
   });
@@ -41,7 +42,10 @@ suite("Upgrade Command E2E Tests", () => {
     await upgradeCmd.execute("/test/workspace");
 
     assert.ok(warningStub.calledOnce, "Warning dialog should be shown");
-    assert.ok(warningStub.firstCall.args[0].includes("upgrade"), "Warning should mention upgrade");
+    assert.ok(
+      warningStub.firstCall.args[0].includes("upgrade"),
+      "Warning should mention upgrade"
+    );
     assert.ok(upgradeStub.calledOnce, "upgradeWorkingCopy should be called");
     assert.strictEqual(
       normalizePathForAssert(upgradeStub.firstCall.args[0]),
@@ -49,7 +53,10 @@ suite("Upgrade Command E2E Tests", () => {
       "Should upgrade correct path"
     );
     assert.ok(infoStub.calledOnce, "Success message should be shown");
-    assert.ok(infoStub.firstCall.args[0].includes("upgraded"), "Success message should mention upgraded");
+    assert.ok(
+      infoStub.firstCall.args[0].includes("upgraded"),
+      "Success message should mention upgraded"
+    );
   });
 
   test("No upgrade needed - verify already up-to-date behavior", async () => {
@@ -58,7 +65,10 @@ suite("Upgrade Command E2E Tests", () => {
     await upgradeCmd.execute("/test/workspace");
 
     assert.ok(warningStub.calledOnce, "Warning dialog should be shown");
-    assert.ok(upgradeStub.notCalled, "upgradeWorkingCopy should not be called when user declines");
+    assert.ok(
+      upgradeStub.notCalled,
+      "upgradeWorkingCopy should not be called when user declines"
+    );
     assert.ok(infoStub.notCalled, "No success message should be shown");
     assert.ok(errorStub.notCalled, "No error message should be shown");
   });
@@ -72,7 +82,13 @@ suite("Upgrade Command E2E Tests", () => {
     assert.ok(warningStub.calledOnce, "Warning dialog should be shown");
     assert.ok(upgradeStub.calledOnce, "upgradeWorkingCopy should be called");
     assert.ok(errorStub.calledOnce, "Error message should be shown");
-    assert.ok(errorStub.firstCall.args[0].includes("Error"), "Error message should indicate failure");
-    assert.ok(infoStub.notCalled, "No success message should be shown on error");
+    assert.ok(
+      errorStub.firstCall.args[0].includes("Error"),
+      "Error message should indicate failure"
+    );
+    assert.ok(
+      infoStub.notCalled,
+      "No success message should be shown on error"
+    );
   });
 });

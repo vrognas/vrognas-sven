@@ -4,8 +4,9 @@
 
 "use strict";
 
-import { Uri, window } from "vscode";
+import { Uri } from "vscode";
 import { Command } from "../command";
+import { showActionFeedback } from "../../util/actionFeedback";
 
 /**
  * Command shown for untracked files (circle-slash icon)
@@ -18,6 +19,6 @@ export class UntrackedInfo extends Command {
 
   execute(_uri?: Uri): void {
     // Show subtle info message
-    window.showInformationMessage("File not tracked by SVN");
+    showActionFeedback("File not tracked by SVN");
   }
 }

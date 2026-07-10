@@ -1,6 +1,9 @@
 import * as assert from "assert";
 import { Uri, window } from "vscode";
-import { AddToIgnoreExplorer, AddToIgnoreSCM } from "../../../commands/addToIgnore";
+import {
+  AddToIgnoreExplorer,
+  AddToIgnoreSCM
+} from "../../../commands/addToIgnore";
 import { Resource } from "../../../resource";
 import { Repository } from "../../../repository";
 import { Status } from "../../../common/types";
@@ -11,6 +14,7 @@ suite("AddToIgnore Commands Tests", () => {
   // Mock tracking
   let mockRepository: Partial<Repository>;
   let origShowInfo: typeof window.showInformationMessage;
+  let origSetStatusBar: typeof window.setStatusBarMessage;
   let origShowError: typeof window.showErrorMessage;
   let inputIgnoreListSpy: ReturnType<typeof vi.spyOn>;
   let inputIgnoreListImpl: typeof ignoreitems.inputIgnoreList;
@@ -45,11 +49,17 @@ suite("AddToIgnore Commands Tests", () => {
         return inputIgnoreListImpl(repo, uris);
       });
 
-    // Track calls to showInformationMessage
+    // Track user feedback: toasts AND inline status-bar confirmations
+    // (success outcomes moved to the status bar in the inline-feedback pass)
     origShowInfo = window.showInformationMessage;
     (window as any).showInformationMessage = (message: string) => {
       showInfoCalls.push(message);
       return Promise.resolve(undefined);
+    };
+    origSetStatusBar = window.setStatusBarMessage;
+    (window as any).setStatusBarMessage = (message: string) => {
+      showInfoCalls.push(message);
+      return { dispose() {} };
     };
 
     // Track calls to showErrorMessage
@@ -70,6 +80,7 @@ suite("AddToIgnore Commands Tests", () => {
     // Restore original functions
     inputIgnoreListSpy.mockRestore();
     (window as any).showInformationMessage = origShowInfo;
+    (window as any).setStatusBarMessage = origSetStatusBar;
     (window as any).showErrorMessage = origShowError;
   });
 
@@ -116,10 +127,7 @@ suite("AddToIgnore Commands Tests", () => {
         await fn(mockRepository, uris);
       };
 
-      inputIgnoreListImpl = async (
-        _repo: Repository,
-        uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (_repo: Repository, uris: Uri[]) => {
         inputIgnoreListCalls.push({ repo: _repo, uris });
         assert.strictEqual(uris.length, 2, "Should receive all URIs");
         return true;
@@ -223,10 +231,7 @@ suite("AddToIgnore Commands Tests", () => {
         await fn(mockRepository, uris);
       };
 
-      inputIgnoreListImpl = async (
-        _repo: Repository,
-        uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (_repo: Repository, uris: Uri[]) => {
         assert.strictEqual(uris.length, 2);
         return true;
       };
@@ -316,10 +321,7 @@ suite("AddToIgnore Commands Tests", () => {
         await fn(mockRepository, uris);
       };
 
-      inputIgnoreListImpl = async (
-        _repo: Repository,
-        uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (_repo: Repository, uris: Uri[]) => {
         assert.strictEqual(uris.length, 2);
         return true;
       };
@@ -433,10 +435,7 @@ suite("AddToIgnore Commands Tests", () => {
         await fn(mockRepository, uris);
       };
 
-      inputIgnoreListImpl = async (
-        _repo: Repository,
-        uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (_repo: Repository, uris: Uri[]) => {
         assert.strictEqual(uris.length, 3);
         return true;
       };
@@ -488,10 +487,7 @@ suite("AddToIgnore Commands Tests", () => {
         await fn(mockRepository, uris);
       };
 
-      inputIgnoreListImpl = async (
-        _repo: Repository,
-        uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (_repo: Repository, uris: Uri[]) => {
         assert.strictEqual(uris[0]!.fsPath, file1.fsPath);
         assert.strictEqual(uris[1]!.fsPath, file2.fsPath);
         return true;
@@ -560,10 +556,7 @@ suite("AddToIgnore Commands Tests", () => {
       };
 
       // Simulate user selecting filename pattern
-      inputIgnoreListImpl = async (
-        repo: Repository,
-        _uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (repo: Repository, _uris: Uri[]) => {
         await repo.addToIgnore(["file.txt"], "/test/repo", false);
         return true;
       };
@@ -587,10 +580,7 @@ suite("AddToIgnore Commands Tests", () => {
       };
 
       // Simulate user selecting extension pattern
-      inputIgnoreListImpl = async (
-        repo: Repository,
-        _uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (repo: Repository, _uris: Uri[]) => {
         await repo.addToIgnore(["*.txt"], "/test/repo", false);
         return true;
       };
@@ -612,10 +602,7 @@ suite("AddToIgnore Commands Tests", () => {
       };
 
       // Simulate user selecting recursive pattern
-      inputIgnoreListImpl = async (
-        repo: Repository,
-        _uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (repo: Repository, _uris: Uri[]) => {
         await repo.addToIgnore(["file.txt"], "/test/repo", true);
         return true;
       };
@@ -638,10 +625,7 @@ suite("AddToIgnore Commands Tests", () => {
       };
 
       // Simulate user selecting filename pattern for multiple files
-      inputIgnoreListImpl = async (
-        repo: Repository,
-        _uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (repo: Repository, _uris: Uri[]) => {
         await repo.addToIgnore(["file1.txt", "file2.txt"], "/test/repo", false);
         return true;
       };
@@ -667,10 +651,7 @@ suite("AddToIgnore Commands Tests", () => {
       };
 
       // Simulate user selecting extension pattern for multiple files
-      inputIgnoreListImpl = async (
-        repo: Repository,
-        _uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (repo: Repository, _uris: Uri[]) => {
         await repo.addToIgnore(["*.txt", "*.log"], "/test/repo", false);
         return true;
       };
@@ -697,10 +678,7 @@ suite("AddToIgnore Commands Tests", () => {
 
       // Simulate multiple directory calls
       let callCount = 0;
-      inputIgnoreListImpl = async (
-        repo: Repository,
-        _uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (repo: Repository, _uris: Uri[]) => {
         if (callCount === 0) {
           await repo.addToIgnore(["file.txt"], "/test/repo/dir1", false);
         } else {
@@ -727,10 +705,7 @@ suite("AddToIgnore Commands Tests", () => {
       };
 
       // Simulate user selecting filename pattern
-      inputIgnoreListImpl = async (
-        repo: Repository,
-        _uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (repo: Repository, _uris: Uri[]) => {
         await repo.addToIgnore(["Makefile"], "/test/repo", false);
         return true;
       };
@@ -752,10 +727,7 @@ suite("AddToIgnore Commands Tests", () => {
       };
 
       // Simulate user selecting extension pattern
-      inputIgnoreListImpl = async (
-        repo: Repository,
-        _uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (repo: Repository, _uris: Uri[]) => {
         await repo.addToIgnore(["*.js"], "/test/repo", false);
         return true;
       };
@@ -777,10 +749,7 @@ suite("AddToIgnore Commands Tests", () => {
       };
 
       // Simulate user selecting folder pattern
-      inputIgnoreListImpl = async (
-        repo: Repository,
-        _uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (repo: Repository, _uris: Uri[]) => {
         await repo.addToIgnore(["node_modules"], "/test/repo", false);
         return true;
       };
@@ -802,10 +771,7 @@ suite("AddToIgnore Commands Tests", () => {
       };
 
       // Simulate user selecting recursive folder pattern
-      inputIgnoreListImpl = async (
-        repo: Repository,
-        _uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (repo: Repository, _uris: Uri[]) => {
         await repo.addToIgnore([".git"], "/test/repo", true);
         return true;
       };
@@ -867,10 +833,7 @@ suite("AddToIgnore Commands Tests", () => {
         await fn(mockRepository, uris);
       };
 
-      inputIgnoreListImpl = async (
-        repo: Repository,
-        _uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (repo: Repository, _uris: Uri[]) => {
         await repo.addToIgnore(["file.txt"], "/test/repo", false);
         return true;
       };
@@ -890,10 +853,7 @@ suite("AddToIgnore Commands Tests", () => {
         await fn(mockRepository, uris);
       };
 
-      inputIgnoreListImpl = async (
-        repo: Repository,
-        _uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (repo: Repository, _uris: Uri[]) => {
         await repo.addToIgnore(["файл.txt"], "/test/repo", false);
         return true;
       };
@@ -915,10 +875,7 @@ suite("AddToIgnore Commands Tests", () => {
         await fn(mockRepository, uris);
       };
 
-      inputIgnoreListImpl = async (
-        repo: Repository,
-        _uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (repo: Repository, _uris: Uri[]) => {
         await repo.addToIgnore([longName], "/test/repo", false);
         return true;
       };
@@ -938,10 +895,7 @@ suite("AddToIgnore Commands Tests", () => {
         await fn(mockRepository, uris);
       };
 
-      inputIgnoreListImpl = async (
-        repo: Repository,
-        _uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (repo: Repository, _uris: Uri[]) => {
         await repo.addToIgnore(["file.txt"], "/test/repo/a/b/c/d/e/f", false);
         return true;
       };
@@ -966,10 +920,7 @@ suite("AddToIgnore Commands Tests", () => {
         await fn(mockRepository, uris);
       };
 
-      inputIgnoreListImpl = async (
-        _repo: Repository,
-        _uris: Uri[]
-      ) => {
+      inputIgnoreListImpl = async (_repo: Repository, _uris: Uri[]) => {
         // Should receive all URIs (deduplication happens in inputIgnoreList)
         return true;
       };

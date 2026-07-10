@@ -211,8 +211,10 @@ describe("ChangeList helper-driven behavior", () => {
 
     await command.execute(resource);
 
-    expect(window.showInformationMessage).toHaveBeenCalledWith(
-      'Added files "/repo/file.txt" to changelist "feature-x"'
+    // Success confirmation is inline status-bar feedback, not a toast
+    expect(window.setStatusBarMessage).toHaveBeenCalledWith(
+      'Added files "/repo/file.txt" to changelist "feature-x"',
+      expect.any(Number)
     );
   });
 });

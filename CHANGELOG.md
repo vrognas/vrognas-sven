@@ -7,6 +7,20 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.81] - 2026-07-10
+
+Inline feedback: contextual actions confirm in the status bar instead of corner toasts.
+
+### Changed
+
+- **~40 outcome confirmations moved from toast notifications to transient status-bar feedback** — commit success, staging/changelist moves, update results, lock/unlock, blame toggles, ignore-pattern edits, EOL/auto-props changes, checkout-depth changes, cleanup completion, sparse downloads, and benign "nothing to do" outcomes ("No changes to commit", "No blame information for this line", "Revision X not found"). The result of what you just did no longer demands a dismissal click in the opposite corner of the screen.
+- **Notifications remain** where they earn the interruption: anything with action buttons or a decision, all warnings/errors, partial-failure summaries, and messages that teach a non-obvious consequence or next step (needs-lock read-only effect, rollback guidance, restart-required).
+- New `showActionFeedback` helper encodes the policy in one place.
+
+### Fixed
+
+- A file-watcher event handler could leak an unhandled rejection when the working copy vanished mid-`svn info` (e.g. deleted externally); it now logs and stops.
+
 ## [0.2.80] - 2026-07-10
 
 Blame appears much faster.

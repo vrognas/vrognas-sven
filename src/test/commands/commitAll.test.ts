@@ -13,7 +13,7 @@ suite("CommitAll Command E2E Tests", () => {
   let mockRepository: Partial<Repository>;
   let mockInputBox: Partial<SourceControlInputBox>;
   let runCommitFlowStub: sinon.SinonStub;
-  let showInfoStub: sinon.SinonStub;
+  let statusBarStub: sinon.SinonStub;
   let showErrorStub: sinon.SinonStub;
   let commitFilesCalls: Array<{ message: string; paths: string[] }>;
 
@@ -48,7 +48,8 @@ suite("CommitAll Command E2E Tests", () => {
         selectedFiles: filePaths
       }));
 
-    showInfoStub = sinon.stub(window, "showInformationMessage");
+    // Success/no-op confirmations are inline status-bar feedback
+    statusBarStub = sinon.stub(window, "setStatusBarMessage");
     showErrorStub = sinon.stub(window, "showErrorMessage").resolves(undefined);
 
     sinon.stub(configuration, "commitUseQuickPick").returns(true);
@@ -96,7 +97,12 @@ suite("CommitAll Command E2E Tests", () => {
     assert.ok(commitFilesCalls[0]!.paths.includes(file1.resourceUri.fsPath));
     assert.ok(commitFilesCalls[0]!.paths.includes(file2.resourceUri.fsPath));
     assert.ok(commitFilesCalls[0]!.paths.includes(file3.resourceUri.fsPath));
-    assert.ok(showInfoStub.calledWith("Revision 42: 3 files committed"));
+    assert.ok(
+      statusBarStub.calledWith(
+        "Revision 42: 3 files committed",
+        sinon.match.number
+      )
+    );
     assert.strictEqual((mockRepository.inputBox as any).value, "");
     assert.ok(clearOriginalStub.calledOnce);
   });
@@ -107,7 +113,9 @@ suite("CommitAll Command E2E Tests", () => {
 
     await commitAllCmd.execute(mockRepository as Repository);
 
-    assert.ok(showInfoStub.calledWith("No changes to commit"));
+    assert.ok(
+      statusBarStub.calledWith("No changes to commit", sinon.match.number)
+    );
     assert.ok(runCommitFlowStub.notCalled);
     assert.strictEqual(commitFilesCalls.length, 0);
   });
