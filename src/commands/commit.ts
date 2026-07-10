@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Viktor Rognas
 // Licensed under MIT License
 
-import { SourceControlResourceState, window } from "vscode";
+import { SourceControlResourceState, Uri, window } from "vscode";
 import {
   buildExpandedCommitPaths,
   ensureNoUnsavedChanges,
@@ -56,7 +56,8 @@ export class Commit extends Command {
 
       await this.handleRepositoryOperation(
         () => executeCommit(repository, message, commitPaths),
-        "Unable to commit"
+        "Unable to commit",
+        commitPaths.map(p => Uri.file(p))
       );
     });
   }

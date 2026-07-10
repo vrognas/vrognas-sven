@@ -976,14 +976,15 @@ export abstract class Command implements Disposable {
   private async runCommandActionIfChosen(
     userMessage: string,
     actionLabel: string,
-    commandId: string
+    commandId: string,
+    commandArgs: unknown[] = []
   ): Promise<boolean> {
     const choice = await window.showErrorMessage(userMessage, actionLabel);
     if (choice !== actionLabel) {
       return false;
     }
 
-    await commands.executeCommand(commandId);
+    await commands.executeCommand(commandId, ...commandArgs);
     return true;
   }
 
@@ -996,7 +997,8 @@ export abstract class Command implements Disposable {
    */
   protected async handleOperationError(
     error: unknown,
-    errorMsg: string
+    errorMsg: string,
+    targets: Uri[] = []
   ): Promise<void> {
     logError("Repository operation failed", error);
     // Build error context once — both message formatting and lock/cleanup/
@@ -1015,16 +1017,20 @@ export abstract class Command implements Disposable {
         "sven.clearCredentials"
       );
     } else if (lockType === "conflict") {
+      // Target the FAILED files - with no args the lock commands fall
+      // back to the active editor, stealing the wrong file's lock
       await this.runCommandActionIfChosen(
         userMessage,
         "Steal Lock",
-        "sven.stealLock"
+        "sven.stealLock",
+        targets
       );
     } else if (lockType === "notLocked" || lockType === "expired") {
       await this.runCommandActionIfChosen(
         userMessage,
         "Lock File",
-        "sven.lock"
+        "sven.lock",
+        targets
       );
     } else if (needsCleanupFromFullError(fullError)) {
       await this.runCommandActionIfChosen(
@@ -1058,7 +1064,8 @@ export abstract class Command implements Disposable {
    */
   protected async handleRepositoryOperation<T>(
     operation: () => Promise<T>,
-    errorMsg: string
+    errorMsg: string,
+    targets: Uri[] = []
   ): Promise<T | undefined> {
     try {
       return await operation();
@@ -1074,10 +1081,10 @@ export abstract class Command implements Disposable {
         const retry = "Retry";
         const choice = await window.showErrorMessage(userMessage, retry);
         if (choice === retry) {
-          return this.handleRepositoryOperation(operation, errorMsg);
+          return this.handleRepositoryOperation(operation, errorMsg, targets);
         }
       } else {
-        await this.handleOperationError(error, errorMsg);
+        await this.handleOperationError(error, errorMsg, targets);
       }
 
       return undefined;

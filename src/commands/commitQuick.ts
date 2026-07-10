@@ -2,6 +2,7 @@
 // Licensed under MIT License
 
 import * as path from "path";
+import { Uri } from "vscode";
 import {
   ensureNoUnsavedChanges,
   executeCommit,
@@ -52,7 +53,8 @@ export class CommitQuick extends BaseStagedCommitCommand {
 
     await this.handleRepositoryOperation(
       () => executeCommit(repository, message, filePaths),
-      "Unable to commit"
+      "Unable to commit",
+      filePaths.map(p => Uri.file(p))
     );
   }
 }

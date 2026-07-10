@@ -2,6 +2,7 @@
 // Copyright (c) 2025-present Viktor Rognas
 // Licensed under MIT License
 
+import { Uri } from "vscode";
 import { inputCommitFiles } from "../changelistItems";
 import {
   buildExpandedCommitPaths,
@@ -50,7 +51,8 @@ export class CommitWithMessage extends Command {
 
     await this.handleRepositoryOperation(
       () => executeCommit(repository, message, commitPaths),
-      "Unable to commit"
+      "Unable to commit",
+      commitPaths.map(p => Uri.file(p))
     );
   }
 }

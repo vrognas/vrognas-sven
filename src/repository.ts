@@ -2925,7 +2925,9 @@ export class Repository implements IRemoteRepository {
     );
 
     if (choice === "Update") {
-      await commands.executeCommand("sven.update");
+      // Pass the owning repository - without a hint, multi-root
+      // workspaces pop a repo picker for a repo we already know
+      await commands.executeCommand("sven.update", this);
     }
   }
 

@@ -74,7 +74,11 @@ export class SyncStatusBar {
   private onModelChange(): void {
     this.state = {
       ...this.state,
-      remoteChangedFiles: this.repository.remoteChangedFiles
+      remoteChangedFiles: this.repository.remoteChangedFiles,
+      // Wedged-WC affordances (cleanup / finish checkout) - without
+      // these copies the branches below were unreachable
+      needCleanUp: this.repository.needCleanUp,
+      isIncomplete: this.repository.isIncomplete
     };
   }
 
