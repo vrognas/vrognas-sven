@@ -7,6 +7,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.85] - 2026-07-10
+
+### Added
+
+- **Line History on blame hovers** — scroll through every change of one line. SVN has no line-log, so the `$(versions) Line History` link chains blames: blame names the line's latest change, LCS line-mapping carries its position into the revision just before it, a pegged blame there names the previous change, and so on back to the line's first appearance. The result opens as a **multi-entry peek**: a references-style list with one entry per revision that changed the line, each previewing that revision's diff hunk — arrow through them without leaving the editor. The count and revision list also flash in the status bar ("Line changed in 3 revisions: r401, r250, r88"). Cancellable progress while walking; capped at 20 hops; every step is a pinned immutable blame/cat, so a walk is slow once and cache-instant afterwards.
+
 ## [0.2.84] - 2026-07-10
 
 ### Added

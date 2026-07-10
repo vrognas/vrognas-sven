@@ -160,6 +160,24 @@ async function init(
         await peekBlameChange(repository.repository, uri, rev, line, lineText);
       }
     ),
+    commands.registerCommand(
+      "sven.blame.peekLineHistory",
+      async (uriStr: string, baseLine: number, workingLine: number) => {
+        const uri = Uri.parse(uriStr);
+        const repository = sourceControlManager.getRepository(uri);
+        if (!repository) {
+          window.showErrorMessage("No SVN repository found for this file");
+          return;
+        }
+        const { peekLineHistory } = await import("./blame/blamePeek");
+        await peekLineHistory(
+          repository.repository,
+          uri,
+          baseLine,
+          workingLine
+        );
+      }
+    ),
     commands.registerCommand("sven.blame.copyRevision", async (rev: string) => {
       await env.clipboard.writeText(rev);
       window.setStatusBarMessage(`Copied r${rev} to clipboard`, 3000);

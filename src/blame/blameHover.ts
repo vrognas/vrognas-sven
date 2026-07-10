@@ -32,7 +32,8 @@ export function buildBlameHover(
       "sven.repolog.goToRevision",
       "sven.blame.copyRevision",
       "sven.blame.showDiff",
-      "sven.blame.peekChange"
+      "sven.blame.peekChange",
+      "sven.blame.peekLineHistory"
     ]
   };
 
@@ -54,6 +55,18 @@ export function buildBlameHover(
           JSON.stringify([fileUri.toString(), rev, workingLine])
         )} "Peek the r${rev} change around this line")`
       : "";
+  // Walk EVERY revision that changed this line and peek them as a
+  // scrollable list (one entry per change)
+  const historyLink =
+    fileUri && workingLine !== undefined
+      ? ` · [$(versions) Line History](command:sven.blame.peekLineHistory?${encodeURIComponent(
+          JSON.stringify([
+            fileUri.toString(),
+            blameLine.lineNumber,
+            workingLine
+          ])
+        )} "Peek every revision that changed this line")`
+      : "";
   const diffLink =
     fileUri && !isAddRevision
       ? ` · [$(git-compare) Diff with Previous](command:sven.blame.showDiff?${encodeURIComponent(
@@ -68,6 +81,7 @@ export function buildBlameHover(
         JSON.stringify([rev])
       )} "Copy r${rev} to the clipboard")` +
       peekLink +
+      historyLink +
       diffLink
   );
   return md;
