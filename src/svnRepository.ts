@@ -42,6 +42,7 @@ import { parseBatchLockInfo, parseLockInfo } from "./parser/lockParser";
 import { parseSvnLog } from "./parser/logParser";
 import { parseStatusXml } from "./parser/statusParser";
 import { parseSvnBlame } from "./parser/blameParser";
+import { getPersistedBlame, persistBlame } from "./blame/blamePersistence";
 import { parseUpdateOutput } from "./parser/updateParser";
 import { Svn, BufferResult } from "./svn";
 import {
@@ -819,6 +820,22 @@ export class Repository {
       if (inFlight !== undefined) {
         return inFlight;
       }
+
+      // Revision-pinned blame is immutable: serve it from the
+      // workspaceState-backed store (survives window reloads and the
+      // conservative clearBlameCache on mutating operations)
+      const persistKey = this.persistentBlameKey(cacheKey);
+      if (persistKey) {
+        const persisted = getPersistedBlame(persistKey);
+        if (persisted !== undefined) {
+          this._blameCache.set(
+            cacheKey,
+            persisted,
+            Repository.IMMUTABLE_REVISION_TTL_MS
+          );
+          return persisted;
+        }
+      }
     }
 
     const fetchPromise = this._doBlameFetch(
@@ -956,15 +973,34 @@ export class Repository {
 
     if (generation === this._blameGeneration) {
       // Revision-keyed entries are immutable - hold them for a day
+      const immutable = /@\d+$/.test(cacheKey);
       this._blameCache.set(
         cacheKey,
         blame,
-        /@\d+$/.test(cacheKey)
-          ? Repository.IMMUTABLE_REVISION_TTL_MS
-          : undefined
+        immutable ? Repository.IMMUTABLE_REVISION_TTL_MS : undefined
       );
+      if (immutable) {
+        const persistKey = this.persistentBlameKey(cacheKey);
+        if (persistKey) {
+          persistBlame(persistKey, blame);
+        }
+      }
     }
     return blame;
+  }
+
+  /**
+   * Branch-URL-qualified key for the persistent blame store; undefined
+   * when the key isn't revision-pinned or the URL is unknown. The URL
+   * disambiguates after `svn switch` (same WC path, different history);
+   * separators are normalized so Windows and posix checkouts share keys.
+   */
+  private persistentBlameKey(cacheKey: string): string | undefined {
+    if (!/@\d+$/.test(cacheKey)) {
+      return undefined;
+    }
+    const url = this._info?.url;
+    return url ? `${url}|${cacheKey.replace(/\\/g, "/")}` : undefined;
   }
 
   /**

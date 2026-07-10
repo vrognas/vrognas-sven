@@ -7,6 +7,19 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.80] - 2026-07-10
+
+Blame appears much faster.
+
+### Fixed
+
+- **Blame no longer waits for the initial status crawl**: the first blame after opening a window was serialized behind a full `svn stat` of the working copy (seconds on large checkouts). Blame now starts immediately; the render reconciles once status lands.
+- **Blame and line mapping fetch in parallel**: the `svn cat -r BASE` line-mapping spawn used to run serially after the network blame before anything painted.
+
+### Added
+
+- **Blame survives window reloads**: revision-pinned blame results (immutable in SVN's data model) are now persisted per-workspace. Reopening a file — after a reload, restart, or a commit/update that clears the in-memory caches — renders blame instantly from the store; the network `svn blame` runs once per file revision, not once per session. (Capped LRU; keys are branch-URL-qualified so `svn switch` can't serve stale history.)
+
 ## [0.2.79] - 2026-07-10
 
 Bug-hunt release: a multi-agent adversarial audit of the recent history/blame/commit/lock work confirmed 24 bugs; all are fixed here.

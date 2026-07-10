@@ -159,6 +159,19 @@ export class BlameProvider implements Disposable {
     if (window.activeTextEditor) {
       void this.onActiveEditorChange(window.activeTextEditor);
     }
+
+    // updateDecorations no longer blocks on the initial status crawl, so
+    // a file rendered in that window used an empty resource index (no
+    // BASE->working line mapping, no unversioned gating). One re-render
+    // when status lands reconciles it - blame comes from cache.
+    // (Guarded: stubbed repositories in unit tests may not carry it.)
+    if (typeof this.repository.statusReady?.then === "function") {
+      void this.repository.statusReady.then(() => {
+        if (window.activeTextEditor) {
+          void this.updateDecorations(window.activeTextEditor);
+        }
+      });
+    }
   }
 
   /**
@@ -189,8 +202,12 @@ export class BlameProvider implements Disposable {
       return;
     }
 
-    // Wait for initial status to load before checking file version
-    await this.repository.statusReady;
+    // Don't serialize the first blame behind the initial full status
+    // crawl (`svn stat` over the whole working copy took seconds on
+    // large checkouts before the first blame could even start). The
+    // resource checks below degrade gracefully while the index is still
+    // empty, and blame's own error handling silently skips unversioned
+    // files; activate() re-renders once statusReady lands.
 
     // Skip untracked files (prevents SVN errors for UNVERSIONED/IGNORED files)
     const resource = this.repository.getResourceFromFile(target.document.uri);
@@ -245,19 +262,18 @@ export class BlameProvider implements Disposable {
     }
 
     try {
-      // Fetch blame data (with cache)
-      const blameData = await this.getBlameData(target.document.uri, target);
+      // Blame (network-bound) and line mapping (local `svn cat -r BASE`)
+      // are independent - fetch them concurrently instead of paying a
+      // serial subprocess spawn before the first paint
+      const [blameData, lineMapping] = await Promise.all([
+        this.getBlameData(target.document.uri, target),
+        this.getLineMapping(target.document.uri, target)
+      ]);
 
       if (!blameData) {
         this.clearDecorations(target);
         return;
       }
-
-      // Compute line mapping for modified files (maps BASE line numbers to working copy)
-      const lineMapping = await this.getLineMapping(
-        target.document.uri,
-        target
-      );
 
       // PROGRESSIVE RENDERING: Create decorations without waiting for messages
       const decorations = await this.createAllDecorations(blameData, target, {

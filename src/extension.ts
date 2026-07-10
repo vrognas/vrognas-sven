@@ -35,6 +35,7 @@ import { isPositron, getEnvironmentName } from "./positron/runtime";
 import { logError, logWarning } from "./util/errorLogger";
 import { registerSvnConnectionsProvider } from "./positron/connectionsProvider";
 import { BlameStatusBar } from "./blame/blameStatusBar";
+import { initBlamePersistence } from "./blame/blamePersistence";
 import { NeedsLockStatusBar } from "./statusbar/needsLockStatusBar";
 import { LockStatusBar } from "./statusbar/lockStatusBar";
 
@@ -52,6 +53,9 @@ async function init(
   console.log(`Sven: Found SVN ${info.version} at ${info.path}`);
 
   const svn = new Svn({ svnPath: info.path, version: info.version });
+
+  // Revision-pinned blame survives reloads (workspaceState-backed)
+  initBlamePersistence(extensionContext.workspaceState);
 
   // Register process exit handlers for credential cleanup
   const cleanup = () => {
