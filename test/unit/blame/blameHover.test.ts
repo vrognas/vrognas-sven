@@ -30,7 +30,8 @@ describe("buildBlameHover", () => {
       enabledCommands: [
         "sven.repolog.goToRevision",
         "sven.blame.copyRevision",
-        "sven.blame.showDiff"
+        "sven.blame.showDiff",
+        "sven.blame.peekChange"
       ]
     });
     // no message provided: metadata line still renders, no undefined leak

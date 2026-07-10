@@ -7,6 +7,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.84] - 2026-07-10
+
+### Added
+
+- **Peek Change on blame hovers**: a new `$(eye) Peek Change` link opens an inline peek of the diff hunk the blamed revision made around that line — the change of that row and its neighbors, without leaving the editor. The peek anchors at the exact `+` line matching the hovered text (blame guarantees the line is unchanged since that revision) and the `svn diff -c REV` patch is served from the immutable-revision cache after the first fetch. Works on add-revision lines too, where the hunk is the file's addition.
+
 ## [0.2.83] - 2026-07-10
 
 ### Added

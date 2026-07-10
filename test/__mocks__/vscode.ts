@@ -224,6 +224,13 @@ export class Range {
   ) {}
 }
 
+export class Location {
+  constructor(
+    public uri: Uri,
+    public range: Range | Position
+  ) {}
+}
+
 export class MarkdownString {
   constructor(public value = "") {}
   appendMarkdown(value: string): MarkdownString {

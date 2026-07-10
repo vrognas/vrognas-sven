@@ -18,7 +18,8 @@ export function buildBlameHover(
   blameLine: ISvnBlameLine,
   message?: string,
   fileUri?: Uri,
-  addRevision?: string
+  addRevision?: string,
+  workingLine?: number
 ): MarkdownString {
   const rev = blameLine.revision ?? "";
   // The blamed revision IS the file's add revision: say so, and skip
@@ -30,7 +31,8 @@ export function buildBlameHover(
     enabledCommands: [
       "sven.repolog.goToRevision",
       "sven.blame.copyRevision",
-      "sven.blame.showDiff"
+      "sven.blame.showDiff",
+      "sven.blame.peekChange"
     ]
   };
 
@@ -44,6 +46,14 @@ export function buildBlameHover(
   if (message) {
     md.appendMarkdown(`${message}\n\n`);
   }
+  // Inline peek of the hunk this revision changed around the line -
+  // works for add-revision lines too (the hunk is the file's addition)
+  const peekLink =
+    fileUri && workingLine !== undefined
+      ? ` · [$(eye) Peek Change](command:sven.blame.peekChange?${encodeURIComponent(
+          JSON.stringify([fileUri.toString(), rev, workingLine])
+        )} "Peek the r${rev} change around this line")`
+      : "";
   const diffLink =
     fileUri && !isAddRevision
       ? ` · [$(git-compare) Diff with Previous](command:sven.blame.showDiff?${encodeURIComponent(
@@ -57,6 +67,7 @@ export function buildBlameHover(
       `[$(copy) Copy Revision](command:sven.blame.copyRevision?${encodeURIComponent(
         JSON.stringify([rev])
       )} "Copy r${rev} to the clipboard")` +
+      peekLink +
       diffLink
   );
   return md;

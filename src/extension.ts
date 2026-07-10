@@ -138,6 +138,28 @@ async function init(
         await openBlameRevisionDiff(repository.repository, uri, rev);
       }
     ),
+    commands.registerCommand(
+      "sven.blame.peekChange",
+      async (uriStr: string, rev: string, line: number) => {
+        const uri = Uri.parse(uriStr);
+        const repository = sourceControlManager.getRepository(uri);
+        if (!repository) {
+          window.showErrorMessage("No SVN repository found for this file");
+          return;
+        }
+        // The hover lives on this document; its line text locates the
+        // matching hunk inside the revision's diff
+        const editor = window.visibleTextEditors.find(
+          e => e.document.uri.toString() === uri.toString()
+        );
+        const lineText =
+          editor && line < editor.document.lineCount
+            ? editor.document.lineAt(line).text
+            : "";
+        const { peekBlameChange } = await import("./blame/blamePeek");
+        await peekBlameChange(repository.repository, uri, rev, line, lineText);
+      }
+    ),
     commands.registerCommand("sven.blame.copyRevision", async (rev: string) => {
       await env.clipboard.writeText(rev);
       window.setStatusBarMessage(`Copied r${rev} to clipboard`, 3000);
