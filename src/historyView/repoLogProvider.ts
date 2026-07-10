@@ -49,7 +49,7 @@ import {
   ActionType,
   applyFilterToEntries
 } from "./historyFilter";
-import { showActionFeedback } from "../util/actionFeedback";
+import { showViewFeedback } from "../util/actionFeedback";
 
 export class RepoLogProvider
   implements TreeDataProvider<ILogTreeItem>, Disposable
@@ -487,9 +487,9 @@ export class RepoLogProvider
       await this.goToRevision(parseInt(top.revision, 10));
     }
     if (added === 0) {
-      window.setStatusBarMessage(
-        "History already shows the latest server revisions",
-        3000
+      showViewFeedback(
+        this.treeView,
+        "History already shows the latest server revisions"
       );
     }
   }
@@ -1005,7 +1005,8 @@ export class RepoLogProvider
       );
       this._onDidChangeTreeData.fire(undefined);
       if (!found) {
-        showActionFeedback(
+        showViewFeedback(
+          this.treeView,
           `Revision ${revision} not found in this repository's history.`
         );
         return;

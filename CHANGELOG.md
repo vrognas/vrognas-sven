@@ -7,6 +7,18 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.82] - 2026-07-10
+
+Feedback lands where the action happened, not in a far corner.
+
+### Changed
+
+- **Commit confirmation appears in the commit box**: after a successful commit the input box clears and "Committed revision N." flashes as its placeholder — right where you wrote the message — then the normal placeholder returns.
+- **History and sparse-checkout outcomes render inside their views**: "Revision N not found in this repository's history", "History already shows the latest server revisions", "Already at revision N", and "Downloaded N items" now appear as a transient message at the top of the view the action ran in.
+- **Update results flash inside the sync status-bar item you clicked**: the `↓`/update affordance briefly becomes "✓ Updated to revision N." and then reverts.
+- **Actions whose effect is already visible are now silent**, like git: blame toggles (decorations appear/disappear), adding files to a changelist (the file moves lists), pulling incoming changes (the incoming item clears), resolving a conflict (the conflict item clears), and ignore-pattern edits (the reopened picker shows the new state).
+- No-locus actions (clipboard copies, property tweaks, cleanup) keep the transient status-bar channel; toasts still cover decisions, warnings/errors, and teaching messages.
+
 ## [0.2.81] - 2026-07-10
 
 Inline feedback: contextual actions confirm in the status bar instead of corner toasts.

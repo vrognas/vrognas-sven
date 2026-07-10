@@ -10,7 +10,6 @@ import {
   blameStateManager,
   getBlameTargetUri
 } from "../../blame/blameStateManager";
-import { showActionFeedback } from "../../util/actionFeedback";
 
 export class ClearBlame extends Command {
   constructor() {
@@ -21,7 +20,7 @@ export class ClearBlame extends Command {
     const target = getBlameTargetUri(uri);
     if (!target) return;
 
+    // Silent: the decorations visibly disappearing IS the feedback
     blameStateManager.clearBlame(target);
-    showActionFeedback(`SVN Blame cleared for ${target.fsPath}`);
   }
 }

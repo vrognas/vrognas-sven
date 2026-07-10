@@ -9,7 +9,10 @@ import { inputCommitMessage } from "../messages";
 import { Repository } from "../repository";
 import { Resource } from "../resource";
 import { CommitFlowService } from "../services/commitFlowService";
-import { showActionFeedback } from "../util/actionFeedback";
+import {
+  showActionFeedback,
+  showCommitBoxFeedback
+} from "../util/actionFeedback";
 import {
   CommitTypeConfig,
   ConventionalCommitService
@@ -308,7 +311,9 @@ export async function executeCommit(
   commitPaths: string[]
 ): Promise<void> {
   const result = await repository.commitFiles(message, commitPaths);
-  showActionFeedback(result);
+  // Confirm IN the commit box: it just cleared, so the result flashes
+  // as its placeholder right where the commit was written
+  showCommitBoxFeedback(repository.inputBox, result);
   repository.inputBox.value = "";
   repository.staging.clearOriginalChangelists(commitPaths);
 }

@@ -171,10 +171,9 @@ export class ViewIgnorePatterns extends Command {
           await this.showActionPicker(repository, directory, patterns);
           return;
         }
-        // Delete property
+        // Delete property - silent: the reopened picker visibly shows
+        // the directory without patterns
         await repository.deleteIgnoreProperty(directory);
-        showActionFeedback(`Removed all ignore patterns from ${directory}`);
-        // Navigate back to directory picker after clearing
         await this.showDirectoryPicker(repository);
       } else {
         // Parse patterns (handle both actual newlines and \n escape sequences)
@@ -183,11 +182,8 @@ export class ViewIgnorePatterns extends Command {
           .map(p => p.trim())
           .filter(p => p.length > 0);
 
+        // Silent: the reopened picker visibly lists the new patterns
         await repository.setIgnoreProperty(newPatterns, directory);
-        showActionFeedback(
-          `Updated ignore patterns for ${directory}: ${newPatterns.join(", ")}`
-        );
-        // Refresh and show updated list
         await this.showActionPicker(repository, directory, newPatterns);
       }
     } catch (error) {
@@ -237,8 +233,8 @@ export class ViewIgnorePatterns extends Command {
     }
 
     try {
+      // Silent: the reopened picker visibly lacks the removed pattern
       await repository.removeFromIgnore(pick.pattern, directory);
-      showActionFeedback(`Removed '${pick.pattern}' from ${directory}`);
 
       // Refresh and show updated list
       const updatedPatterns = (

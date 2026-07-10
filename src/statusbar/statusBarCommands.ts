@@ -28,6 +28,11 @@ export class StatusBarCommands {
     );
   }
 
+  /** Flash an action outcome inside the sync status bar item. */
+  public flashSyncResult(text: string): void {
+    this.syncStatusBar.flashResult(text);
+  }
+
   get commands(): Command[] {
     const result: Command[] = [];
 

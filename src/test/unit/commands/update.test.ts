@@ -17,7 +17,6 @@ function makeResult(
 suite("Update Command Tests", () => {
   let update: Update;
   let mockRepository: Partial<Repository>;
-  let origShowInfo: typeof window.setStatusBarMessage;
   let origShowWarning: typeof window.showWarningMessage;
   let origShowError: typeof window.showErrorMessage;
   let origWithProgress: typeof window.withProgress;
@@ -34,25 +33,24 @@ suite("Update Command Tests", () => {
   setup(() => {
     update = new Update();
 
-    // Mock Repository - now returns IUpdateResult
+    // Mock Repository - now returns IUpdateResult. Success feedback
+    // flashes INSIDE the sync status bar item (statusBar.flashSyncResult)
     mockRepository = {
       updateRevision: async (ignoreExternals: boolean) => {
         updateRevisionCalls.push({ ignoreExternals });
         return makeResult("Updated to revision 123.", 123);
-      }
+      },
+      statusBar: {
+        flashSyncResult: (message: string) => {
+          showInfoCalls.push({ message });
+        }
+      } as never
     };
 
     // Mock window.withProgress to execute immediately
     origWithProgress = window.withProgress;
     (window as any).withProgress = async (_opts: any, task: any) => {
       return task();
-    };
-
-    // Success feedback is inline (status bar), not a toast
-    origShowInfo = window.setStatusBarMessage;
-    (window as any).setStatusBarMessage = (message: string) => {
-      showInfoCalls.push({ message });
-      return { dispose() {} };
     };
 
     // Mock window.showWarningMessage
@@ -95,7 +93,6 @@ suite("Update Command Tests", () => {
 
   teardown(() => {
     update.dispose();
-    (window as any).setStatusBarMessage = origShowInfo;
     (window as any).showWarningMessage = origShowWarning;
     (window as any).showErrorMessage = origShowError;
     (window as any).withProgress = origWithProgress;

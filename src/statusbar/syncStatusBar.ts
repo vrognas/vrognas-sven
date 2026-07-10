@@ -5,6 +5,7 @@
 import { Command, Disposable, Event, EventEmitter } from "vscode";
 import { Operation } from "../common/types";
 import { Repository } from "../repository";
+import { FEEDBACK_TIMEOUT_MS } from "../util/actionFeedback";
 
 interface ISyncStatusBarState {
   isIncomplete: boolean;
@@ -71,6 +72,28 @@ export class SyncStatusBar {
     };
   }
 
+  /** Transient outcome shown in place of the normal affordance. */
+  private transient?: { text: string; timer: NodeJS.Timeout };
+
+  /**
+   * Flash an action outcome INSIDE this status bar item - feedback
+   * where the action was initiated (e.g. "Updated to revision 3001."
+   * after its update affordance was clicked), then revert.
+   */
+  public flashResult(text: string): void {
+    if (this.transient) {
+      clearTimeout(this.transient.timer);
+    }
+    this.transient = {
+      text,
+      timer: setTimeout(() => {
+        this.transient = undefined;
+        this._onDidChange.fire();
+      }, FEEDBACK_TIMEOUT_MS)
+    };
+    this._onDidChange.fire();
+  }
+
   private onModelChange(): void {
     this.state = {
       ...this.state,
@@ -103,6 +126,12 @@ export class SyncStatusBar {
       icon = "$(sync~spin)";
       text = "Running";
       tooltip = "Running...";
+    } else if (this.transient) {
+      // Outcome of the action this item initiated, shown in place
+      command = "";
+      icon = "$(check)";
+      text = this.transient.text;
+      tooltip = this.transient.text;
     } else if (this.state.needCleanUp) {
       command = "sven.cleanup";
       icon = "$(alert)";
@@ -132,6 +161,9 @@ export class SyncStatusBar {
   }
 
   public dispose(): void {
+    if (this.transient) {
+      clearTimeout(this.transient.timer);
+    }
     this.disposables.forEach(d => d.dispose());
   }
 }

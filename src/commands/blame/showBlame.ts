@@ -10,7 +10,6 @@ import {
   blameStateManager,
   getBlameTargetUri
 } from "../../blame/blameStateManager";
-import { showActionFeedback } from "../../util/actionFeedback";
 
 export class ShowBlame extends Command {
   constructor() {
@@ -21,7 +20,7 @@ export class ShowBlame extends Command {
     const target = getBlameTargetUri(uri);
     if (!target) return;
 
+    // Silent: the decorations visibly appearing IS the feedback
     blameStateManager.setBlameEnabled(target, true);
-    showActionFeedback(`SVN Blame enabled for ${target.fsPath}`);
   }
 }

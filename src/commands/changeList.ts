@@ -9,7 +9,6 @@ import { Repository } from "../repository";
 import { normalizePath } from "../util";
 import { logError } from "../util/errorLogger";
 import { Command } from "./command";
-import { showActionFeedback } from "../util/actionFeedback";
 
 export class ChangeList extends Command {
   constructor() {
@@ -101,10 +100,9 @@ export class ChangeList extends Command {
       errorMessage = `Unable to remove file "${pathList}" from changelist`;
     } else {
       operation = async () => {
+        // Silent: the files visibly moving into the changelist group
+        // in the SCM view IS the feedback
         await repository.addChangelist(paths, changelistName);
-        showActionFeedback(
-          `Added files "${pathList}" to changelist "${changelistName}"`
-        );
       };
       errorMessage = `Unable to add file "${pathList}" to changelist "${changelistName}"`;
     }

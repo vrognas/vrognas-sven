@@ -1,21 +1,78 @@
 // Copyright (c) 2025-present Viktor Rognas
 // Licensed under MIT License
 
-import { window } from "vscode";
+import { TreeView, window } from "vscode";
 
-/** How long transient action feedback stays in the status bar. */
-const FEEDBACK_TIMEOUT_MS = 5000;
+/** How long transient action feedback stays visible. */
+export const FEEDBACK_TIMEOUT_MS = 5000;
 
 /**
- * Confirm the outcome of a user-initiated action inline (status bar)
- * instead of a disconnected corner toast that must be dismissed.
+ * Feedback policy - confirm outcomes WHERE the action took place:
  *
- * Policy: use this for pure outcome confirmations ("Committed revision
- * 42", "2 files staged") and benign nothing-to-do outcomes ("No changes
- * to commit"). Keep `showInformationMessage` for messages that offer a
- * decision (action buttons), report partial/failed state, or teach a
- * non-obvious consequence or next step.
+ * - View action (history jump, sparse download) -> `showViewFeedback`,
+ *   a transient message inside that tree view.
+ * - Commit-box action -> `showCommitBoxFeedback`, a transient flash of
+ *   the SCM input placeholder.
+ * - Status-bar-initiated action (update) -> `SyncStatusBar.flashResult`.
+ * - Effect already visible (blame decorations, files moving lists,
+ *   pickers reopening updated) -> NO message at all.
+ * - No anchoring surface (clipboard copies, property tweaks) ->
+ *   `showActionFeedback`, the transient status-bar channel.
+ *
+ * `showInformationMessage` toasts remain only for decisions (action
+ * buttons), warnings/errors, partial-failure summaries, and messages
+ * that teach a non-obvious consequence or next step.
  */
 export function showActionFeedback(message: string): void {
   window.setStatusBarMessage(message, FEEDBACK_TIMEOUT_MS);
+}
+
+/**
+ * Show a view-scoped outcome INSIDE that view (rendered above the tree
+ * content), auto-clearing unless a newer message replaced it. Falls
+ * back to the status bar when the view handle is unavailable (failed
+ * createTreeView on a dev reload).
+ */
+export function showViewFeedback(
+  view: Pick<TreeView<unknown>, "message"> | undefined,
+  message: string
+): void {
+  if (!view) {
+    showActionFeedback(message);
+    return;
+  }
+  view.message = message;
+  setTimeout(() => {
+    if (view.message === message) {
+      view.message = undefined;
+    }
+  }, FEEDBACK_TIMEOUT_MS);
+}
+
+/** True original placeholders, so overlapping flashes can't adopt a
+ *  flash text as the "original" to restore. */
+const originalPlaceholders = new WeakMap<object, string>();
+
+/**
+ * Confirm a commit-box action IN the commit box: the box just cleared,
+ * so flash the outcome as its placeholder, then restore the original.
+ * Falls back to the status bar for input boxes without a placeholder
+ * (plain `{ value }` stubs).
+ */
+export function showCommitBoxFeedback(
+  inputBox: { value: string; placeholder?: string },
+  message: string
+): void {
+  if (typeof inputBox.placeholder !== "string") {
+    showActionFeedback(message);
+    return;
+  }
+  const original = originalPlaceholders.get(inputBox) ?? inputBox.placeholder;
+  originalPlaceholders.set(inputBox, original);
+  inputBox.placeholder = message;
+  setTimeout(() => {
+    if (inputBox.placeholder === message) {
+      inputBox.placeholder = original;
+    }
+  }, FEEDBACK_TIMEOUT_MS);
 }

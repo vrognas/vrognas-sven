@@ -197,7 +197,7 @@ describe("ChangeList helper-driven behavior", () => {
     expect(inputSwitchSpy).toHaveBeenCalledWith(repo, true);
   });
 
-  it("shows exact success message when adding to changelist", async () => {
+  it("adds to changelist silently - the file moving lists is the feedback", async () => {
     const repo = createRepository();
     const getRepositoryFromUri = vi.fn().mockReturnValue(repo);
     vi.spyOn(changelistItems, "inputSwitchChangelist").mockResolvedValue(
@@ -211,10 +211,11 @@ describe("ChangeList helper-driven behavior", () => {
 
     await command.execute(resource);
 
-    // Success confirmation is inline status-bar feedback, not a toast
-    expect(window.setStatusBarMessage).toHaveBeenCalledWith(
-      'Added files "/repo/file.txt" to changelist "feature-x"',
-      expect.any(Number)
+    expect(repo.addChangelist).toHaveBeenCalledWith(
+      ["/repo/file.txt"],
+      "feature-x"
     );
+    expect(window.showInformationMessage).not.toHaveBeenCalled();
+    expect(window.setStatusBarMessage).not.toHaveBeenCalled();
   });
 });

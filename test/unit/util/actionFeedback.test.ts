@@ -1,14 +1,19 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { window } from "vscode";
-import { showActionFeedback } from "../../../src/util/actionFeedback";
+import {
+  showActionFeedback,
+  showCommitBoxFeedback,
+  showViewFeedback
+} from "../../../src/util/actionFeedback";
 import { executeCommit } from "../../../src/helpers/commitHelper";
 import { handleSvnResult } from "../../../src/util/lockHelpers";
 import { Repository } from "../../../src/repository";
 
 /**
- * Outcome confirmations of contextual actions render inline (status
- * bar) instead of as disconnected corner toasts. Notifications remain
- * for decisions, warnings/errors, and consequence-teaching messages.
+ * Outcome confirmations render WHERE the action took place: the tree
+ * view for view actions, the commit box for commits, the status bar
+ * only when there is no surface to anchor to. Toast notifications
+ * remain for decisions, warnings/errors, and teaching messages.
  */
 
 describe("inline action feedback", () => {
@@ -18,19 +23,54 @@ describe("inline action feedback", () => {
     vi.mocked(window.showErrorMessage).mockClear();
   });
 
-  it("shows in the status bar with a timeout, not as a toast", () => {
-    showActionFeedback("Committed revision 42.");
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("no-locus feedback goes to the status bar with a timeout, not a toast", () => {
+    showActionFeedback("Copied r42 to clipboard");
 
     expect(vi.mocked(window.setStatusBarMessage)).toHaveBeenCalledWith(
-      "Committed revision 42.",
+      "Copied r42 to clipboard",
       expect.any(Number)
     );
     expect(vi.mocked(window.showInformationMessage)).not.toHaveBeenCalled();
   });
 
-  it("commit success is inline feedback", async () => {
+  it("view feedback renders INSIDE the view and auto-clears", () => {
+    vi.useFakeTimers();
+    const view: { message?: string } = {};
+
+    showViewFeedback(
+      view,
+      "Revision 401 not found in this repository's history."
+    );
+
+    expect(view.message).toBe(
+      "Revision 401 not found in this repository's history."
+    );
+    vi.runAllTimers();
+    expect(view.message).toBeUndefined();
+  });
+
+  it("commit-box feedback flashes the placeholder and restores it", () => {
+    vi.useFakeTimers();
+    const inputBox = {
+      value: "",
+      placeholder: "Message (Ctrl+Enter to commit)"
+    };
+
+    showCommitBoxFeedback(inputBox, "Committed revision 42.");
+
+    expect(inputBox.placeholder).toBe("Committed revision 42.");
+    vi.runAllTimers();
+    expect(inputBox.placeholder).toBe("Message (Ctrl+Enter to commit)");
+  });
+
+  it("commit success lands in the commit box", async () => {
+    vi.useFakeTimers();
     const repository = {
-      inputBox: { value: "feat: x" },
+      inputBox: { value: "feat: x", placeholder: "Message" },
       commitFiles: vi.fn(async () => "Committed revision 42."),
       staging: { clearOriginalChangelists: vi.fn() }
     };
@@ -39,11 +79,11 @@ describe("inline action feedback", () => {
       "/ws/a.R"
     ]);
 
-    expect(vi.mocked(window.setStatusBarMessage)).toHaveBeenCalledWith(
-      "Committed revision 42.",
-      expect.any(Number)
-    );
+    expect(repository.inputBox.value).toBe("");
+    expect(repository.inputBox.placeholder).toBe("Committed revision 42.");
     expect(vi.mocked(window.showInformationMessage)).not.toHaveBeenCalled();
+    vi.runAllTimers();
+    expect(repository.inputBox.placeholder).toBe("Message");
   });
 
   it("lock/unlock success is inline; failures stay error toasts", () => {

@@ -10,7 +10,6 @@ import {
   blameStateManager,
   getBlameTargetUri
 } from "../../blame/blameStateManager";
-import { showActionFeedback } from "../../util/actionFeedback";
 
 export class ToggleBlame extends Command {
   constructor() {
@@ -21,8 +20,7 @@ export class ToggleBlame extends Command {
     const target = getBlameTargetUri(uri);
     if (!target) return;
 
-    const newState = blameStateManager.toggleBlame(target);
-    const action = newState ? "enabled" : "disabled";
-    showActionFeedback(`SVN Blame ${action} for ${target.fsPath}`);
+    // Silent: the decorations visibly toggling IS the feedback
+    blameStateManager.toggleBlame(target);
   }
 }

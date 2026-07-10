@@ -6,7 +6,6 @@ import { SourceControlResourceState, window } from "vscode";
 import { configuration } from "../helpers/configuration";
 import { Repository } from "../repository";
 import { Command } from "./command";
-import { showActionFeedback } from "../util/actionFeedback";
 
 interface PullBatchResult {
   results: string[];
@@ -55,14 +54,8 @@ export class PullIncomingChange extends Command {
       return;
     }
 
-    if (result.results.length === 1) {
-      showActionFeedback(result.results[0] ?? "Updated 1 file");
-      return;
-    }
-
-    if (result.results.length > 1) {
-      showActionFeedback(`Updated ${result.results.length} files`);
-    }
+    // Full success is silent: the incoming items visibly leaving the
+    // remote-changes group in the SCM view IS the feedback
   }
 
   public async execute(...changes: SourceControlResourceState[]) {

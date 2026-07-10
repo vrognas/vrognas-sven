@@ -54,10 +54,16 @@ export class Update extends Command {
         } else if (choice === "View SCM") {
           await commands.executeCommand("workbench.view.scm");
         }
-      } else if (showUpdateMessage && result.revision !== null) {
-        showActionFeedback(result.message);
       } else if (showUpdateMessage) {
-        showActionFeedback("Update completed");
+        const message =
+          result.revision !== null ? result.message : "Update completed";
+        // Feedback INSIDE the status-bar item that carries the update
+        // affordance; plain status bar for stubbed repositories
+        if (repository.statusBar) {
+          repository.statusBar.flashSyncResult(message);
+        } else {
+          showActionFeedback(message);
+        }
       }
     }, "Unable to update");
   }

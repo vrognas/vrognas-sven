@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { SyncStatusBar } from "../../../src/statusbar/syncStatusBar";
 import { Repository } from "../../../src/repository";
 
@@ -55,5 +55,20 @@ describe("SyncStatusBar wedged-working-copy states", () => {
 
     expect(bar.command?.command).toBe("sven.finishCheckout");
     bar.dispose();
+  });
+
+  it("flashResult shows the outcome IN the item, then reverts", () => {
+    vi.useFakeTimers();
+    const { repo } = makeRepo();
+    const bar = new SyncStatusBar(repo as unknown as Repository);
+
+    bar.flashResult("Updated to revision 3001.");
+
+    expect(bar.command?.title).toContain("Updated to revision 3001.");
+    vi.runAllTimers();
+    expect(bar.command?.title).not.toContain("Updated to revision 3001.");
+    expect(bar.command?.command).toBe("sven.update"); // normal affordance back
+    bar.dispose();
+    vi.useRealTimers();
   });
 });

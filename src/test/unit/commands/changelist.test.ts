@@ -317,8 +317,8 @@ suite("ChangeList Command Tests", () => {
       assert.strictEqual(addChangelistCalls.length, 1);
       assert.strictEqual(addChangelistCalls[0]!.name, "new-feature");
       assert.deepStrictEqual(addChangelistCalls[0]!.paths, ["/repo/file.txt"]);
-      assert.strictEqual(showInfoCalls.length, 1);
-      assert.ok(showInfoCalls[0]!.includes("new-feature"));
+      // Silent: the file visibly moving lists in the SCM view is the feedback
+      assert.strictEqual(showInfoCalls.length, 0);
     });
 
     test("3.2: Add to existing changelist", async () => {
@@ -683,7 +683,7 @@ suite("ChangeList Command Tests", () => {
   });
 
   suite("Information Messages", () => {
-    test("8.1: Show success message when adding to changelist", async () => {
+    test("8.1: Adding to changelist is silent (SCM view shows the move)", async () => {
       const resource = new Resource(
         Uri.file("/repo/file.txt"),
         Status.MODIFIED
@@ -693,13 +693,11 @@ suite("ChangeList Command Tests", () => {
 
       await changeListCmd.execute(resource);
 
-      assert.strictEqual(showInfoCalls.length, 1);
-      assert.ok(showInfoCalls[0]!.includes("Added files"));
-      assert.ok(showInfoCalls[0]!.includes("/repo/file.txt"));
-      assert.ok(showInfoCalls[0]!.includes("feature-x"));
+      assert.strictEqual(addChangelistCalls.length, 1);
+      assert.strictEqual(showInfoCalls.length, 0);
     });
 
-    test("8.2: Show file paths in message", async () => {
+    test("8.2: Multi-file add is silent too", async () => {
       const resources = [
         new Resource(Uri.file("/repo/file1.txt"), Status.MODIFIED),
         new Resource(Uri.file("/repo/file2.txt"), Status.ADDED)
@@ -709,9 +707,12 @@ suite("ChangeList Command Tests", () => {
 
       await changeListCmd.execute(...resources);
 
-      assert.strictEqual(showInfoCalls.length, 1);
-      assert.ok(showInfoCalls[0]!.includes("/repo/file1.txt"));
-      assert.ok(showInfoCalls[0]!.includes("/repo/file2.txt"));
+      assert.strictEqual(addChangelistCalls.length, 1);
+      assert.deepStrictEqual(addChangelistCalls[0]!.paths, [
+        "/repo/file1.txt",
+        "/repo/file2.txt"
+      ]);
+      assert.strictEqual(showInfoCalls.length, 0);
     });
 
     test("8.3: No success message when removing", async () => {

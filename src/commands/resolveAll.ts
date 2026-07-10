@@ -29,11 +29,9 @@ export class ResolveAll extends Command {
       }
 
       await this.handleRepositoryOperation(async () => {
-        const response = await repository.resolve(
-          [conflict.resourceUri.path],
-          choice.label
-        );
-        showActionFeedback(response);
+        // Silent: the conflict item visibly leaving the SCM conflicts
+        // group IS the feedback
+        await repository.resolve([conflict.resourceUri.path], choice.label);
       }, "Unable to resolve conflict");
     }
   }
