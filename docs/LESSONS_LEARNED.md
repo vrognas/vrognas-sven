@@ -1,7 +1,33 @@
 # Lessons Learned
 
-**Version**: 0.2.75
-**Updated**: 2026-07-08
+**Version**: 0.2.79
+**Updated**: 2026-07-10
+
+---
+
+### 82. Snapshot Before You Clear — and Keep Object Identity for In-Flight Guards
+
+**Lesson**: `refresh()` cleared `logCache` and then looked the previous entry up in the same, now-empty map: `prev` was always `undefined`. Every debounced refresh silently dropped `isComplete`/`fullHistory`, the revision-changed staleness check was dead code, and rebuilding a NEW cache object tripped the object-identity guards of in-flight `fetchAll`/`goToRevision` on every unrelated file save.
+
+**Rule**: If a rebuild consults prior state, snapshot (`new Map(cache)`) _before_ clearing. And when async consumers hold a reference and compare identity to detect invalidation, only replace the object when something actually invalidated it — otherwise mutate in place.
+
+---
+
+### 81. Completion State Must Come From a SUCCESSFUL Response
+
+**Lesson**: `fetchMore` swallowed non-connection errors, leaving an empty page that flowed into the "fewer results than requested → history complete (+fullHistory)" heuristic. One transient auth failure/timeout silently truncated history: paging UI vanished, goToRevision reported real revisions as missing, filters answered locally from the partial window. Similarly `fetchNewer`'s bare `catch → 0` turned network failure into "you're up to date", and `fetchAll` looped forever on the one error class that _did_ return early.
+
+**Rule**: Never derive completion/emptiness from a failed call — early-return (or flag) on ALL errors so the heuristic only sees real responses. Distinguish expected-error sentinels (E160006 "no such revision" = genuinely nothing newer) from failures before mapping an error to a benign value. And every retry loop needs an exit for the no-progress case.
+
+---
+
+### 80. svn Treats `scheme://` Targets as REPOSITORY URLs — Convert file-Uris at the CLI Boundary
+
+**Lesson**: Blame's "Diff with Previous" passed the editor's `file://` document Uri into `svn log`; `toString()` made it a `file:///c:/ws/...` target, which svn resolves as a _repository_ URL (ra_local) — E170013 on every use. The unit test mocked `log()` entirely and even pinned the broken call shape, so 1900+ green tests never noticed a feature that failed 100% of the time against real svn.
+
+**Fix**: One conversion at the `svnRepository` boundary (`uri.scheme === "file" ? uri.fsPath : uri.toString(true)`) for log/cat/diff, so every caller is safe.
+
+**Rule**: Working-copy Uris become filesystem paths before reaching the svn CLI. And when a wrapper constructs CLI args, test the _args_ with the real method (mock only the process exec) — a fully-mocked wrapper test pins your assumptions, not svn's behavior.
 
 ---
 
@@ -1122,27 +1148,23 @@ await repo.log(..., remotePath, revision);
 // Then appends "@367" → "file.txt@367"
 ```
 
-**SVN Peg Revision Syntax**:
+**SVN Peg Revision Syntax** (corrected in 0.2.79):
 
-- `file.txt@100` = view file.txt at revision 100
-- `file@2024.txt@100` = view file named "file@2024.txt" at revision 100
-- `file.txt@100@` = view file named "file.txt@100" at HEAD (empty peg)
-- `fixPegRevision()` adds trailing `@` to escape any `@` in filename
+- svn resolves the peg at the LAST `@` of a target
+- `file@2024.txt@100` = file named "file@2024.txt" at peg 100 — CORRECT pegged form, no escaping
+- `file@2024.txt@@100` = literal path "file@2024.txt@" at peg 100 — the escape-then-append bug
+- `file@2024.txt@` = literal "file@2024.txt", no peg — the trailing-`@` escape is ONLY for peg-less targets
 
-**Fix Pattern**:
+**Fix Pattern** (0.2.79):
 
 ```typescript
-// Add optional pegRevision parameter to methods that call SVN
-async log(rfrom, rto, limit, target?, pegRevision?: string) {
-  let targetPath = fixPegRevision(targetStr);  // Escape @ in filename
-  if (pegRevision) {
-    targetPath += "@" + pegRevision;  // Add peg revision last
-  }
-  args.push(targetPath);
-}
+// fixPegRevision(path, peg?) owns the construction:
+// with a peg → `${path}@${peg}` (unescaped);
+// without   → trailing-@ escape when the path contains @
+args.push(fixPegRevision(targetStr, pegRevision));
 ```
 
-**Rule**: Pass peg revision as a separate parameter; let the SVN-calling method construct the final path.
+**Rule**: Pass peg revision as a separate parameter and construct the target in ONE place. Never pre-escape a path you're about to append a peg to — svn splits at the last `@`, so the escape corrupts the path.
 
 ---
 

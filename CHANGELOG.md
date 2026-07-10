@@ -7,6 +7,50 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.79] - 2026-07-10
+
+Bug-hunt release: a multi-agent adversarial audit of the recent history/blame/commit/lock work confirmed 24 bugs; all are fixed here.
+
+### Fixed
+
+**Blame & diff**
+
+- **"Diff with Previous" never worked**: the blame hover link passed the editor's `file://` Uri to `svn log`/`svn cat`/`svn diff`, which treat scheme URLs as _repository_ URLs — every use failed with "Unable to resolve the previous revision". Working-copy Uris now resolve to filesystem paths at the CLI boundary.
+- **@-named files broke pegged operations**: escape-then-append produced `icon@2x.png@@123`, which SVN reads as the literal path `icon@2x.png@`. Explicit pegs now append unescaped (`icon@2x.png@123`) across log/cat/diff/blame/info.
+
+**Repo History**
+
+- **Silent history truncation**: any fetch error other than "unable to connect" (auth failure, timeout, server error) marked the cache _complete_ and _full_ — Load more/all vanished, go-to-revision reported existing revisions as "not found", and filters answered locally from the truncated window until a hard refresh. Failed pages no longer touch completion state.
+- **Load All infinite loop**: with the server unreachable, Load All re-spawned `svn log` plus an error toast per iteration until manually cancelled. It now stops on the first failed page.
+- **Action-filter infinite loop**: an Actions filter whose matches weren't in the newest page refetched the same page forever (hot CPU, permanent spinner). The pagination cursor now advances past fully-filtered pages.
+- **Load All hid the history it was loading**: each 500-revision chunk re-rendered the tree as a lone "Loading..." spinner. Loaded commits now stay visible and stream in, with the spinner appended.
+- **Every debounced refresh corrupted cache state**: the previous cache was looked up _after_ it was cleared, so any file save while the view was visible dropped `isComplete`/full-history state (Load more reappeared on complete histories; an active filter could render **unfiltered** entries), stale-after-external-update detection was dead code, and in-flight Load All / go-to-revision were silently cancelled. The cache is now snapshotted before clearing and kept object-identical when nothing changed.
+- **Filter results wrong in four ways**: (1) combined text filters (message + author + path) were OR'd by SVN while the UI promises AND — now `--search-and`; (2) the server-side date upper bound excluded the _entire_ end day — now inclusive; (3) date input parsed as UTC midnight, shifting bounds a day early west of UTC — now local; (4) a revision bound silently discarded a coexisting date bound — date bounds are now re-applied client-side on every fetched page.
+- **Filtered pagination could leak a revision below the range's lower bound** (inverted `-r` range at the page boundary). It now stops at the bound.
+- **"Show Incoming" while offline** reported "History already shows the latest server revisions". Network failures now surface as errors instead of a false all-clear.
+
+**Commit safety**
+
+- **Three commit commands bypassed the safety gates**: context-menu Commit, Commit With Message, and Quick Commit skipped both the unsaved-editor warning (stale disk content committed silently) and the pre-commit update. All commit paths now share the same gates.
+- **Esc during message input lost conflict warnings**: the background pre-commit update kept running, and conflicts it pulled in landed silently. Cancelling now still surfaces them and reveals the Source Control view.
+- **Commit failure lost the composed message**: a network drop after the three-step QuickPick flow discarded everything typed. The message is now parked in the commit box (cleared only on success).
+
+**Locks**
+
+- **Stolen locks were invisible**: the status parser reported a stolen lock as K (still yours) — no warning fired and the theft surfaced only at commit failure. Comparing local vs server lock token/owner now yields T with the actual holder named.
+- **Broken-lock warning named _you_ as the new holder** ("now held by <your own name>") when the server in fact has no lock. Owner dropped from the B-state message.
+- **Duplicate lock-contention dialogs**: opening then editing a contended file stacked two identical warnings; they now share one per-file gate.
+- **Error-recovery "Steal Lock"/"Lock File" targeted the active editor**, not the file that blocked the failed operation — the wrong file's lock could be stolen. The failed paths are now threaded through.
+
+**Status bar**
+
+- **"Need cleanup" / "Incomplete checkout" states were unreachable** — a wedged working copy kept offering "Update Revision". The flags are now wired into the status bar.
+- **Remote-changes prompt in multi-root workspaces** asked you to pick a repository it already knew. It passes its own.
+
+### Internal
+
+- Deferred (by design): Repo History renders the first repository in multi-root workspaces; `showIncoming` inherits that single-repo scope.
+
 ## [0.2.78] - 2026-07-09
 
 "Repo History is the hub": blame, the incoming-changes counter, and revision jumps now all land in the history view instead of dead-ending in toasts.

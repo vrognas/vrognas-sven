@@ -45,7 +45,7 @@ export class CommitQuick extends BaseStagedCommitCommand {
     const gated = await withPreCommitUpdate(
       repository,
       context.displayPaths,
-      async () => message
+      () => Promise.resolve(message)
     );
     if (gated === undefined) {
       return;
