@@ -7,6 +7,26 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.87] - 2026-07-11
+
+Integration hardening from an adversarial review of the 0.2.81–0.2.86 features (30 confirmed findings deduping to ~13 unique issues; 5 claims refuted with empirical svn/VS Code evidence).
+
+### Fixed
+
+- **Line History no longer floods the persistent blame store**: peg-qualified walk blames stay in the in-memory cache only, so the 40-entry store keeps the BASE blames that make files paint instantly after reloads.
+- **Blame paint no longer waits for the add-revision lookup**: the `svn log -r 1:HEAD` probe runs in the background with a one-shot re-render when it lands, and failures are negative-cached — offline sessions stop respawning a doomed subprocess on every render.
+- **Line History honors Cancel** through the diff-fetch phase and no longer opens the peek (or a summary) after the user backs out.
+- **Line History summary is honest**: it counts exactly what the peek shows, flags unavailable diffs, notes the 20-hop walk limit, and reports "could not load their diffs (offline?)" instead of a false "no history found".
+- **Huge files can't freeze the walk**: line-history mapping is gated at 20k lines, matching the other blame size limits.
+- **Peek Change anchors by the committed (BASE) line text**, not the possibly-edited editor text, and hunk matching is whitespace-insensitive to match blame's `-w` semantics.
+- **Revision-diff previews are invalidated on branch switch/merge** alongside the blame caches they're paired with.
+- **View-anchored feedback falls back to the status bar when the target view is hidden** (e.g. "Revision N not found" from a blame hover with Repo History collapsed).
+- **Commit confirmation also lands in the status bar** — visible for palette/keybinding commits made with the SCM view closed; changelist adds and conflict resolutions (also invocable outside the SCM view) get their status-bar confirmations back.
+
+### Added
+
+- **Blame status-bar picker gained Peek Change and Line History**, matching the inline hover's action set.
+
 ## [0.2.86] - 2026-07-10
 
 ### Fixed
