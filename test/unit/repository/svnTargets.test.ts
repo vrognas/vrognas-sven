@@ -103,6 +103,39 @@ describe("svn CLI target handling", () => {
     );
   });
 
+  it("blame escapes @-named files exactly once (no double escape)", async () => {
+    const { repo, exec } = makeRepo();
+
+    await repo.blame("/ws/notes@2024.txt", "42");
+
+    // double-escaping produced notes@2024.txt@@42 = literal path
+    // 'notes@2024.txt@' - svn E200009 on every @-named file
+    expect(lastArg(exec)).toBe("notes@2024.txt@42");
+  });
+
+  it("pegged blame on @-named files pegs once", async () => {
+    const { repo, exec } = makeRepo();
+
+    await repo.blame("/ws/notes@2024.txt", "42", false, "3000");
+
+    expect(lastArg(exec)).toBe("notes@2024.txt@3000");
+  });
+
+  it("show builds a single-pegged URL for @-named files", async () => {
+    const { repo } = makeRepo();
+    const uri = Uri.file("/ws/notes@2024.txt");
+
+    const { args } = await (
+      repo as unknown as {
+        prepareCatArgs: (f: Uri, r?: string) => Promise<{ args: string[] }>;
+      }
+    ).prepareCatArgs(uri, "42");
+
+    expect(args[args.length - 1]).toBe(
+      "http://srv/repo/trunk/notes@2024.txt@42"
+    );
+  });
+
   it("patchRevision uses the working-copy path for file Uris", async () => {
     const { repo, exec } = makeRepo();
     const uri = Uri.file("/ws/src/model.R");

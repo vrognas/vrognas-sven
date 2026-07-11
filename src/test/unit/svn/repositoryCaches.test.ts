@@ -70,6 +70,8 @@ suite("svnRepository.cat normalization + cache", () => {
     repo.workspaceRoot = "C:/repo";
     repo.removeAbsolutePath = (p: string) =>
       p.startsWith("C:/repo/") ? p.slice("C:/repo/".length) : p;
+    repo.relativize = (p: string) =>
+      p.startsWith("C:/repo/") ? p.slice("C:/repo/".length) : p;
     repo.buildPegPath = (target: string, _rev?: string) => target;
     repo.getInfo = async () => ({
       url: "https://svn.example.com/repo",

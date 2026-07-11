@@ -212,7 +212,13 @@ export class Repository {
     return this.svn.execBuffer(this.workspaceRoot, args, options);
   }
 
-  public removeAbsolutePath(file: string) {
+  /**
+   * Workspace-relative path WITHOUT the peg escape - for callers that
+   * build the final svn target themselves. They must escape or append
+   * a peg exactly ONCE at arg time: layering fixPegRevision twice
+   * yields `name@@` / `name@@REV`, a literal-`@` path svn rejects.
+   */
+  public relativize(file: string): string {
     file = fixPathSeparator(file);
 
     file = path.relative(this.workspaceRoot, file);
@@ -221,7 +227,12 @@ export class Repository {
       file = ".";
     }
 
-    return fixPegRevision(file);
+    return file;
+  }
+
+  /** Relative path escaped as a ready-to-use PEG-LESS svn target. */
+  public removeAbsolutePath(file: string) {
+    return fixPegRevision(this.relativize(file));
   }
 
   /**
@@ -775,8 +786,8 @@ export class Repository {
     skipCache: boolean = false,
     pegRevision?: string
   ): Promise<ISvnBlameLine[]> {
-    // Convert to relative path
-    const relativePath = this.removeAbsolutePath(file);
+    // Unescaped: _doBlameFetch escapes/pegs the target exactly once
+    const relativePath = this.relativize(file);
 
     // Resolve BASE to the file's actual base revision: revision-keyed
     // entries are immutable (long TTL) and mixed-revision working copies
@@ -1194,7 +1205,8 @@ export class Repository {
     let target: string = filePath;
 
     if (isChild) {
-      target = this.removeAbsolutePath(target);
+      // Unescaped: buildPegPath escapes/pegs the final target once
+      target = this.relativize(target);
     }
 
     if (revision) {
@@ -1653,7 +1665,7 @@ export class Repository {
     filePath: string,
     targetRevision: string
   ): Promise<string> {
-    const relativePath = this.removeAbsolutePath(filePath);
+    const relativePath = this.relativize(filePath);
     // Fix peg revision for filenames with @ (e.g., file@2024.txt)
     const safePath = fixPegRevision(relativePath);
     const args = ["merge", "-r", `HEAD:${targetRevision}`, safePath];
@@ -2491,7 +2503,8 @@ export class Repository {
    * @returns Lock info or null if not locked
    */
   public async getLockInfo(filePath: string): Promise<ISvnLockInfo | null> {
-    filePath = this.removeAbsolutePath(filePath);
+    // Unescaped: escaped exactly once in the arg below
+    filePath = this.relativize(filePath);
 
     try {
       const result = await this.exec([

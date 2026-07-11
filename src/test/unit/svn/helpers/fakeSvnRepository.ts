@@ -42,6 +42,9 @@ export async function makeFakeSvnRepo(): Promise<FakeSvnRepo> {
 
   const repo: any = Object.create(SvnRepository.prototype);
   repo.removeAbsolutePath = (p: string) => p;
+  // blame() relativizes WITHOUT the peg escape (escape happens once at
+  // arg time); mirror that seam here
+  repo.relativize = (p: string) => p;
   repo.getRepoUrl = async () => "https://svn.example.com/repo";
   // Blame's BASE resolution probes getInfo; fail it fast (no exec) so
   // count-based tests keep literal @BASE keys. Override with a resolving

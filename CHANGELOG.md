@@ -7,6 +7,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.88] - 2026-07-11
+
+### Fixed
+
+- **Blame, cat, rollback and lock-info work on `@`-named files** (e.g. `data@2024.csv`): the path relativizer baked the trailing-`@` peg escape in early, and the target builders then escaped again or appended a peg — producing `name@@`/`name@@REV`, a literal-`@` path svn rejects. Relativization and escaping are now separate steps, applied exactly once at argument-construction time. Bulk operations (add/revert/rename/property targets) keep the pre-escaped form they always used.
+
 ## [0.2.87] - 2026-07-11
 
 Integration hardening from an adversarial review of the 0.2.81–0.2.86 features (30 confirmed findings deduping to ~13 unique issues; 5 claims refuted with empirical svn/VS Code evidence).
