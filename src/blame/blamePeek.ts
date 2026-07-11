@@ -81,49 +81,6 @@ export function findHunkAnchor(patch: string, lineText: string): number {
 }
 
 /**
- * Peek the CHANGE the blamed revision made to this file - the diff hunk
- * around the hovered line, inline, without leaving the editor. The
- * `svn diff -c REV` patch is immutable and served from the pinned-
- * revision cache after the first fetch.
- */
-export async function peekBlameChange(
-  source: IBlamePeekSource,
-  uri: Uri,
-  revision: string,
-  workingLine: number,
-  lineText: string
-): Promise<void> {
-  let patch: string;
-  try {
-    patch = await source.patchRevision(revision, uri);
-  } catch {
-    showActionFeedback(`Unable to load the r${revision} change for this file.`);
-    return;
-  }
-  if (!patch.trim()) {
-    showActionFeedback(
-      `No text change recorded for r${revision} in this file.`
-    );
-    return;
-  }
-
-  // .diff basename so the peek editor gets diff syntax highlighting
-  const diffUri = tempSvnFs.createTempSvnRevisionFile(
-    uri.with({ path: `${uri.path}.diff` }),
-    revision,
-    patch
-  );
-  const anchor = findHunkAnchor(patch, lineText);
-  await commands.executeCommand(
-    "editor.action.peekLocations",
-    uri,
-    new Position(workingLine, 0),
-    [new Location(diffUri, new Range(anchor, 0, anchor, 0))],
-    "peek"
-  );
-}
-
-/**
  * Every revision that changed one line, newest first, via blame
  * chaining: SVN has no line-log, but blame pegged at BASE names the
  * line's latest change; LCS line mapping carries the line's position

@@ -82,6 +82,12 @@ export class Repository {
   // Bumped by clearBlameCache so fetches that started before an
   // invalidation can't repopulate the cache with pre-mutation data.
   private _blameGeneration = 0;
+  // BASE->numeric key resolutions, session-sticky. Without this memo,
+  // every blame after the 2-min info TTL awaited an `svn info` SPAWN
+  // before even a fully cached blame could return - the dominant
+  // revisit latency. Cleared with the blame caches on mutating ops and
+  // by updateInfo when the revision changed externally.
+  private _baseKeyCache = new Map<string, string>();
   private _logCache = new LRUCache<ISvnLogEntry[]>(50, 60 * 1000);
   // A branch's copy origin is stable for a given branch URL, but not
   // strictly immutable (delete + re-create at the same URL) and the URL
@@ -184,9 +190,17 @@ export class Repository {
     ]);
 
     try {
+      const prevRevision = this._info?.revision;
       this._info = await parseInfoXml(result.stdout);
       // Seed getInfo() cache so getCurrentBranch() doesn't re-query
       this._infoCache.set("", this._info);
+      // Revision moved WITHOUT a mutating operation through the
+      // extension (svn update/commit in a terminal): blame keys and
+      // content must re-resolve - this event replaces the staleness
+      // bound the 2-min info TTL used to provide
+      if (prevRevision !== undefined && this._info.revision !== prevRevision) {
+        this.clearBlameCache();
+      }
     } catch (err) {
       logError(
         `Failed to parse repository info for ${this.workspaceRoot}`,
@@ -647,6 +661,7 @@ export class Repository {
   public clearBlameCache(): void {
     this._blameCache.clear();
     this._blameErrorCache.clear();
+    this._baseKeyCache.clear();
     // Peek/Line-History previews come from these; SwitchBranch/Merge
     // change which lineage a WC path resolves to, so they must not
     // outlive the blame caches they're paired with
@@ -796,13 +811,19 @@ export class Repository {
     // The svn args keep the BASE keyword - only the key is resolved.
     let keyRevision = revision;
     if (revision.toUpperCase() === "BASE") {
-      try {
-        const info = await this.getInfo(file);
-        if (/^\d+$/.test(info.revision)) {
-          keyRevision = info.revision;
+      const memo = this._baseKeyCache.get(relativePath);
+      if (memo !== undefined) {
+        keyRevision = memo;
+      } else {
+        try {
+          const info = await this.getInfo(file);
+          if (/^\d+$/.test(info.revision)) {
+            keyRevision = info.revision;
+            this._baseKeyCache.set(relativePath, info.revision);
+          }
+        } catch {
+          // keep the literal BASE key
         }
-      } catch {
-        // keep the literal BASE key
       }
     }
 

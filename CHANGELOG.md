@@ -7,6 +7,20 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.89] - 2026-07-11
+
+Blame revisits are now actually instant, and Line History is the default peek.
+
+### Fixed
+
+- **Revisiting a recently blamed file no longer lags.** Two hidden latency sources sat in front of the warm caches:
+  - blame's BASE→revision key resolution awaited an `svn info` **subprocess before the cache lookup** whenever the 2-minute info TTL had lapsed — every revisit paid a spawn for already-cached blame. The resolution is now memoized for the session; coherence moves from the TTL to events (`updateInfo` clears the blame caches when it detects an externally changed revision, e.g. `svn update` in a terminal — mutating operations through the extension already cleared them).
+  - every render rebuilt all N hover/decoration objects. A render cache now reuses them when the document version, message state, and add-revision marker are unchanged — an editor switch back to a blamed file is a pure `setDecorations` call.
+
+### Changed
+
+- **"Peek Changes" (line history) is the default peek**: the blame hover and the status-bar picker now offer a single peek action that opens the scrollable list of every revision that changed the line. The separate single-revision "Peek Change" action is gone (its hunk is the first entry of the history peek); "Diff with Previous" remains.
+
 ## [0.2.88] - 2026-07-11
 
 ### Fixed

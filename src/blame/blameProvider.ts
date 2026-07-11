@@ -68,6 +68,26 @@ export class BlameProvider implements Disposable {
   // eviction order arbitrary (and the LRU test flaky on fast runners)
   private cacheAccessOrder = new Map<string, number>();
   private cacheAccessCounter = 0;
+  /** Built decoration arrays per uri: revisiting a file at the same
+   *  document version reuses them instead of rebuilding N hover/
+   *  decoration objects per editor switch (measurable latency). */
+  private renderCache = new Map<
+    string,
+    {
+      version: number;
+      msgEpoch: number;
+      addRevision: string | undefined;
+      cursorLine: number | undefined;
+      decorations: {
+        gutter: DecorationOptions[];
+        icon: DecorationOptions[];
+        inline: DecorationOptions[];
+      };
+      revisionRange: { min: number; max: number; uniqueRevisions: number[] };
+    }
+  >();
+  /** Bumped when new commit messages land (hover/inline content changes). */
+  private messageEpoch = 0;
   private currentLineNumber?: number; // Track cursor position for current-line-only mode
   private disposables: Disposable[] = [];
   private isActivated = false;
@@ -275,14 +295,49 @@ export class BlameProvider implements Disposable {
         return;
       }
 
-      // PROGRESSIVE RENDERING: Create decorations without waiting for messages
-      const decorations = await this.createAllDecorations(blameData, target, {
-        skipMessagePrefetch: true, // Don't block on message fetching
-        lineMapping
-      });
-
-      // Calculate revision range for icon colors
-      const revisionRange = this.getRevisionRange(blameData);
+      // Render cache: same document version + message state -> reuse
+      // the built decoration objects instead of rebuilding them all
+      const uriKey = target.document.uri.toString();
+      const renderKey = {
+        version: target.document.version,
+        msgEpoch: this.messageEpoch,
+        addRevision: this.addRevisionCache.get(uriKey),
+        cursorLine: blameConfiguration.isInlineCurrentLineOnly()
+          ? this.currentLineNumber
+          : undefined
+      };
+      const cachedRender = this.renderCache.get(uriKey);
+      let decorations: {
+        gutter: DecorationOptions[];
+        icon: DecorationOptions[];
+        inline: DecorationOptions[];
+      };
+      let revisionRange: {
+        min: number;
+        max: number;
+        uniqueRevisions: number[];
+      };
+      if (
+        cachedRender &&
+        cachedRender.version === renderKey.version &&
+        cachedRender.msgEpoch === renderKey.msgEpoch &&
+        cachedRender.addRevision === renderKey.addRevision &&
+        cachedRender.cursorLine === renderKey.cursorLine
+      ) {
+        ({ decorations, revisionRange } = cachedRender);
+      } else {
+        // PROGRESSIVE RENDERING: build without waiting for messages
+        decorations = await this.createAllDecorations(blameData, target, {
+          skipMessagePrefetch: true, // Don't block on message fetching
+          lineMapping
+        });
+        revisionRange = this.getRevisionRange(blameData);
+        this.renderCache.set(uriKey, {
+          ...renderKey,
+          decorations,
+          revisionRange
+        });
+      }
 
       // PHASE 1: Apply decorations immediately (gutter + icons + inline without messages)
       target.setDecorations(
@@ -365,6 +420,7 @@ export class BlameProvider implements Disposable {
     this.lineMappingCache.delete(key); // Clear line mapping too
     this.cacheAccessOrder.delete(key); // Clean up access tracking
     this.addRevisionCache.delete(key);
+    this.renderCache.delete(key);
     // Cancel any in-flight message fetches for this URI
     this.inFlightMessageFetches.delete(key);
   }
@@ -394,6 +450,7 @@ export class BlameProvider implements Disposable {
       this.blameCache.delete(oldestKey);
       this.cacheAccessOrder.delete(oldestKey);
       this.inFlightMessageFetches.delete(oldestKey);
+      this.renderCache.delete(oldestKey);
     }
   }
 
@@ -714,6 +771,7 @@ export class BlameProvider implements Disposable {
     this.iconTypes.clear();
     this.blameCache.clear();
     this.lineMappingCache.clear();
+    this.renderCache.clear();
     this.revisionColors.clear();
     this.svgCache.clear();
     this.messageCache.clear();
@@ -796,6 +854,7 @@ export class BlameProvider implements Disposable {
     this.lineMappingCache.clear();
     this.cacheAccessOrder.clear();
     this.addRevisionCache.clear();
+    this.renderCache.clear();
     this.inFlightMessageFetches.clear();
 
     const editor = window.activeTextEditor;
@@ -815,6 +874,9 @@ export class BlameProvider implements Disposable {
   private async onConfigurationChange(
     _event: ConfigurationChangeEvent
   ): Promise<void> {
+    // Built decorations embed template/config-dependent content
+    this.renderCache.clear();
+
     // Save old decoration types
     const oldTypes = this.decorationTypes;
     const oldIconTypes = this.iconTypes;
@@ -1461,6 +1523,7 @@ export class BlameProvider implements Disposable {
       const log = await this.repository.log(revision, revision, 1);
       const message = log[0]?.msg || "";
       this.messageCache.set(revision, message);
+      this.messageEpoch++;
 
       // Evict message cache if exceeding limit
       this.evictMessageCache();
@@ -1505,6 +1568,7 @@ export class BlameProvider implements Disposable {
           this.messageCache.set(entry.revision, entry.msg);
         }
       }
+      this.messageEpoch++;
 
       // Evict message cache if exceeding limit
       this.evictMessageCache();

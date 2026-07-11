@@ -193,12 +193,7 @@ export class BlameStatusBar implements Disposable {
         action: "show"
       },
       {
-        label: "$(eye) Peek Change",
-        description: `Diff hunk of r${blameLine.revision} around this line`,
-        action: "peek"
-      },
-      {
-        label: "$(versions) Line History",
+        label: "$(eye) Peek Changes",
         description: "Every revision that changed this line",
         action: "history"
       },
@@ -425,16 +420,6 @@ export class BlameStatusBar implements Disposable {
         await commands.executeCommand(
           "sven.repolog.goToRevision",
           parseInt(blameLine.revision!, 10)
-        );
-        break;
-
-      case "peek":
-        await commands.executeCommand(
-          "sven.blame.peekChange",
-          uri.toString(),
-          blameLine.revision,
-          blameLine.lineNumber,
-          blameLine.lineNumber - 1
         );
         break;
 

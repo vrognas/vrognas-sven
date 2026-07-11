@@ -31,7 +31,6 @@ describe("buildBlameHover", () => {
         "sven.repolog.goToRevision",
         "sven.blame.copyRevision",
         "sven.blame.showDiff",
-        "sven.blame.peekChange",
         "sven.blame.peekLineHistory"
       ]
     });

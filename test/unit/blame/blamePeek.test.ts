@@ -1,8 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { commands, Location, Uri, window } from "vscode";
+import { describe, it, expect, vi } from "vitest";
+import { commands, Location, Uri } from "vscode";
 import {
   findHunkAnchor,
-  peekBlameChange,
   peekLineHistory,
   walkLineHistory
 } from "../../../src/blame/blamePeek";
@@ -45,30 +44,6 @@ describe("findHunkAnchor", () => {
     const anchor = findHunkAnchor(PATCH, "not in the diff");
 
     expect(lines[anchor]).toBe("@@ -10,4 +10,5 @@");
-  });
-});
-
-describe("peekBlameChange", () => {
-  beforeEach(() => {
-    vi.mocked(commands.executeCommand).mockClear();
-    vi.mocked(window.setStatusBarMessage).mockClear();
-  });
-
-  it("opens a peek at the matching hunk of the revision's diff", async () => {
-    const source = { patchRevision: vi.fn(async () => PATCH) };
-    const uri = Uri.file("/ws/model.R");
-
-    await peekBlameChange(source, uri, "401", 12, "new computation");
-
-    const call = vi
-      .mocked(commands.executeCommand)
-      .mock.calls.find(c => c[0] === "editor.action.peekLocations");
-    expect(call).toBeDefined();
-    const [, anchorUri, position, locations] = call!;
-    expect(String(anchorUri)).toContain("model.R");
-    expect((position as { line: number }).line).toBe(12);
-    const loc = (locations as Location[])[0]!;
-    expect(loc.uri.toString()).toContain(".diff");
   });
 });
 
@@ -189,7 +164,7 @@ describe("peekLineHistory", () => {
 });
 
 describe("blame hover peek link", () => {
-  it("links Peek Change with uri, revision and line args", () => {
+  it("Peek Changes opens the LINE HISTORY (the default peek)", () => {
     const line: ISvnBlameLine = {
       lineNumber: 5,
       revision: "401",
@@ -205,11 +180,13 @@ describe("blame hover peek link", () => {
       12 // working-copy line the decoration sits on
     );
 
-    // args: uri, revision, BASE line (anchor needle source), working line
+    // args: uri, BASE line (walk start), working line (peek anchor)
+    expect(md.value).toContain("Peek Changes");
     expect(md.value).toContain(
-      `command:sven.blame.peekChange?${encodeURIComponent(
-        JSON.stringify(["file:///ws/model.R", "401", 5, 12])
+      `command:sven.blame.peekLineHistory?${encodeURIComponent(
+        JSON.stringify(["file:///ws/model.R", 5, 12])
       )}`
     );
+    expect(md.value).not.toContain("sven.blame.peekChange?");
   });
 });

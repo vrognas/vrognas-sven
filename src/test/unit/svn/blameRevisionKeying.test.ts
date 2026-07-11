@@ -21,7 +21,11 @@ suite("Blame cache revision keying", () => {
     repo.getInfo = async () => ({ revision });
 
     await repo.blame("file.txt");
-    revision = "130"; // svn update happened
+    // svn update happened externally: updateInfo detects the revision
+    // change and runs clearBlameCache (which also drops the session-
+    // sticky BASE-key memo) - simulate that invalidation event here
+    revision = "130";
+    repo.clearBlameCache();
     await repo.blame("file.txt");
 
     assert.strictEqual(

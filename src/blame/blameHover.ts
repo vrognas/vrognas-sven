@@ -32,7 +32,6 @@ export function buildBlameHover(
       "sven.repolog.goToRevision",
       "sven.blame.copyRevision",
       "sven.blame.showDiff",
-      "sven.blame.peekChange",
       "sven.blame.peekLineHistory"
     ]
   };
@@ -47,24 +46,12 @@ export function buildBlameHover(
   if (message) {
     md.appendMarkdown(`${message}\n\n`);
   }
-  // Inline peek of the hunk this revision changed around the line -
-  // works for add-revision lines too (the hunk is the file's addition)
+  // Default peek = the line's FULL change history: a scrollable peek
+  // list with one entry per revision that changed this line, each
+  // previewing that revision's diff hunk
   const peekLink =
     fileUri && workingLine !== undefined
-      ? ` · [$(eye) Peek Change](command:sven.blame.peekChange?${encodeURIComponent(
-          JSON.stringify([
-            fileUri.toString(),
-            rev,
-            blameLine.lineNumber,
-            workingLine
-          ])
-        )} "Peek the r${rev} change around this line")`
-      : "";
-  // Walk EVERY revision that changed this line and peek them as a
-  // scrollable list (one entry per change)
-  const historyLink =
-    fileUri && workingLine !== undefined
-      ? ` · [$(versions) Line History](command:sven.blame.peekLineHistory?${encodeURIComponent(
+      ? ` · [$(eye) Peek Changes](command:sven.blame.peekLineHistory?${encodeURIComponent(
           JSON.stringify([
             fileUri.toString(),
             blameLine.lineNumber,
@@ -86,7 +73,6 @@ export function buildBlameHover(
         JSON.stringify([rev])
       )} "Copy r${rev} to the clipboard")` +
       peekLink +
-      historyLink +
       diffLink
   );
   return md;

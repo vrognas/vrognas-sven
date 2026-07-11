@@ -140,34 +140,6 @@ async function init(
       }
     ),
     commands.registerCommand(
-      "sven.blame.peekChange",
-      async (uriStr: string, rev: string, baseLine: number, line: number) => {
-        const uri = Uri.parse(uriStr);
-        const repository = sourceControlManager.getRepository(uri);
-        if (!repository) {
-          window.showErrorMessage("No SVN repository found for this file");
-          return;
-        }
-        // Anchor by the COMMITTED (BASE) line text: the editor line may
-        // carry local edits that no longer match the diff's + lines
-        let lineText = "";
-        try {
-          const base = await repository.repository.show(uri.fsPath, "BASE");
-          lineText = base.split(/\r?\n/)[baseLine - 1] ?? "";
-        } catch {
-          const editor = window.visibleTextEditors.find(
-            e => e.document.uri.toString() === uri.toString()
-          );
-          lineText =
-            editor && line < editor.document.lineCount
-              ? editor.document.lineAt(line).text
-              : "";
-        }
-        const { peekBlameChange } = await import("./blame/blamePeek");
-        await peekBlameChange(repository.repository, uri, rev, line, lineText);
-      }
-    ),
-    commands.registerCommand(
       "sven.blame.peekLineHistory",
       async (uriStr: string, baseLine: number, workingLine: number) => {
         const uri = Uri.parse(uriStr);

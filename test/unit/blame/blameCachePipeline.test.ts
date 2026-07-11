@@ -127,7 +127,10 @@ describe("updateDecorations pipeline", () => {
         releaseMapping();
         return undefined;
       }),
-      ensureAddRevision: vi.fn(async () => undefined),
+      ensureAddRevision: vi.fn(async () => false),
+      renderCache: new Map(),
+      messageEpoch: 0,
+      addRevisionCache: new Map(),
       createAllDecorations: vi.fn(async () => ({
         gutter: [],
         icon: [],
