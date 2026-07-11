@@ -28,9 +28,10 @@ suite("svnRepository.logBatch args", () => {
     const entries = await repo.logBatch(["100", "200"]);
 
     assert.strictEqual(calls.length, 1, "one range exec");
-    assert.ok(calls[0].includes("log") && calls[0].includes("100:200"));
+    const args = calls[0]!;
+    assert.ok(args.includes("log") && args.includes("100:200"));
     assert.ok(
-      !calls[0].includes("-v"),
+      !args.includes("-v"),
       "range logBatch must not request verbose changed-paths"
     );
     // Messages still parse from the non-verbose log.
