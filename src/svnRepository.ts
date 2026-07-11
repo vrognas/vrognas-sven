@@ -2041,8 +2041,10 @@ export class Repository {
       return cached.filter(e => requestedSet.has(e.revision));
     }
 
-    // Fetch entire range (trade bandwidth for speed)
-    const args = ["log", "-r", `${minRev}:${maxRev}`, "--xml", "-v"];
+    // Fetch entire range (trade bandwidth for speed). No -v: the only
+    // consumer (blame message prefetch) reads revision+msg, never the
+    // changed-path list, and -v bloats stdout/parse on wide-merge commits.
+    const args = ["log", "-r", `${minRev}:${maxRev}`, "--xml"];
 
     if (target !== undefined) {
       args.push(fixPegRevision(targetStr, pegRevision));
