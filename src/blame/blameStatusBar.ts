@@ -90,6 +90,14 @@ export class BlameStatusBar implements Disposable {
           repo.onDidRunOperation(op => this.onRepositoryOperation(op))
         );
       }
+      // getBlameData no longer awaits the initial crawl, so re-evaluate once
+      // it lands - a file blamed during the empty-index window reconciles.
+      if (typeof repo.statusReady?.then === "function") {
+        void repo.statusReady.then(() => {
+          this.lastLineKey = undefined;
+          void this.updateStatusBar();
+        });
+      }
     };
     (this.sourceControlManager.repositories ?? []).forEach(hookRepository);
     if (typeof this.sourceControlManager.onDidOpenRepository === "function") {
@@ -313,8 +321,11 @@ export class BlameStatusBar implements Disposable {
       return undefined;
     }
 
-    // Wait for initial status to load before checking file version
-    await repository.statusReady;
+    // Do NOT await repository.statusReady - blocking the status bar on the
+    // full initial crawl (seconds on a large working copy) is exactly what
+    // BlameProvider avoids. The resource checks below degrade gracefully
+    // while the index is empty (blame silently skips unversioned files via
+    // classifyBlameError), and onStatusReady re-runs once the crawl lands.
 
     // Skip files that can't be blamed:
     // - UNVERSIONED/IGNORED/NONE: not under version control
