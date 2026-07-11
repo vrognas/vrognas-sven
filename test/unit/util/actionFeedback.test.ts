@@ -39,7 +39,7 @@ describe("inline action feedback", () => {
 
   it("view feedback renders INSIDE the view and auto-clears", () => {
     vi.useFakeTimers();
-    const view: { message?: string } = {};
+    const view: { message?: string; visible?: boolean } = { visible: true };
 
     showViewFeedback(
       view,
@@ -51,6 +51,20 @@ describe("inline action feedback", () => {
     );
     vi.runAllTimers();
     expect(view.message).toBeUndefined();
+  });
+
+  it("falls back to the status bar when the view is HIDDEN", () => {
+    // e.g. goToRevision invoked from a blame hover while Repo History
+    // is collapsed - a message inside it would be invisible
+    const view: { message?: string; visible?: boolean } = { visible: false };
+
+    showViewFeedback(view, "Revision 401 not found.");
+
+    expect(view.message).toBeUndefined();
+    expect(vi.mocked(window.setStatusBarMessage)).toHaveBeenCalledWith(
+      "Revision 401 not found.",
+      expect.any(Number)
+    );
   });
 
   it("commit-box feedback flashes the placeholder and restores it", () => {
@@ -81,6 +95,12 @@ describe("inline action feedback", () => {
 
     expect(repository.inputBox.value).toBe("");
     expect(repository.inputBox.placeholder).toBe("Committed revision 42.");
+    // ...and in the status bar, which is visible even when the SCM view
+    // is closed (palette/keybinding commits)
+    expect(vi.mocked(window.setStatusBarMessage)).toHaveBeenCalledWith(
+      "Committed revision 42.",
+      expect.any(Number)
+    );
     expect(vi.mocked(window.showInformationMessage)).not.toHaveBeenCalled();
     vi.runAllTimers();
     expect(repository.inputBox.placeholder).toBe("Message");

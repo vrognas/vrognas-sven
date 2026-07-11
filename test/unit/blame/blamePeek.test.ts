@@ -205,9 +205,10 @@ describe("blame hover peek link", () => {
       12 // working-copy line the decoration sits on
     );
 
+    // args: uri, revision, BASE line (anchor needle source), working line
     expect(md.value).toContain(
       `command:sven.blame.peekChange?${encodeURIComponent(
-        JSON.stringify(["file:///ws/model.R", "401", 12])
+        JSON.stringify(["file:///ws/model.R", "401", 5, 12])
       )}`
     );
   });

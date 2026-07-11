@@ -317,8 +317,10 @@ suite("ChangeList Command Tests", () => {
       assert.strictEqual(addChangelistCalls.length, 1);
       assert.strictEqual(addChangelistCalls[0]!.name, "new-feature");
       assert.deepStrictEqual(addChangelistCalls[0]!.paths, ["/repo/file.txt"]);
-      // Silent: the file visibly moving lists in the SCM view is the feedback
-      assert.strictEqual(showInfoCalls.length, 0);
+      // Status-bar feedback: invocable from Explorer/palette where the
+      // SCM view (the visible effect) may be closed
+      assert.strictEqual(showInfoCalls.length, 1);
+      assert.ok(showInfoCalls[0]!.includes("new-feature"));
     });
 
     test("3.2: Add to existing changelist", async () => {
@@ -683,7 +685,7 @@ suite("ChangeList Command Tests", () => {
   });
 
   suite("Information Messages", () => {
-    test("8.1: Adding to changelist is silent (SCM view shows the move)", async () => {
+    test("8.1: Adding to changelist confirms in the status bar", async () => {
       const resource = new Resource(
         Uri.file("/repo/file.txt"),
         Status.MODIFIED
@@ -694,10 +696,12 @@ suite("ChangeList Command Tests", () => {
       await changeListCmd.execute(resource);
 
       assert.strictEqual(addChangelistCalls.length, 1);
-      assert.strictEqual(showInfoCalls.length, 0);
+      assert.strictEqual(showInfoCalls.length, 1);
+      assert.ok(showInfoCalls[0]!.includes("Added files"));
+      assert.ok(showInfoCalls[0]!.includes("feature-x"));
     });
 
-    test("8.2: Multi-file add is silent too", async () => {
+    test("8.2: Multi-file add lists the paths", async () => {
       const resources = [
         new Resource(Uri.file("/repo/file1.txt"), Status.MODIFIED),
         new Resource(Uri.file("/repo/file2.txt"), Status.ADDED)
@@ -712,7 +716,9 @@ suite("ChangeList Command Tests", () => {
         "/repo/file1.txt",
         "/repo/file2.txt"
       ]);
-      assert.strictEqual(showInfoCalls.length, 0);
+      assert.strictEqual(showInfoCalls.length, 1);
+      assert.ok(showInfoCalls[0]!.includes("/repo/file1.txt"));
+      assert.ok(showInfoCalls[0]!.includes("/repo/file2.txt"));
     });
 
     test("8.3: No success message when removing", async () => {

@@ -636,6 +636,11 @@ export class Repository {
   public clearBlameCache(): void {
     this._blameCache.clear();
     this._blameErrorCache.clear();
+    // Peek/Line-History previews come from these; SwitchBranch/Merge
+    // change which lineage a WC path resolves to, so they must not
+    // outlive the blame caches they're paired with
+    this._patchRevisionCache.clear();
+    this._patchRevisionInFlight.clear();
     // Drop in-flight promises too: callers arriving after the clear must
     // not be handed a pre-mutation fetch. The generation bump prevents
     // those orphaned fetches from writing their result back on completion.
@@ -988,7 +993,10 @@ export class Repository {
         blame,
         immutable ? Repository.IMMUTABLE_REVISION_TTL_MS : undefined
       );
-      if (immutable) {
+      // Persist only display-path blames: peg-qualified walk steps
+      // (Line History) would flood the 40-entry store and evict the
+      // BASE entries it exists to serve instantly after reloads
+      if (immutable && pegRevision === undefined) {
         const persistKey = this.persistentBlameKey(cacheKey);
         if (persistKey) {
           persistBlame(persistKey, blame);

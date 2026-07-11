@@ -35,6 +35,27 @@ describe("blame add-revision marking", () => {
     expect(mockThis.addRevisionCache.get(uri.toString())).toBe("401");
   });
 
+  it("negative-caches failures so offline sessions don't respawn svn per render", async () => {
+    const log = vi.fn(async () => {
+      throw new Error("svn: E170013: Unable to connect");
+    });
+    const mockThis = {
+      addRevisionCache: new Map<string, string>(),
+      repository: { repository: { log } }
+    };
+    const ensure = proto("ensureAddRevision") as (
+      this: unknown,
+      uri: Uri
+    ) => Promise<boolean>;
+
+    expect(await ensure.call(mockThis, uri)).toBe(false);
+    expect(await ensure.call(mockThis, uri)).toBe(false);
+
+    // sentinel cached: exactly ONE doomed spawn, and no marker rendered
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(mockThis.addRevisionCache.get(uri.toString())).toBe("");
+  });
+
   it("hover for an add-revision line says so and drops the diff link", () => {
     const blameLine: ISvnBlameLine = {
       lineNumber: 1,

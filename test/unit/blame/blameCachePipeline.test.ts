@@ -64,6 +64,18 @@ describe("blame persistent read/write-through", () => {
     });
   });
 
+  it("does NOT persist peg-qualified walk blames (they'd flood the store)", async () => {
+    const { repo } = makeRepo();
+
+    await repo.blame("/ws/src/f.R", "42", false, "3000");
+
+    // in-memory cached, but kept out of the 40-entry persistent store
+    await new Promise(r => setTimeout(r, 10));
+    expect(
+      getPersistedBlame("http://srv/repo/trunk|src/f.R@42@3000")
+    ).toBeUndefined();
+  });
+
   it("serves from persistence without spawning svn", async () => {
     const { repo, exec } = makeRepo();
     persistBlame("http://srv/repo/trunk|src/f.R@42", [

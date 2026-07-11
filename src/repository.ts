@@ -1289,10 +1289,11 @@ export class Repository implements IRemoteRepository {
 
   public async show(
     filePath: string | Uri,
-    revision?: string
+    revision?: string,
+    pegRevision?: string
   ): Promise<string> {
     return this.run<string>(Operation.Show, () => {
-      return this.repository.show(filePath, revision);
+      return this.repository.show(filePath, revision, pegRevision);
     });
   }
 
@@ -1942,9 +1943,9 @@ export class Repository implements IRemoteRepository {
     return changes;
   }
 
-  public async blame(path: string, revision?: string) {
+  public async blame(path: string, revision?: string, pegRevision?: string) {
     return this.run(Operation.Blame, () =>
-      this.repository.blame(path, revision)
+      this.repository.blame(path, revision, false, pegRevision)
     );
   }
 

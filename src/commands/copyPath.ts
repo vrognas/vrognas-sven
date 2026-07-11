@@ -7,14 +7,9 @@
  * Copies relative or absolute path of files from SCM changes view to clipboard
  */
 
-import {
-  env,
-  SourceControlResourceState,
-  Uri,
-  window,
-  workspace
-} from "vscode";
+import { env, SourceControlResourceState, Uri, workspace } from "vscode";
 import { Command } from "./command";
+import { showActionFeedback } from "../util/actionFeedback";
 
 abstract class BaseCopyPathCommand extends Command {
   protected abstract pathTypeLabel: string;
@@ -38,9 +33,8 @@ abstract class BaseCopyPathCommand extends Command {
     await env.clipboard.writeText(text);
 
     const count = paths.length;
-    window.setStatusBarMessage(
-      `Copied ${count} ${this.pathTypeLabel} path${count > 1 ? "s" : ""} to clipboard`,
-      3000
+    showActionFeedback(
+      `Copied ${count} ${this.pathTypeLabel} path${count > 1 ? "s" : ""} to clipboard`
     );
   }
 }

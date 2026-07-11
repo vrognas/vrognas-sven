@@ -36,6 +36,7 @@ import { logError, logWarning } from "./util/errorLogger";
 import { registerSvnConnectionsProvider } from "./positron/connectionsProvider";
 import { BlameStatusBar } from "./blame/blameStatusBar";
 import { initBlamePersistence } from "./blame/blamePersistence";
+import { showActionFeedback } from "./util/actionFeedback";
 import { NeedsLockStatusBar } from "./statusbar/needsLockStatusBar";
 import { LockStatusBar } from "./statusbar/lockStatusBar";
 
@@ -140,22 +141,28 @@ async function init(
     ),
     commands.registerCommand(
       "sven.blame.peekChange",
-      async (uriStr: string, rev: string, line: number) => {
+      async (uriStr: string, rev: string, baseLine: number, line: number) => {
         const uri = Uri.parse(uriStr);
         const repository = sourceControlManager.getRepository(uri);
         if (!repository) {
           window.showErrorMessage("No SVN repository found for this file");
           return;
         }
-        // The hover lives on this document; its line text locates the
-        // matching hunk inside the revision's diff
-        const editor = window.visibleTextEditors.find(
-          e => e.document.uri.toString() === uri.toString()
-        );
-        const lineText =
-          editor && line < editor.document.lineCount
-            ? editor.document.lineAt(line).text
-            : "";
+        // Anchor by the COMMITTED (BASE) line text: the editor line may
+        // carry local edits that no longer match the diff's + lines
+        let lineText = "";
+        try {
+          const base = await repository.repository.show(uri.fsPath, "BASE");
+          lineText = base.split(/\r?\n/)[baseLine - 1] ?? "";
+        } catch {
+          const editor = window.visibleTextEditors.find(
+            e => e.document.uri.toString() === uri.toString()
+          );
+          lineText =
+            editor && line < editor.document.lineCount
+              ? editor.document.lineAt(line).text
+              : "";
+        }
         const { peekBlameChange } = await import("./blame/blamePeek");
         await peekBlameChange(repository.repository, uri, rev, line, lineText);
       }
@@ -180,7 +187,7 @@ async function init(
     ),
     commands.registerCommand("sven.blame.copyRevision", async (rev: string) => {
       await env.clipboard.writeText(rev);
-      window.setStatusBarMessage(`Copied r${rev} to clipboard`, 3000);
+      showActionFeedback(`Copied r${rev} to clipboard`);
     }),
     commands.registerCommand("sven.showBlameCommit", () => {
       void blameStatusBar.showCommitDetails();

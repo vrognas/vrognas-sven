@@ -34,10 +34,15 @@ export function showActionFeedback(message: string): void {
  * createTreeView on a dev reload).
  */
 export function showViewFeedback(
-  view: Pick<TreeView<unknown>, "message"> | undefined,
+  view:
+    | (Pick<TreeView<unknown>, "message"> & { visible?: boolean })
+    | undefined,
   message: string
 ): void {
-  if (!view) {
+  // A message inside a HIDDEN view is invisible feedback - commands
+  // reachable from outside the view (blame hover links) fall back to
+  // the status bar instead
+  if (!view || view.visible === false) {
     showActionFeedback(message);
     return;
   }
@@ -63,8 +68,11 @@ export function showCommitBoxFeedback(
   inputBox: { value: string; placeholder?: string },
   message: string
 ): void {
+  // Commits can be launched with the SCM view closed (palette,
+  // keybinding, guided flow) - the status bar is the surface that is
+  // always visible; the placeholder flash adds the in-place detail
+  showActionFeedback(message);
   if (typeof inputBox.placeholder !== "string") {
-    showActionFeedback(message);
     return;
   }
   const original = originalPlaceholders.get(inputBox) ?? inputBox.placeholder;

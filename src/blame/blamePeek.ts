@@ -53,7 +53,11 @@ export interface ILineChange {
  */
 export function findHunkAnchor(patch: string, lineText: string): number {
   const lines = patch.split(/\r?\n/);
-  const needle = lineText.trim();
+  // Whitespace-insensitive: blame runs with -x "-w --ignore-eol-style",
+  // so the blamed line may differ from the diff's + line in internal
+  // whitespace even though blame calls it unchanged
+  const collapse = (s: string) => s.replace(/\s+/g, "");
+  const needle = collapse(lineText);
   let firstHunk = -1;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
@@ -68,7 +72,7 @@ export function findHunkAnchor(patch: string, lineText: string): number {
       firstHunk !== -1 &&
       line.startsWith("+") &&
       !line.startsWith("+++") &&
-      line.slice(1).trim() === needle
+      collapse(line.slice(1)) === needle
     ) {
       return i;
     }
@@ -196,6 +200,9 @@ export async function walkLineHistory(
     } catch {
       break; // file didn't exist before this change - reached the add
     }
+    if (prevLines.length > MAX_WALK_LINES) {
+      break; // O(n^2) mapping gate - stop rather than freeze
+    }
     const mapped = computeLineMapping(curLines, prevLines).get(curLine);
     if (mapped === undefined) {
       break; // no ancestor line - it first appeared in this change
@@ -213,14 +220,33 @@ export async function walkLineHistory(
  * per revision that changed the line, each previewing that revision's
  * diff hunk. The count and revision list also land in the status bar.
  */
+/** LCS line mapping is O(n^2) per hop - gate huge files like the other
+ *  blame surfaces do. */
+const MAX_WALK_LINES = 20_000;
+const MAX_WALK_STEPS = 20;
+
 export async function peekLineHistory(
   source: ILineHistorySource,
   uri: Uri,
   baseLine: number,
   workingLine: number
 ): Promise<void> {
-  const locations: Location[] = [];
-  const changes = await window.withProgress(
+  let baseLineCount = 0;
+  try {
+    baseLineCount = (await source.show(uri.fsPath, "BASE")).split(
+      /\r?\n/
+    ).length;
+  } catch {
+    // walk handles the unversioned/offline case itself
+  }
+  if (baseLineCount > MAX_WALK_LINES) {
+    showActionFeedback(
+      `File too large for line history (${baseLineCount} lines).`
+    );
+    return;
+  }
+
+  const state = await window.withProgress(
     {
       location: ProgressLocation.Notification,
       title: "SVN: Collecting line history",
@@ -228,12 +254,20 @@ export async function peekLineHistory(
     },
     async (_progress, token) => {
       const walked = await walkLineHistory(source, uri.fsPath, baseLine, {
+        maxSteps: MAX_WALK_STEPS,
         shouldContinue: () => !token?.isCancellationRequested
       });
+      const locations: Location[] = [];
+      const shownRevisions: string[] = [];
+      let unavailable = 0;
       for (const change of walked) {
+        if (token?.isCancellationRequested) {
+          break;
+        }
         try {
           const patch = await source.patchRevision(change.revision, uri);
           if (!patch.trim()) {
+            unavailable++;
             continue;
           }
           const diffUri = tempSvnFs.createTempSvnRevisionFile(
@@ -245,29 +279,52 @@ export async function peekLineHistory(
           locations.push(
             new Location(diffUri, new Range(anchor, 0, anchor, 0))
           );
+          shownRevisions.push(change.revision);
         } catch {
-          // skip revisions whose diff can't be fetched
+          unavailable++;
         }
       }
-      return walked;
+      return {
+        walked,
+        locations,
+        shownRevisions,
+        unavailable,
+        cancelled: token?.isCancellationRequested === true
+      };
     }
   );
 
-  if (changes.length === 0 || locations.length === 0) {
+  if (state.cancelled) {
+    return; // the user backed out - no feedback, no peek
+  }
+  if (state.walked.length === 0) {
     showActionFeedback("No line history found for this line.");
     return;
   }
+  if (state.locations.length === 0) {
+    showActionFeedback(
+      `Found ${state.walked.length} change${
+        state.walked.length === 1 ? "" : "s"
+      } but could not load their diffs (offline?).`
+    );
+    return;
+  }
 
+  // Report exactly what the peek shows - not what the walk found
+  const truncated =
+    state.walked.length >= MAX_WALK_STEPS ? " · older changes not walked" : "";
+  const dropped =
+    state.unavailable > 0 ? ` · ${state.unavailable} diff(s) unavailable` : "";
   showActionFeedback(
-    `Line changed in ${changes.length} revision${
-      changes.length === 1 ? "" : "s"
-    }: ${changes.map(c => `r${c.revision}`).join(", ")}`
+    `Line changed in ${state.shownRevisions.length} revision${
+      state.shownRevisions.length === 1 ? "" : "s"
+    }: ${state.shownRevisions.map(r => `r${r}`).join(", ")}${truncated}${dropped}`
   );
   await commands.executeCommand(
     "editor.action.peekLocations",
     uri,
     new Position(workingLine, 0),
-    locations,
+    state.locations,
     "peek"
   );
 }

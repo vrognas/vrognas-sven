@@ -8,6 +8,7 @@ import { Resource } from "../resource";
 import { Repository } from "../repository";
 import { normalizePath } from "../util";
 import { logError } from "../util/errorLogger";
+import { showActionFeedback } from "../util/actionFeedback";
 import { Command } from "./command";
 
 export class ChangeList extends Command {
@@ -100,9 +101,12 @@ export class ChangeList extends Command {
       errorMessage = `Unable to remove file "${pathList}" from changelist`;
     } else {
       operation = async () => {
-        // Silent: the files visibly moving into the changelist group
-        // in the SCM view IS the feedback
         await repository.addChangelist(paths, changelistName);
+        // Invocable from the Explorer context menu / palette where the
+        // SCM view (the visible effect) may be closed - status bar
+        showActionFeedback(
+          `Added files "${pathList}" to changelist "${changelistName}"`
+        );
       };
       errorMessage = `Unable to add file "${pathList}" to changelist "${changelistName}"`;
     }

@@ -267,9 +267,7 @@ export class BlameProvider implements Disposable {
       // serial subprocess spawn before the first paint
       const [blameData, lineMapping] = await Promise.all([
         this.getBlameData(target.document.uri, target),
-        this.getLineMapping(target.document.uri, target),
-        // Parallel with the (much slower) blame: marks add-revision lines
-        this.ensureAddRevision(target.document.uri)
+        this.getLineMapping(target.document.uri, target)
       ]);
 
       if (!blameData) {
@@ -308,6 +306,18 @@ export class BlameProvider implements Disposable {
           blameConfiguration.isInlineEnabled() ? decorations.inline : []
         );
       }
+
+      // Add-revision marker resolves in the background (network log) -
+      // never gate the paint on it; one re-render when it first lands
+      void this.ensureAddRevision(target.document.uri).then(landed => {
+        if (
+          landed &&
+          window.activeTextEditor?.document.uri.toString() ===
+            target.document.uri.toString()
+        ) {
+          void this.updateDecorations(target);
+        }
+      });
 
       // PHASE 2: Fetch messages asynchronously and update inline decorations
       // (Fire-and-forget - don't block UI)
@@ -513,18 +523,22 @@ export class BlameProvider implements Disposable {
     };
   }
 
-  /** Oldest revision that touched each file - marks "added here" lines. */
+  /** Oldest revision that touched each file - marks "added here" lines.
+   *  "" is the negative sentinel: lookup failed, don't retry per render. */
   private addRevisionCache = new Map<string, string>();
 
   /**
    * Resolve the file's ADD revision (`svn log -r 1:HEAD --limit=1`, the
-   * first revision of its lineage) once per file. Best-effort: without
-   * it the hover just lacks the added-here marker.
+   * first revision of its lineage) once per file. Best-effort and NEVER
+   * awaited on the paint path: it's a network log that can outlast a
+   * cached blame. Returns whether a NEW marker value landed (callers
+   * re-render once on true). Failures negative-cache so an offline
+   * session doesn't re-spawn a doomed subprocess on every render.
    */
-  private async ensureAddRevision(uri: Uri): Promise<void> {
+  private async ensureAddRevision(uri: Uri): Promise<boolean> {
     const key = uri.toString();
     if (this.addRevisionCache.has(key)) {
-      return;
+      return false;
     }
     try {
       const entries = await this.repository.repository.log(
@@ -534,11 +548,11 @@ export class BlameProvider implements Disposable {
         uri.fsPath
       );
       const first = entries[0]?.revision;
-      if (first) {
-        this.addRevisionCache.set(key, first);
-      }
+      this.addRevisionCache.set(key, first ?? "");
+      return !!first;
     } catch {
-      // unversioned/offline - no marker
+      this.addRevisionCache.set(key, "");
+      return false;
     }
   }
 

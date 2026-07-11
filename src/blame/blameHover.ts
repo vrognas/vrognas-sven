@@ -52,7 +52,12 @@ export function buildBlameHover(
   const peekLink =
     fileUri && workingLine !== undefined
       ? ` · [$(eye) Peek Change](command:sven.blame.peekChange?${encodeURIComponent(
-          JSON.stringify([fileUri.toString(), rev, workingLine])
+          JSON.stringify([
+            fileUri.toString(),
+            rev,
+            blameLine.lineNumber,
+            workingLine
+          ])
         )} "Peek the r${rev} change around this line")`
       : "";
   // Walk EVERY revision that changed this line and peek them as a
