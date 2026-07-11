@@ -231,6 +231,18 @@ export class Location {
   ) {}
 }
 
+export class DocumentLink {
+  public tooltip?: string;
+  constructor(
+    public range: Range,
+    public target?: Uri
+  ) {}
+}
+
+export const languages = {
+  registerDocumentLinkProvider: vi.fn(() => new Disposable(() => {}))
+};
+
 export class MarkdownString {
   constructor(public value = "") {}
   appendMarkdown(value: string): MarkdownString {

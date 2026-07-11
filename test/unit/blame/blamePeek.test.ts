@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { commands, Location, Uri } from "vscode";
 import {
+  blamePeekLinkProvider,
   findHunkAnchor,
+  peekLatestChange,
   peekLineHistory,
   walkLineHistory
 } from "../../../src/blame/blamePeek";
@@ -164,7 +166,7 @@ describe("peekLineHistory", () => {
 });
 
 describe("blame hover peek link", () => {
-  it("Peek Changes opens the LINE HISTORY (the default peek)", () => {
+  it("Peek Changes opens the instant latest-change peek", () => {
     const line: ISvnBlameLine = {
       lineNumber: 5,
       revision: "401",
@@ -180,13 +182,62 @@ describe("blame hover peek link", () => {
       12 // working-copy line the decoration sits on
     );
 
-    // args: uri, BASE line (walk start), working line (peek anchor)
+    // args: uri, revision, BASE line, working line
     expect(md.value).toContain("Peek Changes");
     expect(md.value).toContain(
-      `command:sven.blame.peekLineHistory?${encodeURIComponent(
-        JSON.stringify(["file:///ws/model.R", 5, 12])
+      `command:sven.blame.peekChanges?${encodeURIComponent(
+        JSON.stringify(["file:///ws/model.R", "401", 5, 12])
       )}`
     );
-    expect(md.value).not.toContain("sven.blame.peekChange?");
+  });
+});
+
+describe("peekLatestChange (the fast default peek)", () => {
+  function makeSource() {
+    return {
+      patchRevision: vi.fn(async () => PATCH),
+      show: vi.fn(async () => "l1\nnew computation\nl3"),
+      blame: vi.fn(async () => []),
+      getInfo: vi.fn(async () => ({ revision: "3000" }))
+    };
+  }
+
+  it("opens instantly with the latest hunk and a load-all header link", async () => {
+    vi.mocked(commands.executeCommand).mockClear();
+    const uri = Uri.file("/ws/model.R");
+
+    await peekLatestChange(makeSource() as never, uri, "401", 2, 12);
+
+    const call = vi
+      .mocked(commands.executeCommand)
+      .mock.calls.find(c => c[0] === "editor.action.peekLocations");
+    expect(call).toBeDefined();
+    const locations = call![3] as Location[];
+    expect(locations).toHaveLength(1);
+    const diffDocUri = locations[0]!.uri;
+
+    // the diff document carries the in-peek "load ALL revisions" link
+    const doc = {
+      uri: diffDocUri,
+      getText: () =>
+        "### Latest change only - click here to load ALL revisions of this line ###\nrest"
+    };
+    const links = blamePeekLinkProvider.provideDocumentLinks(doc as never);
+    expect(links).toHaveLength(1);
+    expect(String(links[0]!.target)).toContain("sven.blame.peekLineHistory");
+    expect(String(links[0]!.target)).toContain(
+      encodeURIComponent(JSON.stringify([uri.toString(), 2, 12]))
+    );
+  });
+
+  it("provides no link for unrelated tempsvnfs documents", () => {
+    const doc = {
+      uri: Uri.parse("tempsvnfs:/hash/r5_other.R.diff"),
+      getText: () => "@@ -1 +1 @@\n+x\n"
+    };
+
+    expect(
+      blamePeekLinkProvider.provideDocumentLinks(doc as never)
+    ).toHaveLength(0);
   });
 });

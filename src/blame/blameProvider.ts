@@ -20,6 +20,7 @@ import {
 } from "vscode";
 import { debounce, throttle } from "../decorators";
 import { ISvnBlameLine } from "../common/types";
+import { configuration } from "../helpers/configuration";
 import { Repository } from "../repository";
 import { blameConfiguration } from "./blameConfiguration";
 import { blameStateManager } from "./blameStateManager";
@@ -88,6 +89,9 @@ export class BlameProvider implements Disposable {
   >();
   /** Bumped when new commit messages land (hover/inline content changes). */
   private messageEpoch = 0;
+  /** Files whose peek data was already swept (cleared with the caches). */
+  private peekPrefetchDone = new Set<string>();
+  private static readonly MAX_PEEK_PREFETCH = 20;
   private currentLineNumber?: number; // Track cursor position for current-line-only mode
   private disposables: Disposable[] = [];
   private isActivated = false;
@@ -362,6 +366,12 @@ export class BlameProvider implements Disposable {
         );
       }
 
+      // Pre-warm Peek Changes data in the background (diffs + hop
+      // contents; never historical blames)
+      if (configuration.get<boolean>("blame.prefetchHistory", true)) {
+        void this.prefetchPeekData(target.document.uri, blameData);
+      }
+
       // Add-revision marker resolves in the background (network log) -
       // never gate the paint on it; one re-render when it first lands
       void this.ensureAddRevision(target.document.uri).then(landed => {
@@ -421,6 +431,7 @@ export class BlameProvider implements Disposable {
     this.cacheAccessOrder.delete(key); // Clean up access tracking
     this.addRevisionCache.delete(key);
     this.renderCache.delete(key);
+    this.peekPrefetchDone.delete(key);
     // Cancel any in-flight message fetches for this URI
     this.inFlightMessageFetches.delete(key);
   }
@@ -578,6 +589,62 @@ export class BlameProvider implements Disposable {
         lineIndex
       )
     };
+  }
+
+  /**
+   * Pre-warm what "Peek Changes" needs, in the background: the per-
+   * revision diffs (the peek previews) and the REV-1 contents (the
+   * walk's mapping hops), newest revisions first. Historical BLAMES
+   * stay lazy - prefetching those would multiply server load. Runs
+   * sequentially, once per file per session, and aborts the sweep on
+   * the first network failure.
+   */
+  private async prefetchPeekData(
+    uri: Uri,
+    blameData: ISvnBlameLine[]
+  ): Promise<void> {
+    const key = uri.toString();
+    if (this.peekPrefetchDone.has(key)) {
+      return;
+    }
+    this.peekPrefetchDone.add(key);
+
+    const revisions = [
+      ...new Set(blameData.map(b => b.revision).filter((r): r is string => !!r))
+    ]
+      .map(r => parseInt(r, 10))
+      .filter(n => !isNaN(n))
+      .sort((a, b) => b - a)
+      .slice(0, BlameProvider.MAX_PEEK_PREFETCH);
+
+    let peg: string | undefined;
+    try {
+      const info = await this.repository.repository.getInfo(uri.fsPath);
+      if (/^\d+$/.test(info.revision)) {
+        peg = info.revision;
+      }
+    } catch {
+      return; // offline - the sweep retries after the next invalidation
+    }
+
+    for (const rev of revisions) {
+      try {
+        await this.repository.repository.patchRevision(String(rev), uri);
+      } catch {
+        return; // network trouble - stop, don't storm the server
+      }
+      if (rev > 1) {
+        try {
+          await this.repository.repository.show(
+            uri.fsPath,
+            String(rev - 1),
+            peg
+          );
+        } catch {
+          // lineage boundary (file added at rev) - keep sweeping
+        }
+      }
+    }
   }
 
   /** Oldest revision that touched each file - marks "added here" lines.
@@ -855,6 +922,7 @@ export class BlameProvider implements Disposable {
     this.cacheAccessOrder.clear();
     this.addRevisionCache.clear();
     this.renderCache.clear();
+    this.peekPrefetchDone.clear();
     this.inFlightMessageFetches.clear();
 
     const editor = window.activeTextEditor;

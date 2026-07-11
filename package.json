@@ -2,7 +2,7 @@
   "name": "sven",
   "displayName": "Sven",
   "description": "Integrated Subversion source control with Positron IDE support. Privacy-focused: zero telemetry, local-only operations.",
-  "version": "0.2.89",
+  "version": "0.2.90",
   "publisher": "vrognas",
   "engines": {
     "vscode": "^1.109.0",
@@ -2070,6 +2070,15 @@
           "markdownDescription": "**Master toggle** for SVN blame functionality. When disabled, all blame features are hidden.",
           "default": true,
           "order": 30,
+          "tags": [
+            "blame"
+          ]
+        },
+        "sven.blame.prefetchHistory": {
+          "type": "boolean",
+          "markdownDescription": "After blame renders, pre-warm the per-revision diffs and neighbor contents in the background so `Peek Changes` opens instantly. Historical blames are never prefetched.",
+          "default": true,
+          "order": 31,
           "tags": [
             "blame"
           ]

@@ -3,10 +3,12 @@
 
 import {
   commands,
+  DocumentLink,
   Location,
   Position,
   ProgressLocation,
   Range,
+  TextDocument,
   Uri,
   window
 } from "vscode";
@@ -80,6 +82,96 @@ export function findHunkAnchor(patch: string, lineText: string): number {
   return firstHunk === -1 ? 0 : firstHunk;
 }
 
+/** Header line prepended to the fast peek's diff document. Clicking it
+ *  (via the tempsvnfs DocumentLinkProvider below) loads ALL revisions. */
+const LOAD_ALL_HEADER =
+  "### Latest change only - click here to load ALL revisions of this line ###";
+
+/** Full-history command args per fast-peek diff document. */
+const historyLinkArgs = new Map<string, [string, number, number]>();
+
+/**
+ * DocumentLinkProvider for tempsvnfs: turns the fast peek's header line
+ * into a clickable "load all revisions" affordance INSIDE the peek -
+ * the references widget itself can't host buttons.
+ */
+export const blamePeekLinkProvider = {
+  provideDocumentLinks(doc: TextDocument): DocumentLink[] {
+    const args = historyLinkArgs.get(doc.uri.toString());
+    if (!args || !doc.getText().startsWith(LOAD_ALL_HEADER)) {
+      return [];
+    }
+    const target = Uri.parse(
+      `command:sven.blame.peekLineHistory?${encodeURIComponent(
+        JSON.stringify(args)
+      )}`
+    );
+    const link = new DocumentLink(
+      new Range(0, 0, 0, LOAD_ALL_HEADER.length),
+      target
+    );
+    link.tooltip = "Walk and peek every revision that changed this line";
+    return [link];
+  }
+};
+
+/**
+ * The DEFAULT peek: instant, latest change only. Shows the diff hunk of
+ * the line's most recent revision (usually pre-warmed by the blame
+ * prefetch sweep - zero network) with an in-document link to load the
+ * full line history on demand.
+ */
+export async function peekLatestChange(
+  source: ILineHistorySource,
+  uri: Uri,
+  revision: string,
+  baseLine: number,
+  workingLine: number
+): Promise<void> {
+  let patch: string;
+  try {
+    patch = await source.patchRevision(revision, uri);
+  } catch {
+    showActionFeedback(`Unable to load the r${revision} change for this file.`);
+    return;
+  }
+  if (!patch.trim()) {
+    showActionFeedback(
+      `No text change recorded for r${revision} in this file.`
+    );
+    return;
+  }
+
+  // Anchor by the COMMITTED text - the editor line may carry local edits
+  let needle = "";
+  try {
+    const base = await source.show(uri.fsPath, "BASE");
+    needle = base.split(/\r?\n/)[baseLine - 1] ?? "";
+  } catch {
+    // fall back to the first hunk
+  }
+
+  const content = `${LOAD_ALL_HEADER}\n${patch}`;
+  const diffUri = tempSvnFs.createTempSvnRevisionFile(
+    uri.with({ path: `${uri.path}.diff` }),
+    revision,
+    content
+  );
+  historyLinkArgs.set(diffUri.toString(), [
+    uri.toString(),
+    baseLine,
+    workingLine
+  ]);
+  const anchor = findHunkAnchor(patch, needle) + 1; // +1 for the header
+  await commands.executeCommand(
+    "editor.action.peekLocations",
+    uri,
+    new Position(workingLine, 0),
+    [new Location(diffUri, new Range(anchor, 0, anchor, 0))],
+    "peek"
+  );
+}
+
 /**
  * Every revision that changed one line, newest first, via blame
  * chaining: SVN has no line-log, but blame pegged at BASE names the
@@ -93,7 +185,12 @@ export async function walkLineHistory(
   source: ILineHistorySource,
   filePath: string,
   baseLine: number,
-  opts: { maxSteps?: number; shouldContinue?: () => boolean } = {}
+  opts: {
+    maxSteps?: number;
+    shouldContinue?: () => boolean;
+    /** Fired per discovered change - drives sequential progress UI. */
+    onChange?: (change: ILineChange) => void;
+  } = {}
 ): Promise<ILineChange[]> {
   const maxSteps = opts.maxSteps ?? 20;
   const shouldContinue = opts.shouldContinue ?? (() => true);
@@ -138,12 +235,14 @@ export async function walkLineHistory(
       break; // unannotated line, or not strictly decreasing (safety)
     }
     lastRevNum = revNum;
-    changes.push({
+    const change: ILineChange = {
       revision: entry.revision,
       author: entry.author,
       date: entry.date,
       lineText: curLines[curLine - 1] ?? ""
-    });
+    };
+    changes.push(change);
+    opts.onChange?.(change);
 
     const prevRev = revNum - 1;
     if (prevRev < 1) {
@@ -209,10 +308,14 @@ export async function peekLineHistory(
       title: "SVN: Collecting line history",
       cancellable: true
     },
-    async (_progress, token) => {
+    async (progress, token) => {
       const walked = await walkLineHistory(source, uri.fsPath, baseLine, {
         maxSteps: MAX_WALK_STEPS,
-        shouldContinue: () => !token?.isCancellationRequested
+        shouldContinue: () => !token?.isCancellationRequested,
+        onChange: c =>
+          progress?.report?.({
+            message: `r${c.revision} found — looking for older changes…`
+          })
       });
       const locations: Location[] = [];
       const shownRevisions: string[] = [];

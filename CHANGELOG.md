@@ -7,6 +7,19 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.90] - 2026-07-11
+
+"Peek Changes" opens instantly: latest change first, full history on demand — with the data pre-warmed in the background.
+
+### Changed
+
+- **Peek Changes is now a two-stage peek**: it opens _immediately_ with the line's latest change (its diff is usually already pre-warmed — zero network), and the diff document's header line is a clickable **"load ALL revisions of this line"** link that runs the full history walk from inside the peek. Best of both: instant default, complete history one click away.
+- **The history walk reports progress per hop** ("r401 found — looking for older changes…") so long walks read as sequential loading instead of a silent wait.
+
+### Added
+
+- **Background peek-data prefetch** (`sven.blame.prefetchHistory`, default on): after blame renders, the extension quietly pre-warms the per-revision diffs and neighbor contents for the file's blame revisions (newest first, capped at 20, sequential, aborts on the first network failure). Historical _blames_ are never prefetched — that would multiply server load — so a full-history walk still costs one blame per remaining hop, and everything else is cache-warm.
+
 ## [0.2.89] - 2026-07-11
 
 Blame revisits are now actually instant, and Line History is the default peek.

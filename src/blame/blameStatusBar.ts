@@ -194,8 +194,8 @@ export class BlameStatusBar implements Disposable {
       },
       {
         label: "$(eye) Peek Changes",
-        description: "Every revision that changed this line",
-        action: "history"
+        description: `Latest change (r${blameLine.revision}); load all from the peek`,
+        action: "peek"
       },
       {
         label: "$(clippy) Copy Revision",
@@ -423,10 +423,11 @@ export class BlameStatusBar implements Disposable {
         );
         break;
 
-      case "history":
+      case "peek":
         await commands.executeCommand(
-          "sven.blame.peekLineHistory",
+          "sven.blame.peekChanges",
           uri.toString(),
+          blameLine.revision,
           blameLine.lineNumber,
           blameLine.lineNumber - 1
         );

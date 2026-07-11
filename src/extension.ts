@@ -8,6 +8,7 @@ import {
   Disposable,
   env,
   ExtensionContext,
+  languages,
   OutputChannel,
   Uri,
   window
@@ -140,6 +141,30 @@ async function init(
       }
     ),
     commands.registerCommand(
+      "sven.blame.peekChanges",
+      async (
+        uriStr: string,
+        rev: string,
+        baseLine: number,
+        workingLine: number
+      ) => {
+        const uri = Uri.parse(uriStr);
+        const repository = sourceControlManager.getRepository(uri);
+        if (!repository) {
+          window.showErrorMessage("No SVN repository found for this file");
+          return;
+        }
+        const { peekLatestChange } = await import("./blame/blamePeek");
+        await peekLatestChange(
+          repository.repository,
+          uri,
+          rev,
+          baseLine,
+          workingLine
+        );
+      }
+    ),
+    commands.registerCommand(
       "sven.blame.peekLineHistory",
       async (uriStr: string, baseLine: number, workingLine: number) => {
         const uri = Uri.parse(uriStr);
@@ -165,6 +190,17 @@ async function init(
       void blameStatusBar.showCommitDetails();
     })
   );
+
+  // "Load all revisions" link inside the fast blame peek's diff docs
+  {
+    const { blamePeekLinkProvider } = await import("./blame/blamePeek");
+    disposables.push(
+      languages.registerDocumentLinkProvider(
+        { scheme: "tempsvnfs" },
+        blamePeekLinkProvider
+      )
+    );
+  }
 
   // Initialize needs-lock status bar
   const needsLockStatusBar = new NeedsLockStatusBar(sourceControlManager);

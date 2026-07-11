@@ -32,7 +32,7 @@ export function buildBlameHover(
       "sven.repolog.goToRevision",
       "sven.blame.copyRevision",
       "sven.blame.showDiff",
-      "sven.blame.peekLineHistory"
+      "sven.blame.peekChanges"
     ]
   };
 
@@ -46,18 +46,18 @@ export function buildBlameHover(
   if (message) {
     md.appendMarkdown(`${message}\n\n`);
   }
-  // Default peek = the line's FULL change history: a scrollable peek
-  // list with one entry per revision that changed this line, each
-  // previewing that revision's diff hunk
+  // Default peek: INSTANT latest-change hunk (usually pre-warmed), with
+  // an in-document link that loads the full line history on demand
   const peekLink =
     fileUri && workingLine !== undefined
-      ? ` · [$(eye) Peek Changes](command:sven.blame.peekLineHistory?${encodeURIComponent(
+      ? ` · [$(eye) Peek Changes](command:sven.blame.peekChanges?${encodeURIComponent(
           JSON.stringify([
             fileUri.toString(),
+            rev,
             blameLine.lineNumber,
             workingLine
           ])
-        )} "Peek every revision that changed this line")`
+        )} "Peek this line's latest change (load all revisions from inside the peek)")`
       : "";
   const diffLink =
     fileUri && !isAddRevision
