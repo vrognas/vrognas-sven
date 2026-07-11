@@ -1198,6 +1198,12 @@ export class BlameProvider implements Disposable {
     const inlineEnabled = blameConfiguration.isInlineEnabled();
     const inlineCurrentLineOnly = blameConfiguration.isInlineCurrentLineOnly();
     const showInlineMessage = blameConfiguration.shouldShowInlineMessage();
+    // On the progressive path the inline array is discarded and rebuilt in
+    // Phase 2 (with batched messages), so building it here - one svn log per
+    // line when messages are on - is pure waste. Only skip when messages are
+    // on; without messages this call's inline output IS the one applied.
+    const buildInline =
+      inlineEnabled && !(options.skipMessagePrefetch && showInlineMessage);
     const inlineColor = `rgba(127, 127, 127, ${blameConfiguration.getInlineOpacity()})`;
     const activeLine = editor.selection.active.line;
 
@@ -1243,7 +1249,7 @@ export class BlameProvider implements Disposable {
       }
 
       // 2. Inline annotation
-      if (inlineEnabled) {
+      if (buildInline) {
         const isCurrentLine = lineIndex === activeLine;
 
         if (!inlineCurrentLineOnly || isCurrentLine) {

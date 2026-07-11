@@ -186,8 +186,12 @@ suite("Progressive Rendering", () => {
 
     // Act
     await provider.updateDecorations(mockEditor);
+    // Inline-with-messages is applied by the fire-and-forget Phase 2 fetch;
+    // wait for it to settle (the progressive path no longer eagerly fetches
+    // per-line messages inside the discarded first inline build).
+    await Promise.all([...(provider as any).inFlightMessageFetches.values()]);
 
-    // Assert - Should have inline decoration without message initially
+    // Assert - Should have inline decoration (with message) after Phase 2
     const inlineCalls = mockEditor.setDecorations
       .getCalls()
       .filter((call: any) => {
