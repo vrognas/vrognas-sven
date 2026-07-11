@@ -9,9 +9,24 @@
 export type LineMapping = Map<number, number | undefined>;
 
 /**
+ * Ceiling on the LCS DP matrix (base×working cells). The matrix is
+ * allocated dense, so an ungated pair of large files (e.g. two 20k-line
+ * revisions in a Line-History hop) tries to build ~400M cells and freezes
+ * or OOMs the extension host. Above this we fall back to a positional
+ * middle mapping - imperfect only for a pathological all-changed core,
+ * which prefix/suffix stripping never leaves large in the common case.
+ */
+const MAX_LCS_PRODUCT = 4_000_000; // ~2000x2000; ~32MB transient matrix
+
+/**
  * Compute line mapping from BASE content to working copy content.
  * Uses LCS (Longest Common Subsequence) to find matching lines,
  * then builds a mapping from BASE line numbers to working copy line numbers.
+ *
+ * Common identical prefix/suffix lines are stripped and mapped by identity
+ * first, so the (quadratic) LCS runs only on the differing core - a huge
+ * win for the typical "big file, small edit" case and the bound that keeps
+ * the DP matrix from exploding.
  *
  * @param baseLines Lines from BASE revision (committed version)
  * @param workingLines Lines from working copy (current editor)
@@ -23,9 +38,73 @@ export function computeLineMapping(
 ): LineMapping {
   const mapping: LineMapping = new Map();
 
-  if (baseLines.length === 0) {
+  const m = baseLines.length;
+  const n = workingLines.length;
+  if (m === 0) {
     return mapping;
   }
+
+  // Strip identical leading lines (map by identity).
+  let prefix = 0;
+  while (
+    prefix < m &&
+    prefix < n &&
+    baseLines[prefix] === workingLines[prefix]
+  ) {
+    mapping.set(prefix + 1, prefix + 1);
+    prefix++;
+  }
+
+  // Strip identical trailing lines (map by identity), without overlapping
+  // the stripped prefix.
+  let suffix = 0;
+  while (
+    suffix < m - prefix &&
+    suffix < n - prefix &&
+    baseLines[m - 1 - suffix] === workingLines[n - 1 - suffix]
+  ) {
+    mapping.set(m - suffix, n - suffix);
+    suffix++;
+  }
+
+  const baseMid = baseLines.slice(prefix, m - suffix);
+  if (baseMid.length === 0) {
+    return mapping; // pure insertion/deletion around a common core
+  }
+  const workMid = workingLines.slice(prefix, n - suffix);
+
+  // A stripped prefix/suffix means the core is bracketed by matches - the
+  // signal findModifiedLine's context anchoring needs to tell a modified
+  // line apart from a deletion once its neighbours are no longer in view.
+  const midMapping =
+    baseMid.length * workMid.length > MAX_LCS_PRODUCT
+      ? positionalMiddleMapping(baseMid, workMid)
+      : computeCoreMapping(baseMid, workMid, prefix > 0, suffix > 0);
+
+  // Re-offset the core mapping by the stripped prefix length.
+  for (const [baseLineNum, workLineNum] of midMapping) {
+    mapping.set(
+      baseLineNum + prefix,
+      workLineNum === undefined ? undefined : workLineNum + prefix
+    );
+  }
+
+  return mapping;
+}
+
+/**
+ * Precise LCS-based mapping of the differing core. `bracketBefore` /
+ * `bracketAfter` record that the core is flanked by stripped identical
+ * lines, so a core line with no LCS match but flanked context is a
+ * modification (not a deletion).
+ */
+function computeCoreMapping(
+  baseLines: string[],
+  workingLines: string[],
+  bracketBefore: boolean,
+  bracketAfter: boolean
+): LineMapping {
+  const mapping: LineMapping = new Map();
 
   // Compute LCS to find matching lines
   const lcs = computeLCS(baseLines, workingLines);
@@ -57,7 +136,9 @@ export function computeLineMapping(
         workingIdx,
         baseIdx,
         baseLines,
-        lcsIndex
+        lcsIndex,
+        bracketBefore,
+        bracketAfter
       );
 
       if (foundIdx !== -1) {
@@ -70,6 +151,22 @@ export function computeLineMapping(
     }
   }
 
+  return mapping;
+}
+
+/**
+ * Fallback for an oversized differing core: map each base line to the
+ * working line at the same offset (undefined past the working end). Rough,
+ * but bounded - only reached when the core exceeds MAX_LCS_PRODUCT.
+ */
+function positionalMiddleMapping(
+  baseLines: string[],
+  workingLines: string[]
+): LineMapping {
+  const mapping: LineMapping = new Map();
+  for (let i = 0; i < baseLines.length; i++) {
+    mapping.set(i + 1, i < workingLines.length ? i + 1 : undefined);
+  }
   return mapping;
 }
 
@@ -190,7 +287,9 @@ function findModifiedLine(
   startIdx: number,
   baseIdx: number,
   base: string[],
-  lcsIndex: LCSIndex
+  lcsIndex: LCSIndex,
+  bracketBefore = false,
+  bracketAfter = false
 ): number {
   // Strategy 1: Check if line at same relative position exists and isn't in LCS
   // (meaning it's a modification, not an insertion)
@@ -208,19 +307,25 @@ function findModifiedLine(
       }
 
       // Strategy 2: Context anchoring - if surrounding lines match, this is likely a modification
-      // Check if there are LCS matches before and after that bracket this position
-      const hasPrevMatch = hasMatchBefore(
-        lcsIndex.sortedBaseIndices,
-        lcsIndex.sortedWorkingIndices,
-        baseIdx,
-        startIdx
-      );
-      const hasNextMatch = hasMatchAfter(
-        lcsIndex.sortedBaseIndices,
-        lcsIndex.sortedWorkingIndices,
-        baseIdx,
-        startIdx
-      );
+      // Check if there are LCS matches before and after that bracket this position.
+      // A stripped identical prefix/suffix is itself a bracketing match, so
+      // it counts even though those lines are no longer in this core's LCS.
+      const hasPrevMatch =
+        bracketBefore ||
+        hasMatchBefore(
+          lcsIndex.sortedBaseIndices,
+          lcsIndex.sortedWorkingIndices,
+          baseIdx,
+          startIdx
+        );
+      const hasNextMatch =
+        bracketAfter ||
+        hasMatchAfter(
+          lcsIndex.sortedBaseIndices,
+          lcsIndex.sortedWorkingIndices,
+          baseIdx,
+          startIdx
+        );
 
       // If we're between two anchored matches, treat as modified line
       if (hasPrevMatch && hasNextMatch) {
