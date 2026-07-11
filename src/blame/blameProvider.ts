@@ -76,7 +76,6 @@ export class BlameProvider implements Disposable {
     string,
     {
       version: number;
-      msgEpoch: number;
       addRevision: string | undefined;
       cursorLine: number | undefined;
       decorations: {
@@ -87,8 +86,6 @@ export class BlameProvider implements Disposable {
       revisionRange: { min: number; max: number; uniqueRevisions: number[] };
     }
   >();
-  /** Bumped when new commit messages land (hover/inline content changes). */
-  private messageEpoch = 0;
   /** Files whose peek data was already swept (cleared with the caches). */
   private peekPrefetchDone = new Set<string>();
   private static readonly MAX_PEEK_PREFETCH = 20;
@@ -302,9 +299,12 @@ export class BlameProvider implements Disposable {
       // Render cache: same document version + message state -> reuse
       // the built decoration objects instead of rebuilding them all
       const uriKey = target.document.uri.toString();
+      // NOTE: no message epoch here. The cached decorations' inline field is
+      // applied only when messages are OFF (Phase 2 handles the messages-on
+      // case separately), so the reused render never depends on message
+      // content - a global epoch just invalidated every file on any fetch.
       const renderKey = {
         version: target.document.version,
-        msgEpoch: this.messageEpoch,
         addRevision: this.addRevisionCache.get(uriKey),
         cursorLine: blameConfiguration.isInlineCurrentLineOnly()
           ? this.currentLineNumber
@@ -324,7 +324,6 @@ export class BlameProvider implements Disposable {
       if (
         cachedRender &&
         cachedRender.version === renderKey.version &&
-        cachedRender.msgEpoch === renderKey.msgEpoch &&
         cachedRender.addRevision === renderKey.addRevision &&
         cachedRender.cursorLine === renderKey.cursorLine
       ) {
@@ -1626,7 +1625,6 @@ export class BlameProvider implements Disposable {
       const log = await this.repository.log(revision, revision, 1);
       const message = log[0]?.msg || "";
       this.messageCache.set(revision, message);
-      this.messageEpoch++;
 
       // Evict message cache if exceeding limit
       this.evictMessageCache();
@@ -1671,7 +1669,6 @@ export class BlameProvider implements Disposable {
           this.messageCache.set(entry.revision, entry.msg);
         }
       }
-      this.messageEpoch++;
 
       // Evict message cache if exceeding limit
       this.evictMessageCache();
