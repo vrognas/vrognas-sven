@@ -350,7 +350,9 @@ function findModifiedLine(
 }
 
 /**
- * Check if there's an LCS match before the given indices
+ * Check if there's an LCS match before the given indices.
+ * LCS matches increase strictly in BOTH coordinates, so the first
+ * (smallest) pair is the only candidate - O(1), no scan.
  */
 function hasMatchBefore(
   sortedBaseIndices: number[],
@@ -358,19 +360,16 @@ function hasMatchBefore(
   baseIdx: number,
   workingIdx: number
 ): boolean {
-  for (let i = 0; i < sortedBaseIndices.length; i++) {
-    if (
-      sortedBaseIndices[i]! < baseIdx &&
-      sortedWorkingIndices[i]! < workingIdx
-    ) {
-      return true;
-    }
-  }
-  return false;
+  return (
+    sortedBaseIndices.length > 0 &&
+    sortedBaseIndices[0]! < baseIdx &&
+    sortedWorkingIndices[0]! < workingIdx
+  );
 }
 
 /**
- * Check if there's an LCS match after the given indices
+ * Check if there's an LCS match after the given indices.
+ * By the same monotonicity, only the last (largest) pair can qualify.
  */
 function hasMatchAfter(
   sortedBaseIndices: number[],
@@ -378,15 +377,12 @@ function hasMatchAfter(
   baseIdx: number,
   workingIdx: number
 ): boolean {
-  for (let i = sortedBaseIndices.length - 1; i >= 0; i--) {
-    if (
-      sortedBaseIndices[i]! > baseIdx &&
-      sortedWorkingIndices[i]! > workingIdx
-    ) {
-      return true;
-    }
-  }
-  return false;
+  const last = sortedBaseIndices.length - 1;
+  return (
+    last >= 0 &&
+    sortedBaseIndices[last]! > baseIdx &&
+    sortedWorkingIndices[last]! > workingIdx
+  );
 }
 
 /**
@@ -402,7 +398,18 @@ function isSimilarLine(line1: string, line2: string): boolean {
     return line1.trim() === line2.trim();
   }
 
-  // Check word overlap
+  // Structural check first: shared prefix/suffix is the common in-line-edit
+  // signal and needs no allocation - short-circuit before the word Sets.
+  const prefix = commonPrefix(line1, line2);
+  const suffix = commonSuffix(line1, line2);
+  const minLen = Math.min(line1.length, line2.length);
+
+  if (minLen > 0 && (prefix.length + suffix.length) / minLen > 0.5) {
+    return true;
+  }
+
+  // Check word overlap (allocates two Sets - only reached when the cheap
+  // affix check didn't already decide)
   const words1 = new Set(line1.toLowerCase().split(/\s+/));
   const words2 = new Set(line2.toLowerCase().split(/\s+/));
 
@@ -415,20 +422,7 @@ function isSimilarLine(line1: string, line2: string): boolean {
 
   // Consider similar if >40% word overlap
   const minWords = Math.min(words1.size, words2.size);
-  if (minWords > 0 && overlap / minWords > 0.4) {
-    return true;
-  }
-
-  // Check if lines have similar structure (same prefix/suffix)
-  const prefix = commonPrefix(line1, line2);
-  const suffix = commonSuffix(line1, line2);
-  const minLen = Math.min(line1.length, line2.length);
-
-  if (minLen > 0 && (prefix.length + suffix.length) / minLen > 0.5) {
-    return true;
-  }
-
-  return false;
+  return minWords > 0 && overlap / minWords > 0.4;
 }
 
 function commonPrefix(a: string, b: string): string {
