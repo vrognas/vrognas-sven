@@ -71,7 +71,10 @@ describe("blame add-revision marking", () => {
     };
     const mockThis = {
       messageCache: new Map<string, string>(),
-      addRevisionCache: new Map([[uri.toString(), "401"]])
+      addRevisionCache: new Map([[uri.toString(), "401"]]),
+      readMessage(this: { messageCache: Map<string, string> }, r: string) {
+        return this.messageCache.get(r);
+      }
     };
 
     const decoration = (

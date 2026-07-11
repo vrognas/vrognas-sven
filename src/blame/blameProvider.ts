@@ -485,6 +485,21 @@ export class BlameProvider implements Disposable {
   }
 
   /**
+   * Read a cached commit message, refreshing its recency. Re-inserting the
+   * key moves it to the end of the Map so the insertion-order eviction in
+   * evictMessageCache() behaves as true LRU (a hot message read every render
+   * won't be evicted just because it was fetched long ago).
+   */
+  private readMessage(revision: string): string | undefined {
+    const msg = this.messageCache.get(revision);
+    if (msg !== undefined) {
+      this.messageCache.delete(revision);
+      this.messageCache.set(revision, msg);
+    }
+    return msg;
+  }
+
+  /**
    * Prefetch commit messages progressively (non-blocking)
    * Fetches messages in background and updates inline decorations when done
    *
@@ -582,9 +597,7 @@ export class BlameProvider implements Disposable {
       },
       hoverMessage: buildBlameHover(
         blameLine,
-        blameLine.revision
-          ? this.messageCache.get(blameLine.revision)
-          : undefined,
+        blameLine.revision ? this.readMessage(blameLine.revision) : undefined,
         editor.document.uri,
         this.addRevisionCache.get(editor.document.uri.toString()),
         lineIndex
@@ -715,7 +728,7 @@ export class BlameProvider implements Disposable {
       }
 
       // Get message from cache (should be available now)
-      const message = this.messageCache.get(blameLine.revision) || "";
+      const message = this.readMessage(blameLine.revision) || "";
       const inlineText = this.formatInlineText(blameLine, message);
 
       inlineDecorations.push(
@@ -808,7 +821,7 @@ export class BlameProvider implements Disposable {
       }
 
       // Get message from cache (may not be loaded yet, that's okay)
-      const message = this.messageCache.get(blameLine.revision) || "";
+      const message = this.readMessage(blameLine.revision) || "";
       const inlineText = this.formatInlineText(blameLine, message);
 
       inlineDecorations.push(
@@ -1365,9 +1378,17 @@ export class BlameProvider implements Disposable {
     if (cached !== undefined) {
       return cached;
     }
-    // Bound growth: keys are per (revision, position, range size, theme)
+    // Bound growth: keys are per (revision, position, range size, theme).
+    // Evict the oldest fraction rather than clearing all - a full wipe
+    // thrashed every cached color when the working set legitimately
+    // exceeded the cap (colors are cheap to recompute, but not free).
     if (this.revisionColors.size > 2000) {
-      this.revisionColors.clear();
+      const toRemove = Math.ceil(this.revisionColors.size * 0.25);
+      let removed = 0;
+      for (const key of this.revisionColors.keys()) {
+        if (removed++ >= toRemove) break;
+        this.revisionColors.delete(key);
+      }
     }
 
     if (isNaN(revNum) || range.uniqueRevisions.length === 0) {
@@ -1592,8 +1613,9 @@ export class BlameProvider implements Disposable {
    * query (logBatch) needs a target - that's where the cost lives.
    */
   private async getCommitMessage(revision: string): Promise<string> {
-    if (this.messageCache.has(revision)) {
-      return this.messageCache.get(revision)!;
+    const cached = this.readMessage(revision);
+    if (cached !== undefined) {
+      return cached;
     }
 
     if (!blameConfiguration.isLogsEnabled()) {
