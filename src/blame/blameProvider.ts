@@ -414,10 +414,11 @@ export class BlameProvider implements Disposable {
       target.setDecorations(this.decorationTypes.inline, []);
       this.clearIconDecorations(target);
 
-      // Dispose and clear icon decoration types to prevent memory leak
-      // (16 types per file × 100 files = 1600 uncleaned types)
-      this.iconTypes.forEach(type => type.dispose());
-      this.iconTypes.clear();
+      // Icon types are NOT disposed here. They key on a bounded, shared
+      // color palette (~13 quantized values total, not per-file), so
+      // reusing them across renders/files avoids the dispose+recreate
+      // churn that dominated every editor switch. Disposed only in
+      // dispose(); recreated in onConfigurationChange (palette may change).
     }
   }
 
@@ -1499,11 +1500,6 @@ export class BlameProvider implements Disposable {
     revisionRange: { min: number; max: number; uniqueRevisions: number[] },
     lineMapping?: LineMapping
   ): void {
-    // Dispose previous file's icon types to prevent memory leak
-    // Each file creates ~16 color-based types; without this, types accumulate unbounded
-    this.iconTypes.forEach(type => type.dispose());
-    this.iconTypes.clear();
-
     const gutterEnabled = blameConfiguration.isGutterEnabled();
     const iconsEnabled = blameConfiguration.isGutterIconEnabled();
 
@@ -1512,7 +1508,8 @@ export class BlameProvider implements Disposable {
       return;
     }
 
-    // Group lines by color
+    // Group lines by color (icon types are reused across renders, keyed by
+    // the bounded shared palette - never disposed/recreated per render)
     const decorationsByColor = new Map<string, Range[]>();
 
     for (const blameLine of blameData) {
@@ -1532,7 +1529,14 @@ export class BlameProvider implements Disposable {
         .push(new Range(lineIndex, 0, lineIndex, 0));
     }
 
-    // Apply each color's decoration type
+    // Clear only colors this editor no longer uses (reuse the rest in place)
+    for (const color of this.iconTypes.keys()) {
+      if (!decorationsByColor.has(color)) {
+        editor.setDecorations(this.iconTypes.get(color)!, []);
+      }
+    }
+
+    // Apply each present color's decoration type
     for (const [color, ranges] of decorationsByColor) {
       const type = this.getIconDecorationType(color);
       editor.setDecorations(
