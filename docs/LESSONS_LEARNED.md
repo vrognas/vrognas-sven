@@ -1,7 +1,37 @@
 # Lessons Learned
 
-**Version**: 0.2.79
-**Updated**: 2026-07-10
+**Version**: 0.2.91
+**Updated**: 2026-07-12
+
+---
+
+### 85. A "Cleanup" Comment Can Encode a False Assumption — Verify Before Paying It Per-Render
+
+**Lesson**: `applyIconDecorations` disposed and recreated every gutter-icon decoration type on _every_ render, justified by a comment: "16 types per file × 100 files = 1600 uncleaned types". But icon types key on the revision-age color palette — a bounded ~13-value set (5 categorical hues + 8 gradient buckets × theme), _shared across all files_, not per-file. The "leak" it guarded against couldn't happen; the dispose+recreate was pure churn on the hottest path (every editor switch), and it ran outside the render cache's hit guard.
+
+**Fix**: Keep `iconTypes` alive across renders; on re-render clear only the colors this editor no longer uses and reuse the rest. Dispose only in `dispose()` and on config change (palette may change).
+
+**Rule**: When a per-iteration teardown is justified by a scaling argument in a comment, check the argument's premise (here: is the keyspace really per-file, or bounded and shared?). A wrong premise turns a "leak fix" into a permanent hot-path tax. Cross-check what the cache key actually ranges over.
+
+---
+
+### 84. Stripping an LCS Diff's Common Prefix/Suffix Drops the Context Its Heuristics Need
+
+**Lesson**: To bound an O(m·n) LCS line-mapping (freeze/OOM on large files), the obvious win is to strip the identical prefix/suffix and run the quadratic step only on the differing core. But the core algorithm told a _modified_ line apart from a _deleted_ one via context anchoring — "is there an LCS match before AND after this position?". Once the surrounding identical lines are stripped away, the core has no such matches, and every modified line in the core is misclassified as deleted (an existing "modified line still maps" test caught it).
+
+**Fix**: Pass a `bracketBefore`/`bracketAfter` signal into the core: a stripped prefix/suffix _is_ a bracketing match, so `hasMatchBefore/After` must count it even though those lines are no longer in the core's own LCS.
+
+**Rule**: Before slicing an input to a heuristic that reasons about neighbouring context, ask what signal the removed region was carrying. Re-inject it as an explicit flag, and let the existing behavioural tests (not just the happy path) confirm the classification didn't shift.
+
+---
+
+### 83. A Global Epoch in a Cache Key Invalidates Everything on Any Change
+
+**Lesson**: The blame render cache keyed on a single global `messageEpoch`, bumped whenever _any_ file's commit message landed — so a message fetch for file A invalidated file B's cached render (rebuilding B's gutter+icons, which carry no message). Worse, the coupling was unnecessary: after progressive rendering split inline-with-messages into its own Phase-2 path, the cached decorations' inline field is only ever _applied_ when messages are off — so the reused render never depended on message content at all.
+
+**Fix**: Removed `messageEpoch` from the render key (and the field entirely). Message freshness is owned by the separate Phase-2 inline apply, not the render cache.
+
+**Rule**: A cache key shared across independent entries (a global counter/epoch) makes every entry's validity depend on every other entry's activity. Key on what the entry actually depends on; when a refactor moves a dependency to a different code path, delete the stale key component rather than leaving it as defensive noise.
 
 ---
 

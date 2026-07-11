@@ -7,6 +7,23 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.91] - 2026-07-12
+
+Performance pass on the blame feature (multi-agent review): no freeze/OOM on huge files, far less startup and background server load, cheaper renders.
+
+### Fixed
+
+- **Line mapping no longer freezes or OOMs on large files.** The LCS diff mapping (modified-file blame + each Line-History hop) allocated a full base×working DP matrix — a ~19k-line file could try to build a multi-GB matrix _per hop_. It now strips the identical prefix/suffix and runs the quadratic step only on the differing core, capped by a matrix ceiling (positional fallback beyond) so it can't explode.
+- **Rapid tab switching can't leave the visible editor blank.** The throttled decoration render pinned the editor from the first queued call (the throttle isn't keep-last); it now resolves the active editor when it actually runs.
+- **Revision-range computation no longer risks a stack overflow** past ~125k lines (min/max were derived by spreading the whole per-line array into `Math.min`/`Math.max`; they're now read from the already-sorted unique list).
+
+### Changed
+
+- **The status bar shows blame immediately at startup** instead of waiting for the full initial working-copy status crawl — matching the gutter/inline provider — and reconciles once the crawl lands.
+- **Lighter background peek prefetch**: on file open it warms the **5 newest** revisions' peek data (down from 20), ~4× fewer speculative svn subprocesses; any colder line's peek still loads on demand.
+- **Cheaper editor switches**: gutter icon decoration types are reused across renders instead of being disposed and recreated every time (the palette is a bounded shared color set, not per-file); a commit-message fetch for one file no longer invalidates every other file's render cache; a non-visual `sven.blame.*` change (CSV/large-file limits, `autoBlame`, `enableLogs`) no longer tears down all decorations.
+- **Internal cache/query tidy-ups**: `svn log` for commit messages drops the unused `-v` (verbose changed-paths); the message cache evicts by true LRU (recency-refreshed on read) and the revision-color cache evicts a fraction instead of clearing wholesale; the progressive render path no longer builds a discarded per-line inline array (one `svn log` per line when messages were on).
+
 ## [0.2.90] - 2026-07-11
 
 "Peek Changes" opens instantly: latest change first, full history on demand — with the data pre-warmed in the background.
