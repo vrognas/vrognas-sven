@@ -78,7 +78,9 @@ describe("peek-data prefetch", () => {
 
     await prefetch.call(mockThis, uri, data);
 
-    expect(patchRevision.mock.calls.length).toBeLessThanOrEqual(20);
+    // Warm only the few newest revisions - the default peek fetches any
+    // colder line on demand, so a wide sweep just storms the server.
+    expect(patchRevision.mock.calls.length).toBeLessThanOrEqual(5);
     // newest revisions win the budget
     expect(patchRevision.mock.calls[0]![0]).toBe("1059");
   });

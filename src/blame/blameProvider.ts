@@ -88,7 +88,12 @@ export class BlameProvider implements Disposable {
   >();
   /** Files whose peek data was already swept (cleared with the caches). */
   private peekPrefetchDone = new Set<string>();
-  private static readonly MAX_PEEK_PREFETCH = 20;
+  // Warm only the few newest revisions' peek data on file open. These are
+  // the categorically-colored, visually-emphasized lines users are likeliest
+  // to peek; any colder line's default peek fetches on demand. A wider sweep
+  // fired ~2 speculative svn subprocesses per revision - a server storm most
+  // files never cashed in.
+  private static readonly MAX_PEEK_PREFETCH = 5;
   private currentLineNumber?: number; // Track cursor position for current-line-only mode
   private disposables: Disposable[] = [];
   private isActivated = false;
