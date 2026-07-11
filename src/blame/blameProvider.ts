@@ -956,9 +956,44 @@ export class BlameProvider implements Disposable {
     }
   }
 
+  /** sven.blame.* keys whose change alters what's rendered (templates,
+   *  toggles, opacity, date format). A change to anything else - CSV/large-
+   *  file gates, autoBlame, enableLogs - needs no decoration-type teardown. */
+  private static readonly APPEARANCE_KEYS = [
+    "sven.blame.enabled",
+    "sven.blame.dateFormat",
+    "sven.blame.gutter.enabled",
+    "sven.blame.gutter.template",
+    "sven.blame.gutter.showIcons",
+    "sven.blame.gutter.showText",
+    "sven.blame.inline.enabled",
+    "sven.blame.inline.template",
+    "sven.blame.inline.opacity",
+    "sven.blame.inline.showMessage",
+    "sven.blame.inline.currentLineOnly",
+    "sven.blame.inline.maxLength"
+  ];
+
   private async onConfigurationChange(
-    _event: ConfigurationChangeEvent
+    event: ConfigurationChangeEvent
   ): Promise<void> {
+    // Only appearance keys need the type/cache teardown below. For anything
+    // else (gate limits, autoBlame, enableLogs) a re-render suffices - it
+    // picks up a changed gate without disposing types or clearing caches.
+    // (A degenerate event without affectsConfiguration - test stubs - falls
+    // through to the full teardown, the conservative default.)
+    const affectsAppearance =
+      typeof event?.affectsConfiguration !== "function" ||
+      BlameProvider.APPEARANCE_KEYS.some(k => event.affectsConfiguration(k));
+
+    if (!affectsAppearance) {
+      this.renderCache.clear();
+      if (window.activeTextEditor) {
+        await this.updateDecorations();
+      }
+      return;
+    }
+
     // Built decorations embed template/config-dependent content
     this.renderCache.clear();
 
