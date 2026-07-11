@@ -872,7 +872,11 @@ export class BlameProvider implements Disposable {
 
     // Update current line number for new editor
     this.currentLineNumber = editor.selection.active.line;
-    await this.updateDecorations(editor);
+    // No explicit editor: @throttle isn't keep-last, so a queued render
+    // would otherwise repaint whichever editor was active when the FIRST
+    // queued call fired. Resolving window.activeTextEditor at execution
+    // time keeps rapid tab-switching from leaving the visible editor blank.
+    await this.updateDecorations();
   }
 
   @debounce(500)
