@@ -1322,9 +1322,12 @@ export class BlameProvider implements Disposable {
     // Get unique revisions sorted descending (newest first)
     const uniqueRevisions = [...new Set(revisions)].sort((a, b) => b - a);
 
+    // min/max are the endpoints of the sorted-desc list - O(1), and safe on
+    // huge files (Math.min(...revisions) spreads every line as an argument
+    // and overflows the call stack past ~125k lines).
     return {
-      min: Math.min(...revisions),
-      max: Math.max(...revisions),
+      min: uniqueRevisions[uniqueRevisions.length - 1]!,
+      max: uniqueRevisions[0]!,
       uniqueRevisions
     };
   }
