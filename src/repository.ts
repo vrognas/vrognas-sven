@@ -1871,11 +1871,14 @@ export class Repository implements IRemoteRepository {
   }
 
   public async getInfo(path: string, revision?: string): Promise<ISvnInfo> {
-    // Warm cache hits bypass run()/credentialLock (see blame() above). A miss
-    // or a negative (unversioned) entry falls through to the serialized fetch.
-    const cached = this.repository.getInfoCached(path, revision);
-    if (cached !== undefined) {
-      return cached;
+    // Warm cache hits bypass run()/credentialLock (see blame() above). A miss,
+    // a negative (unversioned) entry, or a non-Idle/mid-mutation repo falls
+    // through to the serialized fetch.
+    if (this.canServeCachedRead()) {
+      const cached = this.repository.getInfoCached(path, revision);
+      if (cached !== undefined) {
+        return cached;
+      }
     }
     return this.run(Operation.Info, () =>
       this.repository.getInfo(path, revision)
@@ -1949,14 +1952,35 @@ export class Repository implements IRemoteRepository {
     return changes;
   }
 
+  /**
+   * Whether a warm cache hit may be served without entering run(). False
+   * when the repo isn't Idle (run() would throw "not initialized" - preserve
+   * that) or a mutating op is in flight (it's about to change BASE and clear
+   * the caches, so a hit could be pre-mutation stale - serialize behind it).
+   */
+  private canServeCachedRead(): boolean {
+    if (this.state !== RepositoryState.Idle) {
+      return false;
+    }
+    for (const op of BLAME_INVALIDATING_OPERATIONS) {
+      if (this.operations.isRunning(op)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   public async blame(path: string, revision?: string, pegRevision?: string) {
     // Warm cache hits bypass run()/credentialLock: blame renders on every
     // editor switch, and queuing an in-memory hit behind a slow in-flight
     // network op (which holds the lock) is the priority inversion we avoid.
-    // A miss falls through to the fully-serialized, auth-retrying fetch.
-    const cached = this.repository.blameCached(path, revision, pegRevision);
-    if (cached !== undefined) {
-      return cached;
+    // A miss (or a non-Idle/mid-mutation repo) falls through to the fully-
+    // serialized, auth-retrying fetch.
+    if (this.canServeCachedRead()) {
+      const cached = this.repository.blameCached(path, revision, pegRevision);
+      if (cached !== undefined) {
+        return cached;
+      }
     }
     return this.run(Operation.Blame, () =>
       this.repository.blame(path, revision, false, pegRevision)
