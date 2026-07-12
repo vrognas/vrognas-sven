@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { vi } from "vitest";
@@ -81,7 +82,7 @@ suite("Blame review fixes", () => {
     const opEmitter = new EventEmitter<Operation>();
     (mockRepository as any).onDidRunOperation = opEmitter.event;
 
-    const provider = new BlameProvider(mockRepository as any);
+    const provider = new BlameProvider(scmFor(mockRepository as any));
     try {
       sandbox.stub(window, "activeTextEditor").value(undefined);
       provider.activate();
@@ -231,7 +232,7 @@ suite("Blame review fixes", () => {
       mockRepository.blame.rejects(
         new Error("File not under version control (E155007): outside.txt")
       );
-      const provider = new BlameProvider(mockRepository as any);
+      const provider = new BlameProvider(scmFor(mockRepository as any));
       try {
         const uri = Uri.file("/test/outside.txt");
         const editor = { document: { uri, version: 1 } } as any;

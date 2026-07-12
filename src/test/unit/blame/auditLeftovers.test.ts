@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { Uri, workspace } from "vscode";
@@ -72,7 +73,7 @@ suite("Audit leftovers", () => {
         workspaceRoot: "/test",
         root: "/test"
       };
-      const provider = new BlameProvider(mockRepository as any);
+      const provider = new BlameProvider(scmFor(mockRepository as any));
       try {
         // File A: r100 is the newest revision (categorical red)
         const colorA = (provider as any).getRevisionColor("100", {

@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { BlameProvider } from "../../../blame/blameProvider";
@@ -10,7 +11,7 @@ suite("Gutter Icon Tests", () => {
   setup(() => {
     sandbox = sinon.createSandbox();
     const mockRepo = sandbox.createStubInstance(Repository);
-    provider = new BlameProvider(mockRepo as any);
+    provider = new BlameProvider(scmFor(mockRepo as any));
   });
 
   teardown(() => {
@@ -31,7 +32,10 @@ suite("Gutter Icon Tests", () => {
     test("contains correct viewBox dimensions", () => {
       const color = "#00ff00";
       const uri = (provider as any).generateColorBarSvg(color);
-      const decoded = Buffer.from(uri.toString().split(",")[1], "base64").toString();
+      const decoded = Buffer.from(
+        uri.toString().split(",")[1],
+        "base64"
+      ).toString();
 
       assert.ok(decoded.includes('viewBox="0 0 3 16"'));
       assert.ok(decoded.includes('width="3"'));
@@ -41,7 +45,10 @@ suite("Gutter Icon Tests", () => {
     test("embeds color correctly in SVG rect", () => {
       const color = "#123456";
       const uri = (provider as any).generateColorBarSvg(color);
-      const decoded = Buffer.from(uri.toString().split(",")[1], "base64").toString();
+      const decoded = Buffer.from(
+        uri.toString().split(",")[1],
+        "base64"
+      ).toString();
 
       assert.ok(decoded.includes(`fill="${color}"`));
       assert.ok(decoded.includes("<rect"));
@@ -54,18 +61,28 @@ suite("Gutter Icon Tests", () => {
 
       hexColors.forEach(color => {
         const uri = (provider as any).generateColorBarSvg(color);
-        const decoded = Buffer.from(uri.toString().split(",")[1], "base64").toString();
+        const decoded = Buffer.from(
+          uri.toString().split(",")[1],
+          "base64"
+        ).toString();
 
         assert.ok(decoded.includes(color));
       });
     });
 
     test("accepts HSL color format", () => {
-      const hslColors = ["hsl(180, 70%, 55%)", "hsl(0, 100%, 50%)", "hsl(240, 60%, 50%)"];
+      const hslColors = [
+        "hsl(180, 70%, 55%)",
+        "hsl(0, 100%, 50%)",
+        "hsl(240, 60%, 50%)"
+      ];
 
       hslColors.forEach(color => {
         const uri = (provider as any).generateColorBarSvg(color);
-        const decoded = Buffer.from(uri.toString().split(",")[1], "base64").toString();
+        const decoded = Buffer.from(
+          uri.toString().split(",")[1],
+          "base64"
+        ).toString();
 
         assert.ok(decoded.includes(color));
       });
@@ -73,10 +90,10 @@ suite("Gutter Icon Tests", () => {
 
     test("handles various hex formats", () => {
       const testCases = [
-        "#000000",  // Black
-        "#ffffff",  // White
-        "#ff00ff",  // Magenta
-        "#a1b2c3"   // Mixed
+        "#000000", // Black
+        "#ffffff", // White
+        "#ff00ff", // Magenta
+        "#a1b2c3" // Mixed
       ];
 
       testCases.forEach(color => {
@@ -145,12 +162,19 @@ suite("Gutter Icon Tests", () => {
   });
 
   suite("Integration", () => {
-    const revisionRange = { min: 1, max: 6, uniqueRevisions: [6, 5, 4, 3, 2, 1] };
+    const revisionRange = {
+      min: 1,
+      max: 6,
+      uniqueRevisions: [6, 5, 4, 3, 2, 1]
+    };
     test("generates unique SVG for each revision color", () => {
       const revisions = ["6", "5", "4"];
 
       const svgUris = revisions.map(revision => {
-        const color = (provider as any).getRevisionColor(revision, revisionRange);
+        const color = (provider as any).getRevisionColor(
+          revision,
+          revisionRange
+        );
         return (provider as any).generateColorBarSvg(color);
       });
 
@@ -162,7 +186,10 @@ suite("Gutter Icon Tests", () => {
       const revisions = ["6", "5", "6"];
 
       revisions.forEach(revision => {
-        const color = (provider as any).getRevisionColor(revision, revisionRange);
+        const color = (provider as any).getRevisionColor(
+          revision,
+          revisionRange
+        );
         (provider as any).generateColorBarSvg(color);
       });
 
@@ -173,7 +200,10 @@ suite("Gutter Icon Tests", () => {
     test("generates valid SVG from revision color", () => {
       const color = (provider as any).getRevisionColor("6", revisionRange);
       const uri = (provider as any).generateColorBarSvg(color);
-      const decoded = Buffer.from(uri.toString().split(",")[1], "base64").toString();
+      const decoded = Buffer.from(
+        uri.toString().split(",")[1],
+        "base64"
+      ).toString();
 
       assert.ok(decoded.includes("<svg"));
       assert.ok(decoded.includes("</svg>"));

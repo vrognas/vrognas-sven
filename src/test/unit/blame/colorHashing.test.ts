@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { BlameProvider } from "../../../blame/blameProvider";
@@ -12,7 +13,7 @@ suite("BlameProvider - Revision Coloring", () => {
   setup(() => {
     sandbox = sinon.createSandbox();
     mockRepository = sandbox.createStubInstance(Repository);
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
   });
 
   teardown(() => {
@@ -46,7 +47,10 @@ suite("BlameProvider - Revision Coloring", () => {
       (provider as any).getRevisionColor(r, revisionRange)
     );
     colors.forEach(color => {
-      assert.ok(/^#[0-9a-f]{6}$/i.test(color), `Expected hex color, got: ${color}`);
+      assert.ok(
+        /^#[0-9a-f]{6}$/i.test(color),
+        `Expected hex color, got: ${color}`
+      );
     });
   });
 
@@ -62,7 +66,10 @@ suite("BlameProvider - Revision Coloring", () => {
   });
 
   test("handles invalid revision with fallback color", () => {
-    const color = (provider as any).getRevisionColor("not-a-number", revisionRange);
+    const color = (provider as any).getRevisionColor(
+      "not-a-number",
+      revisionRange
+    );
     assert.ok(/^#[0-9a-f]{6}$/i.test(color));
   });
 });

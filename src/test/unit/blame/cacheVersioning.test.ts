@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { Uri, window } from "vscode";
@@ -40,7 +41,7 @@ suite("BlameProvider cache versioning", () => {
       root: "/test"
     };
     mockRepository.blame.resolves(BLAME_DATA);
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
   });
 
   teardown(() => {

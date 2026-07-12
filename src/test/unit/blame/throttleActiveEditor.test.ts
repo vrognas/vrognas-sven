@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { Uri } from "vscode";
@@ -19,7 +20,7 @@ suite("BlameProvider - active editor throttle", () => {
   setup(() => {
     sandbox = sinon.createSandbox();
     const mockRepo = sandbox.createStubInstance(Repository);
-    provider = new BlameProvider(mockRepo as any);
+    provider = new BlameProvider(scmFor(mockRepo as any));
   });
 
   teardown(() => {

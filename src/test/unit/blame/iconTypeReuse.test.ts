@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { Uri, window } from "vscode";
@@ -42,7 +43,7 @@ suite("BlameProvider - icon type reuse", () => {
     });
 
     const mockRepo = sandbox.createStubInstance(Repository);
-    provider = new BlameProvider(mockRepo as any);
+    provider = new BlameProvider(scmFor(mockRepo as any));
     const base = created.length; // 3 base types from the constructor
     const editor = createEditor(Uri.file("/test/icons.ts"));
 
@@ -71,7 +72,7 @@ suite("BlameProvider - icon type reuse", () => {
 
   test("clearDecorations keeps icon types alive for reuse", () => {
     const mockRepo = sandbox.createStubInstance(Repository);
-    provider = new BlameProvider(mockRepo as any);
+    provider = new BlameProvider(scmFor(mockRepo as any));
     const editor = createEditor(Uri.file("/test/icons2.ts"));
 
     const iconType = { dispose: sandbox.stub() };

@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { Uri, window } from "vscode";
@@ -28,7 +29,7 @@ suite("Blame redundant call elimination", () => {
       workspaceRoot: "/test",
       root: "/test"
     };
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
   });
 
   teardown(() => {

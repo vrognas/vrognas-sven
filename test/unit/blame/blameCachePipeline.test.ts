@@ -140,6 +140,8 @@ describe("updateDecorations pipeline", () => {
       applyIconDecorations: vi.fn(),
       prefetchMessagesProgressively: vi.fn(async () => {})
     };
+    (mockThis as unknown as { repoFor: unknown }).repoFor = () =>
+      mockThis.repository;
     const updateDecorations = (
       BlameProvider.prototype as unknown as Record<string, unknown>
     ).updateDecorations as (this: unknown, editor?: unknown) => Promise<void>;

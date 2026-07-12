@@ -24,10 +24,11 @@ function harness() {
     async (_f: string, _rev?: string, _peg?: string) => "content"
   );
   const getInfo = vi.fn(async () => ({ revision: "3000" }));
-  const mockThis = {
+  const mockThis: Record<string, unknown> = {
     repository: { repository: { patchRevision, show, getInfo } },
     peekPrefetchDone: new Set<string>()
   };
+  mockThis.repoFor = () => mockThis.repository;
   const prefetch = (
     BlameProvider.prototype as unknown as Record<string, unknown>
   ).prefetchPeekData as (

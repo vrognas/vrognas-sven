@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { Uri, window } from "vscode";
@@ -38,7 +39,7 @@ suite("BlameProvider - render cache vs message activity", () => {
     ] as any);
     mockRepository.getResourceFromFile.returns(undefined as any);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
 
     sandbox.stub(blameConfiguration, "isEnabled").returns(true);
     sandbox.stub(blameConfiguration, "isGutterEnabled").returns(true);

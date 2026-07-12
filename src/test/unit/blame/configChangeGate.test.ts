@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { window } from "vscode";
@@ -26,7 +27,7 @@ suite("BlameProvider - config change gating", () => {
     });
 
     const mockRepo = sandbox.createStubInstance(Repository);
-    provider = new BlameProvider(mockRepo as any);
+    provider = new BlameProvider(scmFor(mockRepo as any));
     const baseCount = created.length; // 3 base types from the constructor
     sandbox.stub(provider as any, "updateDecorations").resolves(undefined);
 
@@ -52,7 +53,7 @@ suite("BlameProvider - config change gating", () => {
     });
 
     const mockRepo = sandbox.createStubInstance(Repository);
-    provider = new BlameProvider(mockRepo as any);
+    provider = new BlameProvider(scmFor(mockRepo as any));
     const baseCount = created.length;
     sandbox.stub(provider as any, "updateDecorations").resolves(undefined);
 

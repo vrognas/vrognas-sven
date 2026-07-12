@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { Uri, window } from "vscode";
@@ -38,17 +39,29 @@ suite("BlameProvider - Document Change Flicker Fix", () => {
     // Arrange
     const testUri = Uri.file("/test/file.txt");
     const cachedBlame: ISvnBlameLine[] = [
-      { lineNumber: 1, revision: "1234", author: "john", date: "2025-11-18T10:00:00Z" }
+      {
+        lineNumber: 1,
+        revision: "1234",
+        author: "john",
+        date: "2025-11-18T10:00:00Z"
+      }
     ];
     const freshBlame: ISvnBlameLine[] = [
-      { lineNumber: 1, revision: "1236", author: "jane", date: "2025-11-18T12:00:00Z" }
+      {
+        lineNumber: 1,
+        revision: "1236",
+        author: "jane",
+        date: "2025-11-18T12:00:00Z"
+      }
     ];
 
     mockRepository.blame
-      .onFirstCall().resolves(cachedBlame)
-      .onSecondCall().resolves(freshBlame);
+      .onFirstCall()
+      .resolves(cachedBlame)
+      .onSecondCall()
+      .resolves(freshBlame);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     blameStateManager.setBlameEnabled(testUri, true);
@@ -71,11 +84,19 @@ suite("BlameProvider - Document Change Flicker Fix", () => {
 
     // Act - First call should fetch and cache
     await provider.updateDecorations(mockEditor);
-    assert.strictEqual(mockRepository.blame.callCount, 1, "First call should fetch blame");
+    assert.strictEqual(
+      mockRepository.blame.callCount,
+      1,
+      "First call should fetch blame"
+    );
 
     // Second call should use cache
     await provider.updateDecorations(mockEditor);
-    assert.strictEqual(mockRepository.blame.callCount, 1, "Second call should use cache");
+    assert.strictEqual(
+      mockRepository.blame.callCount,
+      1,
+      "Second call should use cache"
+    );
 
     // Invalidate cache (simulates onDocumentChange behavior)
     provider.clearCache(testUri);
@@ -84,14 +105,18 @@ suite("BlameProvider - Document Change Flicker Fix", () => {
     await provider.updateDecorations(mockEditor);
 
     // Assert
-    assert.strictEqual(mockRepository.blame.callCount, 2, "After clearCache, should fetch fresh blame");
+    assert.strictEqual(
+      mockRepository.blame.callCount,
+      2,
+      "After clearCache, should fetch fresh blame"
+    );
   });
 
   test("clearDecorations removes all decorations", () => {
     // Arrange
     const testUri = Uri.file("/test/file.txt");
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     const mockEditor = {
@@ -119,7 +144,11 @@ suite("BlameProvider - Document Change Flicker Fix", () => {
     // Each call should pass empty array (clears decorations)
     calls.forEach((call: any) => {
       const decorations = call.args[1];
-      assert.strictEqual(decorations.length, 0, "Each decoration type should be cleared");
+      assert.strictEqual(
+        decorations.length,
+        0,
+        "Each decoration type should be cleared"
+      );
     });
   });
 
@@ -127,12 +156,17 @@ suite("BlameProvider - Document Change Flicker Fix", () => {
     // Arrange
     const testUri = Uri.file("/test/file.txt");
     const blameData: ISvnBlameLine[] = [
-      { lineNumber: 1, revision: "1234", author: "john", date: "2025-11-18T10:00:00Z" }
+      {
+        lineNumber: 1,
+        revision: "1234",
+        author: "john",
+        date: "2025-11-18T10:00:00Z"
+      }
     ];
 
     mockRepository.blame.resolves(blameData);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     blameStateManager.setBlameEnabled(testUri, true);

@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { Uri, window } from "vscode";
@@ -38,14 +39,29 @@ suite("Inline Blame Cursor Tracking", () => {
     // Arrange
     const testUri = Uri.file("/test/file.txt");
     const blameData: ISvnBlameLine[] = [
-      { lineNumber: 1, revision: "1234", author: "john", date: "2025-11-18T10:00:00Z" },
-      { lineNumber: 2, revision: "1235", author: "jane", date: "2025-11-18T11:00:00Z" },
-      { lineNumber: 3, revision: "1236", author: "bob", date: "2025-11-18T12:00:00Z" }
+      {
+        lineNumber: 1,
+        revision: "1234",
+        author: "john",
+        date: "2025-11-18T10:00:00Z"
+      },
+      {
+        lineNumber: 2,
+        revision: "1235",
+        author: "jane",
+        date: "2025-11-18T11:00:00Z"
+      },
+      {
+        lineNumber: 3,
+        revision: "1236",
+        author: "bob",
+        date: "2025-11-18T12:00:00Z"
+      }
     ];
 
     mockRepository.blame.resolves(blameData);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     blameStateManager.setBlameEnabled(testUri, true);
@@ -71,29 +87,54 @@ suite("Inline Blame Cursor Tracking", () => {
     await provider.updateDecorations(mockEditor);
 
     // Assert - Should only decorate current line (line 1 = 2nd line)
-    const inlineCalls = mockEditor.setDecorations.getCalls().filter((call: any) => {
-      const decorations = call.args[1];
-      return decorations.length > 0 && decorations[0].hoverMessage;
-    });
+    const inlineCalls = mockEditor.setDecorations
+      .getCalls()
+      .filter((call: any) => {
+        const decorations = call.args[1];
+        return decorations.length > 0 && decorations[0].hoverMessage;
+      });
 
     assert.ok(inlineCalls.length > 0, "Should have inline decorations");
     const decorations = inlineCalls[0].args[1];
-    assert.strictEqual(decorations.length, 1, "Should only decorate current line");
-    assert.strictEqual(decorations[0].range.startLine, 1, "Should decorate line 1 (cursor line)");
+    assert.strictEqual(
+      decorations.length,
+      1,
+      "Should only decorate current line"
+    );
+    assert.strictEqual(
+      decorations[0].range.startLine,
+      1,
+      "Should decorate line 1 (cursor line)"
+    );
   });
 
   test("shows inline on all lines when currentLineOnly disabled", async () => {
     // Arrange
     const testUri = Uri.file("/test/file.txt");
     const blameData: ISvnBlameLine[] = [
-      { lineNumber: 1, revision: "1234", author: "john", date: "2025-11-18T10:00:00Z" },
-      { lineNumber: 2, revision: "1235", author: "jane", date: "2025-11-18T11:00:00Z" },
-      { lineNumber: 3, revision: "1236", author: "bob", date: "2025-11-18T12:00:00Z" }
+      {
+        lineNumber: 1,
+        revision: "1234",
+        author: "john",
+        date: "2025-11-18T10:00:00Z"
+      },
+      {
+        lineNumber: 2,
+        revision: "1235",
+        author: "jane",
+        date: "2025-11-18T11:00:00Z"
+      },
+      {
+        lineNumber: 3,
+        revision: "1236",
+        author: "bob",
+        date: "2025-11-18T12:00:00Z"
+      }
     ];
 
     mockRepository.blame.resolves(blameData);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     blameStateManager.setBlameEnabled(testUri, true);
@@ -119,10 +160,12 @@ suite("Inline Blame Cursor Tracking", () => {
     await provider.updateDecorations(mockEditor);
 
     // Assert - Should decorate all lines
-    const inlineCalls = mockEditor.setDecorations.getCalls().filter((call: any) => {
-      const decorations = call.args[1];
-      return decorations.length > 0 && decorations[0].hoverMessage;
-    });
+    const inlineCalls = mockEditor.setDecorations
+      .getCalls()
+      .filter((call: any) => {
+        const decorations = call.args[1];
+        return decorations.length > 0 && decorations[0].hoverMessage;
+      });
 
     assert.ok(inlineCalls.length > 0, "Should have inline decorations");
     const decorations = inlineCalls[0].args[1];
@@ -133,13 +176,23 @@ suite("Inline Blame Cursor Tracking", () => {
     // Arrange
     const testUri = Uri.file("/test/file.txt");
     const blameData: ISvnBlameLine[] = [
-      { lineNumber: 1, revision: "1234", author: "john", date: "2025-11-18T10:00:00Z" },
-      { lineNumber: 2, revision: "1235", author: "jane", date: "2025-11-18T11:00:00Z" }
+      {
+        lineNumber: 1,
+        revision: "1234",
+        author: "john",
+        date: "2025-11-18T10:00:00Z"
+      },
+      {
+        lineNumber: 2,
+        revision: "1235",
+        author: "jane",
+        date: "2025-11-18T11:00:00Z"
+      }
     ];
 
     mockRepository.blame.resolves(blameData);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     blameStateManager.setBlameEnabled(testUri, true);
@@ -182,8 +235,15 @@ suite("Inline Blame Cursor Tracking", () => {
       return decorations.length > 0 && decorations[0].hoverMessage;
     });
 
-    assert.ok(lastInlineCall, "Should have inline decoration after cursor move");
+    assert.ok(
+      lastInlineCall,
+      "Should have inline decoration after cursor move"
+    );
     const decorations = lastInlineCall.args[1];
-    assert.strictEqual(decorations[0].range.startLine, 1, "Should now decorate line 1");
+    assert.strictEqual(
+      decorations[0].range.startLine,
+      1,
+      "Should now decorate line 1"
+    );
   });
 });

@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { BlameProvider } from "../../../blame/blameProvider";
@@ -9,7 +10,7 @@ function makeProvider(sandbox: sinon.SinonSandbox): any {
     workspaceRoot: "/test",
     root: "/test"
   };
-  return new BlameProvider(mockRepository as any);
+  return new BlameProvider(scmFor(mockRepository as any));
 }
 
 suite("BlameProvider - cache eviction", () => {

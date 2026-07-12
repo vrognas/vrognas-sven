@@ -36,6 +36,7 @@ import { isPositron, getEnvironmentName } from "./positron/runtime";
 import { logError, logWarning } from "./util/errorLogger";
 import { registerSvnConnectionsProvider } from "./positron/connectionsProvider";
 import { BlameStatusBar } from "./blame/blameStatusBar";
+import { BlameProvider } from "./blame/blameProvider";
 import { initBlamePersistence } from "./blame/blamePersistence";
 import { showActionFeedback } from "./util/actionFeedback";
 import { NeedsLockStatusBar } from "./statusbar/needsLockStatusBar";
@@ -124,6 +125,12 @@ async function init(
   // Initialize blame status bar (singleton)
   const blameStatusBar = new BlameStatusBar(sourceControlManager);
   disposables.push(blameStatusBar);
+
+  // Initialize the shared blame decoration provider (singleton across all
+  // repos - resolves the owning repo per file, like the status bar).
+  const blameProvider = new BlameProvider(sourceControlManager);
+  blameProvider.activate();
+  disposables.push(blameProvider);
 
   // Register blame commands
   disposables.push(

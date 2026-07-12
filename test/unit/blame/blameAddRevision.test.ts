@@ -21,9 +21,11 @@ function proto(method: string) {
 describe("blame add-revision marking", () => {
   it("ensureAddRevision resolves and caches the file's first revision", async () => {
     const log = vi.fn(async () => [{ revision: "401" } as never]);
+    const repository = { repository: { log } };
     const mockThis = {
       addRevisionCache: new Map<string, string>(),
-      repository: { repository: { log } }
+      repository,
+      repoFor: () => repository
     };
 
     await (
@@ -39,9 +41,11 @@ describe("blame add-revision marking", () => {
     const log = vi.fn(async () => {
       throw new Error("svn: E170013: Unable to connect");
     });
+    const repository = { repository: { log } };
     const mockThis = {
       addRevisionCache: new Map<string, string>(),
-      repository: { repository: { log } }
+      repository,
+      repoFor: () => repository
     };
     const ensure = proto("ensureAddRevision") as (
       this: unknown,

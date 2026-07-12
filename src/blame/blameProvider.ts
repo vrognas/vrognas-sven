@@ -22,6 +22,7 @@ import { debounce, throttle } from "../decorators";
 import { ISvnBlameLine } from "../common/types";
 import { configuration } from "../helpers/configuration";
 import { Repository } from "../repository";
+import { SourceControlManager } from "../source_control_manager";
 import { blameConfiguration } from "./blameConfiguration";
 import { blameStateManager } from "./blameStateManager";
 import {
@@ -42,8 +43,9 @@ import {
 import { formatBlameDate } from "../util/formatting";
 
 /**
- * BlameProvider manages gutter decorations for SVN blame
- * Per-repository instance (like StatusService)
+ * BlameProvider manages blame decorations for SVN.
+ * Single shared instance across all repositories (like BlameStatusBar):
+ * resolves the owning repo per file via SourceControlManager.getRepository.
  */
 export class BlameProvider implements Disposable {
   private decorationTypes: {
@@ -106,8 +108,17 @@ export class BlameProvider implements Disposable {
   private compiledGutterTemplate?: { template: string; fn: CompiledTemplateFn };
   private compiledInlineTemplate?: { template: string; fn: CompiledTemplateFn };
 
-  constructor(private repository: Repository) {
+  constructor(private sourceControlManager: SourceControlManager) {
     this.decorationTypes = this.createDecorationTypes();
+  }
+
+  /**
+   * Resolve the repository that owns a file (single shared provider across
+   * all repos, like BlameStatusBar). Returns undefined for files outside any
+   * open working copy - callers then clear/skip.
+   */
+  private repoFor(hint: Uri | string): Repository | undefined {
+    return this.sourceControlManager.getRepository(hint) ?? undefined;
   }
 
   /**
@@ -169,13 +180,32 @@ export class BlameProvider implements Disposable {
       blameConfiguration.onDidChange(e => this.onConfigurationChange(e))
     );
 
-    // Mutating repository operations change BASE content; the provider
-    // cache is version-keyed and a commit doesn't bump document.version,
-    // so it must be dropped explicitly. (Guarded: stubbed repositories in
-    // unit tests may not carry the instance-field event.)
-    if (typeof this.repository.onDidRunOperation === "function") {
+    // Per-repo hooks (mirrors BlameStatusBar): every open repo plus any that
+    // open later. Mutating operations change BASE content; the provider cache
+    // is version-keyed and a commit doesn't bump document.version, so the
+    // owning repo's entries must be dropped explicitly. And updateDecorations
+    // no longer blocks on the initial status crawl, so a re-render when a
+    // repo's status lands reconciles a file rendered against an empty index.
+    // (Guarded: stubbed repositories in unit tests may lack the instance
+    // fields.)
+    const hookRepository = (repo: Repository) => {
+      if (typeof repo.onDidRunOperation === "function") {
+        this.disposables.push(
+          repo.onDidRunOperation(op => this.onRepositoryOperation(op, repo))
+        );
+      }
+      if (typeof repo.statusReady?.then === "function") {
+        void repo.statusReady.then(() => {
+          if (window.activeTextEditor) {
+            void this.updateDecorations(window.activeTextEditor);
+          }
+        });
+      }
+    };
+    (this.sourceControlManager.repositories ?? []).forEach(hookRepository);
+    if (typeof this.sourceControlManager.onDidOpenRepository === "function") {
       this.disposables.push(
-        this.repository.onDidRunOperation(op => this.onRepositoryOperation(op))
+        this.sourceControlManager.onDidOpenRepository(hookRepository)
       );
     }
 
@@ -184,19 +214,6 @@ export class BlameProvider implements Disposable {
     // Apply to current active editor
     if (window.activeTextEditor) {
       void this.onActiveEditorChange(window.activeTextEditor);
-    }
-
-    // updateDecorations no longer blocks on the initial status crawl, so
-    // a file rendered in that window used an empty resource index (no
-    // BASE->working line mapping, no unversioned gating). One re-render
-    // when status lands reconciles it - blame comes from cache.
-    // (Guarded: stubbed repositories in unit tests may not carry it.)
-    if (typeof this.repository.statusReady?.then === "function") {
-      void this.repository.statusReady.then(() => {
-        if (window.activeTextEditor) {
-          void this.updateDecorations(window.activeTextEditor);
-        }
-      });
     }
   }
 
@@ -211,11 +228,11 @@ export class BlameProvider implements Disposable {
       return;
     }
 
-    // CRITICAL: Skip files outside this repository to prevent disposing repo on external files
-    // (SVN commands on external files return NotASvnRepository which incorrectly disposes repo)
-    if (
-      !isDescendant(this.repository.workspaceRoot, target.document.uri.fsPath)
-    ) {
+    // Resolve the owning repository. Files outside any open working copy
+    // (no repo) are cleared - running SVN commands on them returns
+    // NotASvnRepository, which would incorrectly dispose a repo.
+    const repository = this.repoFor(target.document.uri);
+    if (!repository) {
       this.clearDecorations(target);
       return;
     }
@@ -236,7 +253,7 @@ export class BlameProvider implements Disposable {
     // files; activate() re-renders once statusReady lands.
 
     // Skip untracked files (prevents SVN errors for UNVERSIONED/IGNORED files)
-    const resource = this.repository.getResourceFromFile(target.document.uri);
+    const resource = repository.getResourceFromFile(target.document.uri);
 
     // Only check status if resource exists (null means clean file, not untracked)
     if (resource) {
@@ -625,6 +642,10 @@ export class BlameProvider implements Disposable {
     if (this.peekPrefetchDone.has(key)) {
       return;
     }
+    const repository = this.repoFor(uri);
+    if (!repository) {
+      return;
+    }
     this.peekPrefetchDone.add(key);
 
     const revisions = [
@@ -637,7 +658,7 @@ export class BlameProvider implements Disposable {
 
     let peg: string | undefined;
     try {
-      const info = await this.repository.repository.getInfo(uri.fsPath);
+      const info = await repository.repository.getInfo(uri.fsPath);
       if (/^\d+$/.test(info.revision)) {
         peg = info.revision;
       }
@@ -647,17 +668,13 @@ export class BlameProvider implements Disposable {
 
     for (const rev of revisions) {
       try {
-        await this.repository.repository.patchRevision(String(rev), uri);
+        await repository.repository.patchRevision(String(rev), uri);
       } catch {
         return; // network trouble - stop, don't storm the server
       }
       if (rev > 1) {
         try {
-          await this.repository.repository.show(
-            uri.fsPath,
-            String(rev - 1),
-            peg
-          );
+          await repository.repository.show(uri.fsPath, String(rev - 1), peg);
         } catch {
           // lineage boundary (file added at rev) - keep sweeping
         }
@@ -682,8 +699,12 @@ export class BlameProvider implements Disposable {
     if (this.addRevisionCache.has(key)) {
       return false;
     }
+    const repository = this.repoFor(uri);
+    if (!repository) {
+      return false;
+    }
     try {
-      const entries = await this.repository.repository.log(
+      const entries = await repository.repository.log(
         "1",
         "HEAD",
         1,
@@ -769,10 +790,8 @@ export class BlameProvider implements Disposable {
       return;
     }
 
-    // CRITICAL: Skip files outside this repository to prevent disposing repo
-    if (
-      !isDescendant(this.repository.workspaceRoot, editor.document.uri.fsPath)
-    ) {
+    // Skip files outside any open working copy.
+    if (!this.repoFor(editor.document.uri)) {
       return;
     }
 
@@ -934,18 +953,34 @@ export class BlameProvider implements Disposable {
    * BASE content (commit/update/revert/... plus switch/merge), then
    * refresh the active editor so decorations reflect the new BASE.
    */
-  private onRepositoryOperation(operation: Operation): void {
+  private onRepositoryOperation(operation: Operation, repo: Repository): void {
     if (!BLAME_INVALIDATING_OPERATIONS.has(operation)) {
       return;
     }
 
-    this.blameCache.clear();
-    this.lineMappingCache.clear();
-    this.cacheAccessOrder.clear();
-    this.addRevisionCache.clear();
-    this.renderCache.clear();
-    this.peekPrefetchDone.clear();
-    this.inFlightMessageFetches.clear();
+    // Shared provider: a mutation in repo A must only drop repo A's files'
+    // entries, not every repo's. clearCache(uri) already clears all per-uri
+    // structures, so scope-clear the union of their keys under repo.root.
+    const owns = (key: string) => {
+      try {
+        return isDescendant(repo.workspaceRoot, Uri.parse(key).fsPath);
+      } catch {
+        return false;
+      }
+    };
+    const keys = new Set<string>([
+      ...this.blameCache.keys(),
+      ...this.lineMappingCache.keys(),
+      ...this.renderCache.keys(),
+      ...this.addRevisionCache.keys(),
+      ...this.peekPrefetchDone,
+      ...this.inFlightMessageFetches.keys()
+    ]);
+    for (const key of keys) {
+      if (owns(key)) {
+        this.clearCache(Uri.parse(key));
+      }
+    }
 
     const editor = window.activeTextEditor;
     if (editor) {
@@ -1080,7 +1115,7 @@ export class BlameProvider implements Disposable {
    * (not UI-filtered) to correctly detect hidden folders.
    */
   private getParentFolderStatus(filePath: string): Status | undefined {
-    return this.repository.isInsideUnversionedOrIgnored(filePath);
+    return this.repoFor(filePath)?.isInsideUnversionedOrIgnored(filePath);
   }
 
   /**
@@ -1106,9 +1141,14 @@ export class BlameProvider implements Disposable {
       return cached.data;
     }
 
+    const repository = this.repoFor(uri);
+    if (!repository) {
+      return undefined;
+    }
+
     // Pre-check: verify file is under version control before attempting blame
     // First check resource index (avoids SVN call for known unversioned files)
-    const resource = this.repository.getResourceFromFile(uri);
+    const resource = repository.getResourceFromFile(uri);
     if (resource) {
       if (
         resource.type === Status.UNVERSIONED ||
@@ -1125,7 +1165,7 @@ export class BlameProvider implements Disposable {
 
     // Fetch from repository
     try {
-      const data = await this.repository.blame(uri.fsPath);
+      const data = await repository.blame(uri.fsPath);
 
       // Cache with document version (for staleness detection on external changes)
       this.blameCache.set(key, { data, version: currentVersion });
@@ -1144,13 +1184,16 @@ export class BlameProvider implements Disposable {
       }
 
       logError("BlameProvider: Failed to fetch blame data", err);
-      this.notifyBlameFetchError(kind);
+      this.notifyBlameFetchError(kind, repository);
       return undefined;
     }
   }
 
   /** Surface a blame-fetch failure to the user (auth/network only). */
-  private notifyBlameFetchError(kind: BlameErrorKind): void {
+  private notifyBlameFetchError(
+    kind: BlameErrorKind,
+    repository: Repository
+  ): void {
     if (kind === "auth") {
       window
         .showWarningMessage(
@@ -1159,7 +1202,7 @@ export class BlameProvider implements Disposable {
         )
         .then(choice => {
           if (choice === "Authenticate") {
-            const repoUrl = this.repository.repository.info?.url;
+            const repoUrl = repository.repository.info?.url;
             commands.executeCommand(
               "sven.promptAuth",
               undefined,
@@ -1194,18 +1237,16 @@ export class BlameProvider implements Disposable {
     }
 
     // Check if file is modified
-    const resource = this.repository.getResourceFromFile(uri);
-    if (!resource || resource.type !== Status.MODIFIED) {
-      // File not modified - no mapping needed (identity mapping)
+    const repository = this.repoFor(uri);
+    const resource = repository?.getResourceFromFile(uri);
+    if (!repository || !resource || resource.type !== Status.MODIFIED) {
+      // File not modified (or no repo) - no mapping needed (identity mapping)
       return undefined;
     }
 
     try {
       // Get BASE content (committed version)
-      const baseContent = await this.repository.repository.show(
-        uri.fsPath,
-        "BASE"
-      );
+      const baseContent = await repository.repository.show(uri.fsPath, "BASE");
       const baseLines = baseContent.split(/\r?\n/);
 
       // Get working copy content (current editor)
@@ -1310,7 +1351,10 @@ export class BlameProvider implements Disposable {
 
         if (!inlineCurrentLineOnly || isCurrentLine) {
           const message = showInlineMessage
-            ? await this.getCommitMessage(blameLine.revision)
+            ? await this.getCommitMessage(
+                blameLine.revision,
+                editor.document.uri
+              )
             : "";
 
           const inlineText = this.formatInlineText(blameLine, message);
@@ -1655,7 +1699,7 @@ export class BlameProvider implements Disposable {
    * in prefetchMessages fails for exactly that reason). Only the RANGE
    * query (logBatch) needs a target - that's where the cost lives.
    */
-  private async getCommitMessage(revision: string): Promise<string> {
+  private async getCommitMessage(revision: string, uri: Uri): Promise<string> {
     const cached = this.readMessage(revision);
     if (cached !== undefined) {
       return cached;
@@ -1665,8 +1709,13 @@ export class BlameProvider implements Disposable {
       return "";
     }
 
+    const repository = this.repoFor(uri);
+    if (!repository) {
+      return "";
+    }
+
     try {
-      const log = await this.repository.log(revision, revision, 1);
+      const log = await repository.log(revision, revision, 1);
       const message = log[0]?.msg || "";
       this.messageCache.set(revision, message);
 
@@ -1698,14 +1747,18 @@ export class BlameProvider implements Disposable {
       return;
     }
 
+    // The batch log must be targeted at the blamed file's repo; without a
+    // resolvable target there's nothing to query.
+    const repository = target ? this.repoFor(target) : undefined;
+    if (!repository || !target) {
+      return;
+    }
+
     try {
       // Batch fetch: single SVN command for all revisions, targeted at the
       // blamed file so the server filters to its history. Without a target
       // this spanned every revision in the checkout between min and max.
-      const logEntries = await this.repository.logBatch(
-        uncached,
-        target?.fsPath
-      );
+      const logEntries = await repository.logBatch(uncached, target.fsPath);
 
       // Cache all fetched messages
       for (const entry of logEntries) {
@@ -1726,7 +1779,7 @@ export class BlameProvider implements Disposable {
       // getCommitMessage; the targeted range log may have failed because
       // of the target)
       for (const revision of uncached) {
-        await this.getCommitMessage(revision);
+        await this.getCommitMessage(revision, target);
       }
     }
   }

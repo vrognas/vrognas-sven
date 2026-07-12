@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { commands, Uri, window, workspace } from "vscode";
@@ -45,7 +46,7 @@ suite("BlameProvider - Fail Cluster", () => {
     sandbox = sinon.createSandbox();
     mockRepository = sandbox.createStubInstance(Repository);
     setupRepositoryMock(mockRepository);
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
   });
 
   teardown(() => {
@@ -91,7 +92,7 @@ suite("BlameProvider - Fail Cluster", () => {
     });
 
     provider.dispose();
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
 
     const editor = createEditor(Uri.file("/test/file.ts"));
     sandbox.stub(window, "activeTextEditor").value(editor);

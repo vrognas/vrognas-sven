@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { Uri, window } from "vscode";
@@ -171,7 +172,7 @@ suite("Blame size gates", () => {
       workspaceRoot: "/test",
       root: "/test"
     };
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
 
     const mockEditor = makeMockEditor(testUri, 1000); // > 500 default limit
     sandbox.stub(window, "activeTextEditor").value(mockEditor);

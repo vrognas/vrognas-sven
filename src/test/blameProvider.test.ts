@@ -1,3 +1,4 @@
+import { scmFor } from "./unit/blame/helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { Uri, window } from "vscode";
@@ -56,7 +57,7 @@ suite("BlameProvider E2E Tests", () => {
     mockRepository.blame.resolves(blameData);
 
     // Create provider
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     // Enable blame for file
@@ -88,10 +89,15 @@ suite("BlameProvider E2E Tests", () => {
       mockRepository.blame.calledOnce,
       "Repository.blame() should be called"
     );
-    assert.ok(mockEditor.setDecorations.called, "Editor decorations should be set");
+    assert.ok(
+      mockEditor.setDecorations.called,
+      "Editor decorations should be set"
+    );
     const nonEmptyCalls = mockEditor.setDecorations
       .getCalls()
-      .filter((call: any) => Array.isArray(call.args[1]) && call.args[1].length > 0);
+      .filter(
+        (call: any) => Array.isArray(call.args[1]) && call.args[1].length > 0
+      );
     assert.ok(nonEmptyCalls.length > 0, "Should have non-empty decorations");
   });
 
@@ -99,7 +105,7 @@ suite("BlameProvider E2E Tests", () => {
     // Arrange
     const testUri = Uri.file("/test/file.txt");
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     // Disable blame
@@ -159,7 +165,7 @@ suite("BlameProvider E2E Tests", () => {
       .onSecondCall()
       .resolves(updatedBlame);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     blameStateManager.setBlameEnabled(testUri, true);
@@ -236,7 +242,7 @@ suite("BlameProvider - Inline Decoration Optimization", () => {
     mockRepository.blame.resolves(blameData);
     mockRepository.log.resolves([]);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     blameStateManager.setBlameEnabled(testUri, true);
@@ -317,7 +323,7 @@ suite("BlameProvider - Inline Decoration Optimization", () => {
       }
     ] as any);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     blameStateManager.setBlameEnabled(testUri, true);
@@ -373,7 +379,7 @@ suite("BlameProvider - Inline Decoration Optimization", () => {
 
     mockRepository.blame.resolves(blameData);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     blameStateManager.setBlameEnabled(testUri, true);
@@ -464,7 +470,7 @@ suite("BlameProvider Cursor Tracking Optimization", () => {
 
     mockRepository.blame.resolves(blameData);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     blameStateManager.setBlameEnabled(testUri, true);
@@ -535,7 +541,7 @@ suite("BlameProvider Cursor Tracking Optimization", () => {
 
     mockRepository.blame.resolves(blameData);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     blameStateManager.setBlameEnabled(testUri, true);
@@ -597,7 +603,7 @@ suite("BlameProvider Cursor Tracking Optimization", () => {
 
     mockRepository.blame.resolves(blameData);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     blameStateManager.setBlameEnabled(testUri, true);
@@ -658,7 +664,7 @@ suite("BlameProvider Cursor Tracking Optimization", () => {
 
     mockRepository.blame.resolves(blameData);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     // Enable blame initially
@@ -738,7 +744,7 @@ suite("BlameProvider - Skip Unblameable Files", () => {
       resourceUri: testUri
     } as any);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     blameStateManager.setBlameEnabled(testUri, true);
@@ -777,7 +783,7 @@ suite("BlameProvider - Skip Unblameable Files", () => {
       resourceUri: testUri
     } as any);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     blameStateManager.setBlameEnabled(testUri, true);
@@ -822,7 +828,7 @@ suite("BlameProvider - Skip Unblameable Files", () => {
     } as any);
     mockRepository.blame.resolves(blameData);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
     provider.activate();
 
     blameStateManager.setBlameEnabled(testUri, true);

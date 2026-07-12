@@ -1,8 +1,12 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
+import { Uri } from "vscode";
 import { BlameProvider } from "../../../blame/blameProvider";
 import { blameConfiguration } from "../../../blame/blameConfiguration";
 import { Repository } from "../../../repository";
+
+const TARGET = Uri.file("/test/file.ts");
 
 suite("BlameProvider - Message Fetching", () => {
   let provider: BlameProvider;
@@ -12,7 +16,7 @@ suite("BlameProvider - Message Fetching", () => {
   setup(() => {
     sandbox = sinon.createSandbox();
     mockRepository = sandbox.createStubInstance(Repository);
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
   });
 
   teardown(() => {
@@ -24,12 +28,14 @@ suite("BlameProvider - Message Fetching", () => {
     // Given: Repository returns log entry
     const revision = "1234";
     const expectedMsg = "Fix critical bug in parser";
-    mockRepository.log.resolves([{
-      revision,
-      msg: expectedMsg,
-      author: "john",
-      date: "2025-11-18"
-    }] as any);
+    mockRepository.log.resolves([
+      {
+        revision,
+        msg: expectedMsg,
+        author: "john",
+        date: "2025-11-18"
+      }
+    ] as any);
 
     sandbox.stub(blameConfiguration, "isLogsEnabled").returns(true);
 
@@ -93,7 +99,7 @@ suite("BlameProvider - Message Fetching", () => {
     sandbox.stub(blameConfiguration, "isLogsEnabled").returns(true);
 
     // When: Prefetch batch
-    await (provider as any).prefetchMessages(revisions);
+    await (provider as any).prefetchMessages(revisions, TARGET);
 
     // Then: All fetched and cached
     assert.strictEqual((provider as any).messageCache.size, 5);
@@ -111,7 +117,7 @@ suite("BlameProvider - Message Fetching", () => {
 
     // When: Prefetch 3 revisions (2 cached, 1 new)
     const revisions = ["1000", "1001", "1002"];
-    await (provider as any).prefetchMessages(revisions);
+    await (provider as any).prefetchMessages(revisions, TARGET);
 
     // Then: Only 1 fetch call (for uncached)
     assert.strictEqual(mockRepository.log.callCount, 1);

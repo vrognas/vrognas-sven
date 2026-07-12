@@ -39,7 +39,6 @@ import {
   processConcurrently
 } from "./util";
 import { matchAll } from "./util/globMatch";
-import { BlameProvider } from "./blame/blameProvider";
 
 type State = "uninitialized" | "initialized";
 
@@ -478,11 +477,9 @@ export class SourceControlManager implements IDisposable {
       this._onDidChangeStatusRepository.fire(repository);
     });
 
-    // Initialize blame provider for this repository
-    // Track for cleanup if any subsequent setup fails
-    const blameProvider = new BlameProvider(repository);
+    // Blame decorations are handled by a single shared BlameProvider
+    // (created in extension.ts). It hooks this repo via onDidOpenRepository.
     const localDisposables: { dispose(): void }[] = [
-      blameProvider,
       changeListener,
       changeStatus
     ];
@@ -509,7 +506,6 @@ export class SourceControlManager implements IDisposable {
       if (statusListener) {
         statusListener.dispose();
       }
-      blameProvider.dispose();
       repository.dispose();
 
       this.openRepositories = this.openRepositories.filter(
@@ -523,8 +519,6 @@ export class SourceControlManager implements IDisposable {
     const openRepository = { repository, dispose };
 
     try {
-      blameProvider.activate();
-
       statusListener = repository.onDidChangeStatus(() => {
         buildExcludedCache();
         this.scanExternals(repository);

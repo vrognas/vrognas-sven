@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { Uri } from "vscode";
@@ -28,7 +29,7 @@ suite("BlameProvider - progressive inline build", () => {
     sandbox = sinon.createSandbox();
     const mockRepo = sandbox.createStubInstance(Repository);
     (mockRepo as any).repository = { workspaceRoot: "/test", root: "/test" };
-    provider = new BlameProvider(mockRepo as any);
+    provider = new BlameProvider(scmFor(mockRepo as any));
   });
 
   teardown(() => {

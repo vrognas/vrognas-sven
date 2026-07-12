@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { BlameProvider } from "../../../blame/blameProvider";
@@ -12,7 +13,7 @@ suite("BlameProvider - Text Formatting", () => {
   setup(() => {
     sandbox = sinon.createSandbox();
     const mockRepo = sandbox.createStubInstance(Repository);
-    provider = new BlameProvider(mockRepo as any);
+    provider = new BlameProvider(scmFor(mockRepo as any));
   });
 
   teardown(() => {
@@ -22,7 +23,8 @@ suite("BlameProvider - Text Formatting", () => {
 
   test("truncates message at word boundary", () => {
     // Given: Long message exceeding max length
-    const message = "This is a very long commit message that should be truncated";
+    const message =
+      "This is a very long commit message that should be truncated";
     sandbox.stub(blameConfiguration, "getInlineMaxLength").returns(30);
 
     // When: Truncate message
@@ -60,9 +62,9 @@ suite("BlameProvider - Text Formatting", () => {
       date: "2025-11-18"
     };
     const message = "Test message";
-    sandbox.stub(blameConfiguration, "getInlineTemplate").returns(
-      "${author} (r${revision}): ${message}"
-    );
+    sandbox
+      .stub(blameConfiguration, "getInlineTemplate")
+      .returns("${author} (r${revision}): ${message}");
 
     // When: Format
     const result = (provider as any).formatInlineText(line, message);
@@ -84,9 +86,9 @@ suite("BlameProvider - Text Formatting", () => {
     };
     const message = "";
 
-    sandbox.stub(blameConfiguration, "getInlineTemplate").returns(
-      "${author} (r${revision}): ${message}"
-    );
+    sandbox
+      .stub(blameConfiguration, "getInlineTemplate")
+      .returns("${author} (r${revision}): ${message}");
 
     // When: Format
     const result = (provider as any).formatInlineText(line, message);

@@ -1,3 +1,4 @@
+import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
 import { Uri } from "vscode";
@@ -36,7 +37,7 @@ suite("BlameProvider - LRU Cache Eviction", () => {
     ];
     mockRepository.blame.resolves(blameData);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
 
     // Create 21 URIs (exceeds MAX_CACHE_SIZE of 20)
     const uris = Array.from({ length: 21 }, (_, i) =>
@@ -73,7 +74,7 @@ suite("BlameProvider - LRU Cache Eviction", () => {
     ];
     mockRepository.blame.resolves(blameData);
 
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
 
     const uris = Array.from({ length: 20 }, (_, i) =>
       Uri.file(`/test/file${i}.txt`)
@@ -107,7 +108,7 @@ suite("BlameProvider - LRU Cache Eviction", () => {
 
   test("evicts oldest message cache entries when exceeding MAX_MESSAGE_CACHE_SIZE", async () => {
     // Arrange
-    provider = new BlameProvider(mockRepository as any);
+    provider = new BlameProvider(scmFor(mockRepository as any));
 
     // Manually populate messageCache with 501 entries (exceeds MAX_MESSAGE_CACHE_SIZE of 500)
     for (let i = 0; i < 501; i++) {
