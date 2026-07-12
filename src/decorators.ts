@@ -117,6 +117,46 @@ function _throttle<T extends AsyncMethod>(
 export const throttle = decorate(_throttle);
 
 /**
+ * Throttle variant whose single queued invocation keeps the latest arguments.
+ * Useful for UI renders where intermediate targets are obsolete.
+ */
+function _throttleLatest<T extends AsyncMethod>(
+  fn: T,
+  key: string
+): (...args: Parameters<T>) => Promise<Awaited<ReturnType<T>>> {
+  const currentKey = `$throttleLatest$current$${key}`;
+  const nextKey = `$throttleLatest$next$${key}`;
+  const nextArgsKey = `$throttleLatest$args$${key}`;
+
+  const trigger = function (
+    this: any,
+    ...args: Parameters<T>
+  ): Promise<Awaited<ReturnType<T>>> {
+    if (this[currentKey]) {
+      this[nextArgsKey] = args;
+      if (!this[nextKey]) {
+        this[nextKey] = done(this[currentKey]).then(() => {
+          const latestArgs = this[nextArgsKey] as Parameters<T>;
+          this[nextArgsKey] = undefined;
+          this[nextKey] = undefined;
+          return trigger.apply(this, latestArgs);
+        });
+      }
+      return this[nextKey];
+    }
+
+    this[currentKey] = fn.apply(this, args);
+    const clear = () => (this[currentKey] = undefined);
+    done(this[currentKey]).then(clear, clear);
+    return this[currentKey];
+  };
+
+  return trigger as T;
+}
+
+export const throttleLatest = decorate(_throttleLatest);
+
+/**
  * Sequentialize decorator implementation - serializes async operations
  * Constrains to async methods, preserves Promise return type
  */
