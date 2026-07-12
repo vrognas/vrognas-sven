@@ -34,3 +34,6 @@
 - In suites with background polling/watchers, teardown order: dispose repositories, wait briefly, then delete temp repos.
 - In legacy E2E suites, use `suiteReady` + per-test skip guard; do not rely on `suiteSetup` `this.skip()` alone.
 - In timer/poll tests, prefer explicit signal waits with bounded timeout over fixed sleep assertions.
+- Shared async caches: fence writes/applies by owner generation + document version; clearing is not cancellation.
+- Deduplicate fetches, not editor-specific apply continuations.
+- Oversized quadratic diffs: use exact sparse anchors; leave ambiguity unmapped, never positional-fallback blame.

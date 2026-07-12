@@ -7,6 +7,18 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.92] - 2026-07-12
+
+Adversarial correctness hardening for the blame performance/shared-provider pass.
+
+### Fixed
+
+- **Shared blame stays repo-correct across externals, nested repos, splits, and lifecycle races.** Cache/message ownership is fenced by repo generation and document version; repo open/close/status/mutations reconcile every affected visible editor; late async work cannot repopulate or repaint a former owner.
+- **Progressive messages no longer disappear or use stale mapping.** Network fetches remain deduplicated, while each editor/render keeps its own validated apply continuation. Same-file splits use their own cursor-line render key.
+- **Warm lock-free reads respect every BASE mutation barrier**, including branch creation and parent updates that change opened externals.
+- **Throttled renders keep the latest target and recover after rejection** instead of dropping or poisoning queued work.
+- **Large edited files retain precise blame without quadratic OOM risk.** Line mapping uses a 4M-cell dense budget, then exact sparse anchors and bounded gap mapping; ambiguous regions remain unassigned.
+
 ## [0.2.91] - 2026-07-12
 
 Performance pass on the blame feature (multi-agent review): no freeze/OOM on huge files, far less startup and background server load, cheaper renders.

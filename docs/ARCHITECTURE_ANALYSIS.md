@@ -1,7 +1,7 @@
 # SVN Extension Architecture
 
-**Version**: 0.2.75
-**Updated**: 2026-07-08
+**Version**: 0.2.92
+**Updated**: 2026-07-12
 
 ---
 
@@ -74,7 +74,11 @@ Per-file blame tracking with:
 - Template compilation for status bar/gutter
 - Batch log fetching (50x faster), targeted at the blamed file
 - LRU cache eviction (MAX_CACHE_SIZE=20)
-- Line mapping for modified files (LCS algorithm)
+- Shared provider resolves deepest repo ownership per URI; owner generations and
+  document versions fence async cache writes/applies
+- Visible split editors reconcile on repo open/close/status/mutations
+- Line mapping uses prefix/suffix stripping, bounded dense LCS, then sparse
+  exact anchors for oversized cores
 - autoBlame-gated auto-fetch; CSV/large-file gates on all fetch paths
   (render, cursor, status bar)
 
@@ -127,8 +131,8 @@ All critical bottlenecks fixed:
 Caching strategy:
 
 - LRU eviction for info, blame, log caches
-- Blame: fast-path check outside sequentialize, in-flight dedup, 30s negative
-  cache for non-transient failures, cleared on mutating ops (TTL backstop)
+- Blame: lock-free warm reads guarded by mutation state, in-flight dedup, 30s
+  negative cache, owner-generation invalidation on BASE-changing operations
 - Immutable data (SVN logs) = infinite TTL
 - Remote-check result cached with poll-frequency TTL for pre-commit reuse
 

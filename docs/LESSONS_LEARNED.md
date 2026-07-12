@@ -1759,3 +1759,33 @@ for (const blameLine of blameData) {
 **Rule**: For annotations on committed data displayed in working copy, compute line mapping between BASE and working copy.
 
 ---
+
+### 32. Shared Async Providers Need Ownership Epochs
+
+**Lesson**: Clearing a shared cache does not cancel its pending work.
+
+A singleton serving several repositories must validate repository owner,
+monotonic owner generation, and document version before every async write or UI
+apply. Deduplicate only immutable network fetches; each visible editor keeps its
+own apply continuation and mapping. Repo open/close/status/mutations must
+reconcile all affected visible splits, not only the active editor.
+
+**Rule**: Shared async state needs explicit ownership epochs and per-consumer
+apply validation.
+
+---
+
+### 33. Bound Quadratic Diffs Without Positional Guessing
+
+**Lesson**: An LCS cell cap prevents OOM but must not discard every trustworthy
+mapping in a large edited file.
+
+Strip equal edges, run dense LCS only within a fixed cell budget, then use
+unique exact-line anchors plus bounded gap mapping. Leave unresolved or
+duplicate-heavy regions unmapped; positional fallback can attach blame to the
+wrong content.
+
+**Rule**: Preserve exact sparse evidence; never trade OOM prevention for false
+attribution.
+
+---
