@@ -1871,6 +1871,12 @@ export class Repository implements IRemoteRepository {
   }
 
   public async getInfo(path: string, revision?: string): Promise<ISvnInfo> {
+    // Warm cache hits bypass run()/credentialLock (see blame() above). A miss
+    // or a negative (unversioned) entry falls through to the serialized fetch.
+    const cached = this.repository.getInfoCached(path, revision);
+    if (cached !== undefined) {
+      return cached;
+    }
     return this.run(Operation.Info, () =>
       this.repository.getInfo(path, revision)
     );
@@ -1944,6 +1950,14 @@ export class Repository implements IRemoteRepository {
   }
 
   public async blame(path: string, revision?: string, pegRevision?: string) {
+    // Warm cache hits bypass run()/credentialLock: blame renders on every
+    // editor switch, and queuing an in-memory hit behind a slow in-flight
+    // network op (which holds the lock) is the priority inversion we avoid.
+    // A miss falls through to the fully-serialized, auth-retrying fetch.
+    const cached = this.repository.blameCached(path, revision, pegRevision);
+    if (cached !== undefined) {
+      return cached;
+    }
     return this.run(Operation.Blame, () =>
       this.repository.blame(path, revision, false, pegRevision)
     );

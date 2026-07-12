@@ -715,6 +715,24 @@ export class Repository {
     return this._doGetInfoFetch(file, revision, isUrl, cacheKey);
   }
 
+  /**
+   * Lock-free warm-cache peek for info. Returns cached info, or undefined on
+   * a miss OR a negative (unversioned) entry - never spawns svn. Lets the
+   * Repository wrapper serve hits without entering run()/credentialLock; a
+   * negative cache falls through so run() re-throws the "not versioned" error.
+   */
+  public getInfoCached(
+    file: string = "",
+    revision?: string
+  ): ISvnInfo | undefined {
+    const normalizedFile = file ? fixPathSeparator(file).toLowerCase() : "";
+    const cacheKey = revision
+      ? `${normalizedFile}@${revision}`
+      : normalizedFile;
+    const cached = this._infoCache.get(cacheKey);
+    return cached === null || cached === undefined ? undefined : cached;
+  }
+
   // The actual network fetch + cache-write path. Sequentialized so that two
   // concurrent misses for different paths can't both spawn `svn info`
   // simultaneously (matches the original behaviour); cache hits no longer
@@ -898,6 +916,32 @@ export class Repository {
     }
 
     return fetchPromise;
+  }
+
+  /**
+   * Lock-free warm-cache peek for blame. Returns the cached rows for a file,
+   * or undefined on a miss - NEVER spawns svn. Mirrors blame()'s exact key
+   * construction (including the memoized BASE->revision resolution) so a hit
+   * here is byte-identical to what blame() would return, and lets the
+   * Repository wrapper serve hits WITHOUT entering run()/credentialLock.
+   */
+  public blameCached(
+    file: string,
+    revision: string = "BASE",
+    pegRevision?: string
+  ): ISvnBlameLine[] | undefined {
+    const relativePath = this.relativize(file);
+    // Only a memoized BASE resolution is used - never trigger an info fetch.
+    // On a cold file the key falls back to the literal BASE keyword, which is
+    // exactly how blame() keys it before resolution, so both stay coherent.
+    const keyRevision =
+      revision.toUpperCase() === "BASE"
+        ? (this._baseKeyCache.get(relativePath) ?? revision)
+        : revision;
+    const cacheKey = pegRevision
+      ? `${relativePath}@${keyRevision}@${pegRevision}`
+      : `${relativePath}@${keyRevision}`;
+    return this._blameCache.get(cacheKey);
   }
 
   // The actual subprocess + parse path. Sequentialized so concurrent misses
