@@ -81,4 +81,47 @@ describe("computeLineMapping — large inputs", () => {
     expect(mapping.get(1001)).toBe(1001);
     expect(mapping.get(base.length)).toBe(working.length);
   });
+
+  it("keeps a long repeated LCS ahead of a moved unique sparse anchor", () => {
+    const repeated = Array<string>(5000).fill("same");
+    const base = ["D", ...repeated, "ax"];
+    const working = [...repeated, "D"];
+
+    const mapping = computeLineMapping(base, working);
+
+    expect(mapping.get(1)).toBeUndefined();
+    expect(mapping.get(2)).toBe(1);
+    expect(mapping.get(5001)).toBe(5000);
+    expect(mapping.get(5002)).toBe(5001);
+  });
+
+  it("keeps dense attribution across linear-space tie cases", () => {
+    const trailingMove = computeLineMapping(
+      ["B", ...Array<string>(1998).fill("C")],
+      [...Array<string>(1999).fill("C"), "B"]
+    );
+    expect(trailingMove.get(1)).toBe(1);
+    expect(trailingMove.get(2)).toBe(2);
+
+    const leadingMove = computeLineMapping(
+      [...Array<string>(1999).fill("A"), "X"],
+      ["B", ...Array<string>(1998).fill("A"), "Y"]
+    );
+    expect(leadingMove.get(1)).toBe(1);
+    expect(leadingMove.get(2)).toBe(2);
+    expect(leadingMove.get(1999)).toBe(1999);
+    expect(leadingMove.get(2000)).toBe(2000);
+  });
+
+  it("rejects a crossing unique anchor when bounded exact work is exhausted", () => {
+    const repeated = Array<string>(5000).fill("same");
+    const removed = Array.from({ length: 2500 }, (_, i) => `old ${i}`);
+    const inserted = Array.from({ length: 2500 }, (_, i) => `new ${i}`);
+    const base = ["moved", ...repeated, ...removed];
+    const working = [...inserted, ...repeated, "moved"];
+
+    const mapping = computeLineMapping(base, working);
+
+    expect(mapping.get(1)).toBeUndefined();
+  });
 });

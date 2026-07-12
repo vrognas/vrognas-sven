@@ -17,6 +17,13 @@ const MAX_DENSE_LCS_CELLS = 4_000_000;
 const MAX_LINEAR_LCS_CELLS = 20_000_000;
 /** Caps live rolling-row storage independently of the work-product limit. */
 const MAX_LINEAR_LCS_ROW_LENGTH = 100_000;
+/** Caps edit-frontier work before the conservative sparse fallback. */
+const MAX_ADAPTIVE_EDIT_WORK = 20_000_000;
+/** Maximum direction cells retained by the exact low-edit fallback. */
+const MAX_BANDED_TRACE_CELLS = 4_000_000;
+const TRACE_DIAGONAL = 1;
+const TRACE_UP = 2;
+const TRACE_LEFT = 3;
 
 /**
  * Compute line mapping from BASE content to working copy content.
@@ -128,12 +135,28 @@ function computeCoreMapping(
   bracketAfter: boolean,
   linearSpace = false
 ): LineMapping {
-  const mapping: LineMapping = new Map();
-
   // Compute LCS to find matching lines
   const lcs = linearSpace
     ? computeLinearSpaceLCS(baseLines, workingLines)
     : computeLCS(baseLines, workingLines);
+
+  return buildCoreMapping(
+    baseLines,
+    workingLines,
+    bracketBefore,
+    bracketAfter,
+    lcs
+  );
+}
+
+function buildCoreMapping(
+  baseLines: string[],
+  workingLines: string[],
+  bracketBefore: boolean,
+  bracketAfter: boolean,
+  lcs: LCSMatch[]
+): LineMapping {
+  const mapping: LineMapping = new Map();
 
   // Build indexed structures for O(1) lookups (instead of O(n) array.find())
   const lcsIndex = buildLCSIndex(lcs);
@@ -183,6 +206,7 @@ function computeCoreMapping(
 interface LineOccurrence {
   count: number;
   index: number;
+  lastIndex: number;
 }
 
 interface SparseGap {
@@ -201,9 +225,178 @@ function denseCellCount(baseLength: number, workingLength: number): number {
   return (baseLength + 1) * (workingLength + 1);
 }
 
+/** Find insert/delete edit distance with a work-capped Myers frontier. */
+function findBoundedEditDistance(
+  baseLines: string[],
+  workingLines: string[]
+): number | undefined {
+  const maxDistance = baseLines.length + workingLines.length;
+  const maxTrackedDistance = Math.min(
+    maxDistance,
+    Math.floor((MAX_LINEAR_LCS_ROW_LENGTH - 1) / 2)
+  );
+  if (Math.abs(baseLines.length - workingLines.length) > maxTrackedDistance) {
+    return undefined;
+  }
+
+  const offset = maxTrackedDistance + 1;
+  const furthest = new Int32Array(2 * maxTrackedDistance + 3);
+  furthest.fill(-1);
+  furthest[offset + 1] = 0;
+  let work = 0;
+
+  for (let distance = 0; distance <= maxTrackedDistance; distance++) {
+    for (let diagonal = -distance; diagonal <= distance; diagonal += 2) {
+      if (++work > MAX_ADAPTIVE_EDIT_WORK) return undefined;
+
+      let baseIdx: number;
+      if (
+        diagonal === -distance ||
+        (diagonal !== distance &&
+          furthest[offset + diagonal - 1]! < furthest[offset + diagonal + 1]!)
+      ) {
+        baseIdx = furthest[offset + diagonal + 1]!;
+      } else {
+        baseIdx = furthest[offset + diagonal - 1]! + 1;
+      }
+      let workingIdx = baseIdx - diagonal;
+
+      while (baseIdx < baseLines.length && workingIdx < workingLines.length) {
+        if (++work > MAX_ADAPTIVE_EDIT_WORK) return undefined;
+        if (baseLines[baseIdx] !== workingLines[workingIdx]) break;
+        baseIdx++;
+        workingIdx++;
+      }
+
+      furthest[offset + diagonal] = baseIdx;
+      if (baseIdx >= baseLines.length && workingIdx >= workingLines.length) {
+        return distance;
+      }
+    }
+  }
+  return undefined;
+}
+
 /**
- * Oversized-core fallback. Unique exact lines form monotone anchors; only
- * bounded gaps spend the shared dense-LCS budget. Unresolved regions remain
+ * Reconstruct the dense algorithm's exact LCS inside an edit-distance band.
+ * Directions use the same policy as dense backtracking: equal is diagonal;
+ * otherwise up only when strictly better, with ties going left.
+ */
+function computeBandedLCS(
+  baseLines: string[],
+  workingLines: string[],
+  distance: number
+): LCSMatch[] | undefined {
+  const rowStarts: number[] = [];
+  const directions: Uint8Array[] = [];
+  let traceCells = 0;
+  for (let baseIdx = 0; baseIdx <= baseLines.length; baseIdx++) {
+    const start = Math.max(0, baseIdx - distance);
+    const end = Math.min(workingLines.length, baseIdx + distance);
+    traceCells += end - start + 1;
+    if (traceCells > MAX_BANDED_TRACE_CELLS) return undefined;
+    rowStarts.push(start);
+  }
+
+  const unreachable = distance + 1;
+  let previousStart = rowStarts[0]!;
+  let previous = new Uint32Array(
+    Math.min(workingLines.length, distance) - previousStart + 1
+  );
+  const firstDirections = new Uint8Array(previous.length);
+  for (let offset = 0; offset < previous.length; offset++) {
+    previous[offset] = offset;
+    if (offset > 0) firstDirections[offset] = TRACE_LEFT;
+  }
+  directions.push(firstDirections);
+
+  for (let baseIdx = 1; baseIdx <= baseLines.length; baseIdx++) {
+    const start = rowStarts[baseIdx]!;
+    const end = Math.min(workingLines.length, baseIdx + distance);
+    const current = new Uint32Array(end - start + 1);
+    current.fill(unreachable);
+    const rowDirections = new Uint8Array(current.length);
+
+    for (let workingIdx = start; workingIdx <= end; workingIdx++) {
+      const offset = workingIdx - start;
+      if (workingIdx === 0) {
+        current[offset] = baseIdx;
+        rowDirections[offset] = TRACE_UP;
+        continue;
+      }
+
+      const diagonalOffset = workingIdx - 1 - previousStart;
+      if (baseLines[baseIdx - 1] === workingLines[workingIdx - 1]) {
+        if (diagonalOffset >= 0 && diagonalOffset < previous.length) {
+          current[offset] = previous[diagonalOffset]!;
+          rowDirections[offset] = TRACE_DIAGONAL;
+        }
+        continue;
+      }
+
+      const upOffset = workingIdx - previousStart;
+      const up =
+        upOffset >= 0 && upOffset < previous.length
+          ? previous[upOffset]! + 1
+          : unreachable;
+      const left = offset > 0 ? current[offset - 1]! + 1 : unreachable;
+      const best = Math.min(up, left, unreachable);
+      current[offset] = best;
+      if (best <= distance) {
+        rowDirections[offset] = up < left ? TRACE_UP : TRACE_LEFT;
+      }
+    }
+
+    previous = current;
+    previousStart = start;
+    directions.push(rowDirections);
+  }
+
+  const finalOffset = workingLines.length - previousStart;
+  if (
+    finalOffset < 0 ||
+    finalOffset >= previous.length ||
+    previous[finalOffset] !== distance
+  ) {
+    return undefined;
+  }
+
+  const matches: LCSMatch[] = [];
+  let baseIdx = baseLines.length;
+  let workingIdx = workingLines.length;
+  while (baseIdx > 0 || workingIdx > 0) {
+    const offset = workingIdx - rowStarts[baseIdx]!;
+    const direction = directions[baseIdx]?.[offset];
+    if (direction === TRACE_DIAGONAL) {
+      matches.push({ baseIdx: baseIdx - 1, workingIdx: workingIdx - 1 });
+      baseIdx--;
+      workingIdx--;
+    } else if (direction === TRACE_UP) {
+      baseIdx--;
+    } else if (direction === TRACE_LEFT) {
+      workingIdx--;
+    } else {
+      return undefined;
+    }
+  }
+  matches.reverse();
+  return matches;
+}
+
+function computeBoundedLowEditLCS(
+  baseLines: string[],
+  workingLines: string[]
+): LCSMatch[] | undefined {
+  const distance = findBoundedEditDistance(baseLines, workingLines);
+  return distance === undefined
+    ? undefined
+    : computeBandedLCS(baseLines, workingLines, distance);
+}
+
+/**
+ * Oversized-core fallback. Low-edit inputs get an exact bounded-band LCS.
+ * Otherwise only unique anchors crossed by no possible match are retained,
+ * and bounded gaps spend the shared dense budget. Unresolved regions remain
  * unmapped instead of receiving positional guesses.
  */
 function computeSparseCoreMapping(
@@ -212,7 +405,18 @@ function computeSparseCoreMapping(
   bracketBefore: boolean,
   bracketAfter: boolean
 ): LineMapping {
-  const anchors = findUniqueAnchors(baseLines, workingLines);
+  const exactLcs = computeBoundedLowEditLCS(baseLines, workingLines);
+  if (exactLcs !== undefined) {
+    return buildCoreMapping(
+      baseLines,
+      workingLines,
+      bracketBefore,
+      bracketAfter,
+      exactLcs
+    );
+  }
+
+  const anchors = findSafeUniqueAnchors(baseLines, workingLines);
   const gaps: SparseGap[] = [];
   let baseStart = 0;
   let workingStart = 0;
@@ -321,19 +525,47 @@ function appendSparseGap(
   }
 }
 
-function findUniqueAnchors(
+function findSafeUniqueAnchors(
   baseLines: string[],
   workingLines: string[]
 ): LCSMatch[] {
   const baseOccurrences = countLineOccurrences(baseLines);
   const workingOccurrences = countLineOccurrences(workingLines);
+  const prefixMaxBefore = new Array<number>(baseLines.length);
+  const suffixMinAfter = new Array<number>(baseLines.length);
+
+  let maxWorkingIdx = -1;
+  for (let baseIdx = 0; baseIdx < baseLines.length; baseIdx++) {
+    prefixMaxBefore[baseIdx] = maxWorkingIdx;
+    const occurrence = workingOccurrences.get(baseLines[baseIdx]!);
+    if (occurrence) {
+      maxWorkingIdx = Math.max(maxWorkingIdx, occurrence.lastIndex);
+    }
+  }
+
+  let minWorkingIdx = Infinity;
+  for (let baseIdx = baseLines.length - 1; baseIdx >= 0; baseIdx--) {
+    suffixMinAfter[baseIdx] = minWorkingIdx;
+    const occurrence = workingOccurrences.get(baseLines[baseIdx]!);
+    if (occurrence) {
+      minWorkingIdx = Math.min(minWorkingIdx, occurrence.index);
+    }
+  }
+
   const candidates: LCSMatch[] = [];
 
+  // A unique match is safe only when no exact match crosses it from either
+  // side. Such anchors split every possible LCS into independent NW/SE gaps.
   for (let baseIdx = 0; baseIdx < baseLines.length; baseIdx++) {
     const line = baseLines[baseIdx]!;
     const baseOccurrence = baseOccurrences.get(line)!;
     const workingOccurrence = workingOccurrences.get(line);
-    if (baseOccurrence.count === 1 && workingOccurrence?.count === 1) {
+    if (
+      baseOccurrence.count === 1 &&
+      workingOccurrence?.count === 1 &&
+      prefixMaxBefore[baseIdx]! < workingOccurrence.index &&
+      suffixMinAfter[baseIdx]! > workingOccurrence.index
+    ) {
       candidates.push({ baseIdx, workingIdx: workingOccurrence.index });
     }
   }
@@ -348,8 +580,9 @@ function countLineOccurrences(lines: string[]): Map<string, LineOccurrence> {
     const occurrence = occurrences.get(line);
     if (occurrence) {
       occurrence.count++;
+      occurrence.lastIndex = index;
     } else {
-      occurrences.set(line, { count: 1, index });
+      occurrences.set(line, { count: 1, index, lastIndex: index });
     }
   }
   return occurrences;
@@ -544,36 +777,45 @@ function findLinearSpaceSplit(
   rightStart: number,
   rightEnd: number
 ): number {
-  const forward = computeLCSLengthRow(
+  let previous = computeLCSLengthRow(
     left,
     leftStart,
     leftMid,
     right,
     rightStart,
-    rightEnd,
-    false
+    rightEnd
   );
-  const backward = computeLCSLengthRow(
-    left,
-    leftMid,
-    leftEnd,
-    right,
-    rightStart,
-    rightEnd,
-    true
-  );
-
-  let rightOffset = 0;
-  let bestLength = -1;
   const rightLength = rightEnd - rightStart;
+  let current: Uint32Array = new Uint32Array(rightLength + 1);
+  let previousOrigin: Uint32Array = new Uint32Array(rightLength + 1);
+  let currentOrigin: Uint32Array = new Uint32Array(rightLength + 1);
   for (let offset = 0; offset <= rightLength; offset++) {
-    const length = forward[offset]! + backward[rightLength - offset]!;
-    if (length > bestLength) {
-      bestLength = length;
-      rightOffset = offset;
-    }
+    previousOrigin[offset] = offset;
   }
-  return rightOffset;
+
+  // Propagate where dense backtracking first reaches the midpoint row.
+  // This preserves its exact policy: equal -> diagonal, strict win -> up,
+  // otherwise left (including ties).
+  for (let leftIdx = leftMid; leftIdx < leftEnd; leftIdx++) {
+    current[0] = 0;
+    currentOrigin[0] = 0;
+    for (let rightOffset = 1; rightOffset <= rightLength; rightOffset++) {
+      const rightIdx = rightStart + rightOffset - 1;
+      if (left[leftIdx] === right[rightIdx]) {
+        current[rightOffset] = previous[rightOffset - 1]! + 1;
+        currentOrigin[rightOffset] = previousOrigin[rightOffset - 1]!;
+      } else if (previous[rightOffset]! > current[rightOffset - 1]!) {
+        current[rightOffset] = previous[rightOffset]!;
+        currentOrigin[rightOffset] = previousOrigin[rightOffset]!;
+      } else {
+        current[rightOffset] = current[rightOffset - 1]!;
+        currentOrigin[rightOffset] = currentOrigin[rightOffset - 1]!;
+      }
+    }
+    [previous, current] = [current, previous];
+    [previousOrigin, currentOrigin] = [currentOrigin, previousOrigin];
+  }
+  return previousOrigin[rightLength]!;
 }
 
 function computeLCSLengthRow(
@@ -582,8 +824,7 @@ function computeLCSLengthRow(
   leftEnd: number,
   right: string[],
   rightStart: number,
-  rightEnd: number,
-  reverse: boolean
+  rightEnd: number
 ): Uint32Array {
   const leftLength = leftEnd - leftStart;
   const rightLength = rightEnd - rightStart;
@@ -591,12 +832,10 @@ function computeLCSLengthRow(
   let current = new Uint32Array(rightLength + 1);
 
   for (let leftOffset = 0; leftOffset < leftLength; leftOffset++) {
-    const leftIdx = reverse ? leftEnd - 1 - leftOffset : leftStart + leftOffset;
+    const leftIdx = leftStart + leftOffset;
     current[0] = 0;
     for (let rightOffset = 1; rightOffset <= rightLength; rightOffset++) {
-      const rightIdx = reverse
-        ? rightEnd - rightOffset
-        : rightStart + rightOffset - 1;
+      const rightIdx = rightStart + rightOffset - 1;
       current[rightOffset] =
         left[leftIdx] === right[rightIdx]
           ? previous[rightOffset - 1]! + 1
