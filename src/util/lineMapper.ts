@@ -11,12 +11,17 @@ export type LineMapping = Map<number, number | undefined>;
 /**
  * Ceiling on the LCS DP matrix (base×working cells). The matrix is
  * allocated dense, so an ungated pair of large files (e.g. two 20k-line
- * revisions in a Line-History hop) tries to build ~400M cells and freezes
- * or OOMs the extension host. Above this we fall back to a positional
- * middle mapping - imperfect only for a pathological all-changed core,
- * which prefix/suffix stripping never leaves large in the common case.
+ * revisions in a Line-History hop → ~400M cells) freezes or OOMs the
+ * extension host; above this we leave the core unmapped.
+ *
+ * Set well above what the render path can hit: blame is size-gated at the
+ * working line count (default 3000), so the product only exceeds this when
+ * the BASE is far larger (heavy deletion) or a Line-History hop crosses a
+ * wholesale rewrite. A 4M cap was too tight - a mid-size file edited only
+ * at BOTH ends strips nothing and its full-file core (e.g. 2000×2002 ≈ 4M)
+ * tripped it, losing ALL blame though it was trivially mappable.
  */
-const MAX_LCS_PRODUCT = 4_000_000; // ~2000x2000; ~32MB transient matrix
+const MAX_LCS_PRODUCT = 20_000_000; // ~160MB transient matrix worst case
 
 /**
  * Compute line mapping from BASE content to working copy content.
