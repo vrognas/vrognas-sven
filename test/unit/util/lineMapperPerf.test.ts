@@ -124,4 +124,26 @@ describe("computeLineMapping — large inputs", () => {
 
     expect(mapping.get(1)).toBeUndefined();
   });
+
+  it("keeps the unchanged body when a unique header block moves past the trace cap", () => {
+    const lineCount = 4472;
+    const movedCount = 236;
+    const header = Array.from({ length: movedCount }, (_, i) => `header ${i}`);
+    const body = Array.from(
+      { length: lineCount - movedCount },
+      (_, i) => `body ${i}`
+    );
+
+    const mapping = computeLineMapping(
+      [...header, ...body],
+      [...body, ...header]
+    );
+
+    expect(mapping.get(1)).toBeUndefined();
+    expect(mapping.get(movedCount + 1)).toBe(1);
+    expect(mapping.get(lineCount)).toBe(body.length);
+    expect(
+      [...mapping.values()].filter(value => value !== undefined)
+    ).toHaveLength(body.length);
+  });
 });

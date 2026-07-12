@@ -288,75 +288,125 @@ function computeBandedLCS(
   distance: number
 ): LCSMatch[] | undefined {
   const rowStarts: number[] = [];
-  const directions: Uint8Array[] = [];
   let traceCells = 0;
   for (let baseIdx = 0; baseIdx <= baseLines.length; baseIdx++) {
     const start = Math.max(0, baseIdx - distance);
     const end = Math.min(workingLines.length, baseIdx + distance);
     traceCells += end - start + 1;
-    if (traceCells > MAX_BANDED_TRACE_CELLS) return undefined;
+    // Checkpoint reconstruction visits the band twice; keep total DP work
+    // within the same hard budget as the edit-frontier discovery.
+    if (traceCells > MAX_ADAPTIVE_EDIT_WORK / 2) return undefined;
     rowStarts.push(start);
   }
 
-  const unreachable = distance + 1;
-  let previousStart = rowStarts[0]!;
-  let previous = new Uint32Array(
-    Math.min(workingLines.length, distance) - previousStart + 1
-  );
-  const firstDirections = new Uint8Array(previous.length);
-  for (let offset = 0; offset < previous.length; offset++) {
-    previous[offset] = offset;
-    if (offset > 0) firstDirections[offset] = TRACE_LEFT;
+  return traceCells <= MAX_BANDED_TRACE_CELLS
+    ? computeDirectBandedLCS(baseLines, workingLines, distance, rowStarts)
+    : computeCheckpointedBandedLCS(
+        baseLines,
+        workingLines,
+        distance,
+        rowStarts
+      );
+}
+
+interface BandedRow {
+  costs: Uint32Array;
+  directions: Uint8Array | undefined;
+}
+
+function createInitialBandedRow(
+  workingLength: number,
+  distance: number
+): BandedRow {
+  const costs = new Uint32Array(Math.min(workingLength, distance) + 1);
+  const directions = new Uint8Array(costs.length);
+  for (let offset = 0; offset < costs.length; offset++) {
+    costs[offset] = offset;
+    if (offset > 0) directions[offset] = TRACE_LEFT;
   }
-  directions.push(firstDirections);
+  return { costs, directions };
+}
+
+function computeNextBandedRow(
+  baseLines: string[],
+  workingLines: string[],
+  distance: number,
+  baseIdx: number,
+  start: number,
+  previousStart: number,
+  previous: Uint32Array,
+  withDirections: boolean
+): BandedRow {
+  const end = Math.min(workingLines.length, baseIdx + distance);
+  const costs = new Uint32Array(end - start + 1);
+  const directions = withDirections ? new Uint8Array(costs.length) : undefined;
+  const unreachable = distance + 1;
+  costs.fill(unreachable);
+
+  for (let workingIdx = start; workingIdx <= end; workingIdx++) {
+    const offset = workingIdx - start;
+    if (workingIdx === 0) {
+      costs[offset] = baseIdx;
+      if (directions) directions[offset] = TRACE_UP;
+      continue;
+    }
+
+    const diagonalOffset = workingIdx - 1 - previousStart;
+    if (baseLines[baseIdx - 1] === workingLines[workingIdx - 1]) {
+      if (diagonalOffset >= 0 && diagonalOffset < previous.length) {
+        costs[offset] = previous[diagonalOffset]!;
+        if (directions) directions[offset] = TRACE_DIAGONAL;
+      }
+      continue;
+    }
+
+    const upOffset = workingIdx - previousStart;
+    const up =
+      upOffset >= 0 && upOffset < previous.length
+        ? previous[upOffset]! + 1
+        : unreachable;
+    const left = offset > 0 ? costs[offset - 1]! + 1 : unreachable;
+    const best = Math.min(up, left, unreachable);
+    costs[offset] = best;
+    if (directions && best <= distance) {
+      directions[offset] = up < left ? TRACE_UP : TRACE_LEFT;
+    }
+  }
+
+  return { costs, directions };
+}
+
+function computeDirectBandedLCS(
+  baseLines: string[],
+  workingLines: string[],
+  distance: number,
+  rowStarts: number[]
+): LCSMatch[] | undefined {
+  const directions: Uint8Array[] = [];
+  const initial = createInitialBandedRow(workingLines.length, distance);
+  let previousStart = rowStarts[0]!;
+  let previous = initial.costs;
+  directions.push(initial.directions!);
 
   for (let baseIdx = 1; baseIdx <= baseLines.length; baseIdx++) {
     const start = rowStarts[baseIdx]!;
-    const end = Math.min(workingLines.length, baseIdx + distance);
-    const current = new Uint32Array(end - start + 1);
-    current.fill(unreachable);
-    const rowDirections = new Uint8Array(current.length);
-
-    for (let workingIdx = start; workingIdx <= end; workingIdx++) {
-      const offset = workingIdx - start;
-      if (workingIdx === 0) {
-        current[offset] = baseIdx;
-        rowDirections[offset] = TRACE_UP;
-        continue;
-      }
-
-      const diagonalOffset = workingIdx - 1 - previousStart;
-      if (baseLines[baseIdx - 1] === workingLines[workingIdx - 1]) {
-        if (diagonalOffset >= 0 && diagonalOffset < previous.length) {
-          current[offset] = previous[diagonalOffset]!;
-          rowDirections[offset] = TRACE_DIAGONAL;
-        }
-        continue;
-      }
-
-      const upOffset = workingIdx - previousStart;
-      const up =
-        upOffset >= 0 && upOffset < previous.length
-          ? previous[upOffset]! + 1
-          : unreachable;
-      const left = offset > 0 ? current[offset - 1]! + 1 : unreachable;
-      const best = Math.min(up, left, unreachable);
-      current[offset] = best;
-      if (best <= distance) {
-        rowDirections[offset] = up < left ? TRACE_UP : TRACE_LEFT;
-      }
-    }
-
-    previous = current;
+    const row = computeNextBandedRow(
+      baseLines,
+      workingLines,
+      distance,
+      baseIdx,
+      start,
+      previousStart,
+      previous,
+      true
+    );
+    previous = row.costs;
     previousStart = start;
-    directions.push(rowDirections);
+    directions.push(row.directions!);
   }
 
-  const finalOffset = workingLines.length - previousStart;
   if (
-    finalOffset < 0 ||
-    finalOffset >= previous.length ||
-    previous[finalOffset] !== distance
+    !hasExpectedBandedDistance(previous, previousStart, workingLines, distance)
   ) {
     return undefined;
   }
@@ -381,6 +431,109 @@ function computeBandedLCS(
   }
   matches.reverse();
   return matches;
+}
+
+/** Recompute one band block at a time so traceback memory stays bounded. */
+function computeCheckpointedBandedLCS(
+  baseLines: string[],
+  workingLines: string[],
+  distance: number,
+  rowStarts: number[]
+): LCSMatch[] | undefined {
+  const blockSize = Math.max(1, Math.ceil(2 * Math.sqrt(baseLines.length)));
+  const checkpoints = new Map<number, Uint32Array>();
+  const initial = createInitialBandedRow(workingLines.length, distance);
+  let previousStart = rowStarts[0]!;
+  let previous = initial.costs;
+  checkpoints.set(0, previous);
+
+  for (let baseIdx = 1; baseIdx <= baseLines.length; baseIdx++) {
+    const start = rowStarts[baseIdx]!;
+    const row = computeNextBandedRow(
+      baseLines,
+      workingLines,
+      distance,
+      baseIdx,
+      start,
+      previousStart,
+      previous,
+      false
+    );
+    previous = row.costs;
+    previousStart = start;
+    if (baseIdx % blockSize === 0) checkpoints.set(baseIdx, previous);
+  }
+
+  if (
+    !hasExpectedBandedDistance(previous, previousStart, workingLines, distance)
+  ) {
+    return undefined;
+  }
+
+  const matches: LCSMatch[] = [];
+  let baseIdx = baseLines.length;
+  let workingIdx = workingLines.length;
+
+  while (baseIdx > 0) {
+    const blockStart = Math.floor((baseIdx - 1) / blockSize) * blockSize;
+    let blockPrevious = checkpoints.get(blockStart);
+    if (!blockPrevious) return undefined;
+    let blockPreviousStart = rowStarts[blockStart]!;
+    const blockDirections: Uint8Array[] = [];
+
+    for (let rowIdx = blockStart + 1; rowIdx <= baseIdx; rowIdx++) {
+      const start = rowStarts[rowIdx]!;
+      const row = computeNextBandedRow(
+        baseLines,
+        workingLines,
+        distance,
+        rowIdx,
+        start,
+        blockPreviousStart,
+        blockPrevious,
+        true
+      );
+      blockPrevious = row.costs;
+      blockPreviousStart = start;
+      blockDirections.push(row.directions!);
+    }
+
+    while (baseIdx > blockStart) {
+      const offset = workingIdx - rowStarts[baseIdx]!;
+      const direction = blockDirections[baseIdx - blockStart - 1]?.[offset];
+      if (direction === TRACE_DIAGONAL) {
+        matches.push({ baseIdx: baseIdx - 1, workingIdx: workingIdx - 1 });
+        baseIdx--;
+        workingIdx--;
+      } else if (direction === TRACE_UP) {
+        baseIdx--;
+      } else if (direction === TRACE_LEFT) {
+        workingIdx--;
+      } else {
+        return undefined;
+      }
+    }
+  }
+
+  if (workingIdx < 0 || workingIdx > Math.min(workingLines.length, distance)) {
+    return undefined;
+  }
+  matches.reverse();
+  return matches;
+}
+
+function hasExpectedBandedDistance(
+  finalRow: Uint32Array,
+  finalStart: number,
+  workingLines: string[],
+  distance: number
+): boolean {
+  const finalOffset = workingLines.length - finalStart;
+  return (
+    finalOffset >= 0 &&
+    finalOffset < finalRow.length &&
+    finalRow[finalOffset] === distance
+  );
 }
 
 function computeBoundedLowEditLCS(
