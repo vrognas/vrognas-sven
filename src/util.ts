@@ -293,7 +293,10 @@ export const FORCE_REFRESH_OPERATIONS: ReadonlySet<Operation> = new Set([
 export const BLAME_INVALIDATING_OPERATIONS: ReadonlySet<Operation> = new Set([
   ...FORCE_REFRESH_OPERATIONS,
   Operation.SwitchBranch,
-  Operation.Merge
+  Operation.Merge,
+  // NewBranch runs `svn copy` then a real `svn switch` of the working copy
+  // (svnRepository.newBranch), so BASE changes just like SwitchBranch.
+  Operation.NewBranch
 ]);
 
 /**

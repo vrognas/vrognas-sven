@@ -99,6 +99,22 @@ suite("Repository blame/info lock bypass", () => {
     assert.strictEqual(runs(self), 0);
   });
 
+  test("blame() does NOT bypass during NewBranch (a WC switch)", async () => {
+    const self = fakeRepo(
+      {
+        blameCached: () => DATA,
+        blame: () => Promise.resolve(DATA)
+      },
+      { running: [Operation.NewBranch] }
+    );
+    await Repository.prototype.blame.call(self as never, "/f");
+    assert.strictEqual(
+      runs(self),
+      1,
+      "NewBranch switches the working copy - must not serve pre-switch blame"
+    );
+  });
+
   test("getInfo() does NOT bypass while a mutating op is in flight", async () => {
     const INFO = { revision: "9" };
     const self = fakeRepo(
