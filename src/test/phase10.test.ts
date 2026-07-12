@@ -53,6 +53,7 @@ suite("Phase 10: Regression + Hot Path Performance", () => {
 
     await sourceControlManager.tryOpenRepository(checkoutDir.fsPath);
     repository = sourceControlManager.getRepository(checkoutDir)!;
+    await repository.statusReady;
     suiteReady = true;
   });
 
