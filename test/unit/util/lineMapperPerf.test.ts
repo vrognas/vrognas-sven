@@ -46,4 +46,16 @@ describe("computeLineMapping — large inputs", () => {
     expect(mapping.get(3998)).toBe(2999);
     expect(mapping.get(1)).toBeUndefined(); // deleted region stays unmapped
   });
+
+  it("keeps one-sided modified edge lines around sparse anchors", () => {
+    const base = Array.from({ length: 2100 }, (_, i) => `body ${i}`);
+    const working = base.slice();
+    working[0] = "rewritten first";
+    working[working.length - 1] = "rewritten last";
+
+    const mapping = computeLineMapping(base, working);
+
+    expect(mapping.get(1)).toBe(1);
+    expect(mapping.get(base.length)).toBe(working.length);
+  });
 });

@@ -8,20 +8,9 @@
  */
 export type LineMapping = Map<number, number | undefined>;
 
-/**
- * Ceiling on the LCS DP matrix (base×working cells). The matrix is
- * allocated dense, so an ungated pair of large files (e.g. two 20k-line
- * revisions in a Line-History hop → ~400M cells) freezes or OOMs the
- * extension host; above this we leave the core unmapped.
- *
- * Set well above what the render path can hit: blame is size-gated at the
- * working line count (default 3000), so the product only exceeds this when
- * the BASE is far larger (heavy deletion) or a Line-History hop crosses a
- * wholesale rewrite. A 4M cap was too tight - a mid-size file edited only
- * at BOTH ends strips nothing and its full-file core (e.g. 2000×2002 ≈ 4M)
- * tripped it, losing ALL blame though it was trivially mappable.
- */
-const MAX_LCS_PRODUCT = 20_000_000; // ~160MB transient matrix worst case
+/** Maximum cumulative dense LCS cells per mapping. Sparse exact anchors
+ * preserve confident matches above this bound without freezing the host. */
+const MAX_DENSE_LCS_CELLS = 4_000_000;
 
 /**
  * Compute line mapping from BASE content to working copy content.
@@ -87,10 +76,12 @@ export function computeLineMapping(
   // A stripped prefix/suffix means the core is bracketed by matches - the
   // signal findModifiedLine's context anchoring needs to tell a modified
   // line apart from a deletion once its neighbours are no longer in view.
+  const bracketBefore = prefix > 0;
+  const bracketAfter = suffix > 0;
   const midMapping =
-    baseMid.length * workMid.length > MAX_LCS_PRODUCT
-      ? unmappedCore(baseMid)
-      : computeCoreMapping(baseMid, workMid, prefix > 0, suffix > 0);
+    denseCellCount(baseMid.length, workMid.length) <= MAX_DENSE_LCS_CELLS
+      ? computeCoreMapping(baseMid, workMid, bracketBefore, bracketAfter)
+      : computeSparseCoreMapping(baseMid, workMid, bracketBefore, bracketAfter);
 
   // Re-offset the core mapping by the stripped prefix length.
   for (const [baseLineNum, workLineNum] of midMapping) {
@@ -165,18 +156,210 @@ function computeCoreMapping(
   return mapping;
 }
 
+interface LineOccurrence {
+  count: number;
+  index: number;
+}
+
+interface SparseGap {
+  baseStart: number;
+  baseEnd: number;
+  workingStart: number;
+  workingEnd: number;
+  bracketBefore: boolean;
+  bracketAfter: boolean;
+  denseCells: number;
+  anchorAfter?: LCSMatch;
+  mapping?: LineMapping;
+}
+
+function denseCellCount(baseLength: number, workingLength: number): number {
+  return (baseLength + 1) * (workingLength + 1);
+}
+
 /**
- * Fallback for an oversized differing core (exceeds MAX_LCS_PRODUCT): leave
- * every base line unmapped. An offset-based guess would attribute blame to
- * the wrong lines in a heavily-rewritten region; showing NO blame there is
- * honest (those lines changed) and still avoids the OOM full DP matrix.
+ * Oversized-core fallback. Unique exact lines form monotone anchors; only
+ * bounded gaps spend the shared dense-LCS budget. Unresolved regions remain
+ * unmapped instead of receiving positional guesses.
  */
-function unmappedCore(baseLines: string[]): LineMapping {
+function computeSparseCoreMapping(
+  baseLines: string[],
+  workingLines: string[],
+  bracketBefore: boolean,
+  bracketAfter: boolean
+): LineMapping {
+  const anchors = findUniqueAnchors(baseLines, workingLines);
+  const gaps: SparseGap[] = [];
+  let baseStart = 0;
+  let workingStart = 0;
+  let hasMatchBefore = bracketBefore;
+
+  for (const anchor of anchors) {
+    gaps.push({
+      baseStart,
+      baseEnd: anchor.baseIdx,
+      workingStart,
+      workingEnd: anchor.workingIdx,
+      bracketBefore: hasMatchBefore,
+      bracketAfter: true,
+      denseCells: denseCellCount(
+        anchor.baseIdx - baseStart,
+        anchor.workingIdx - workingStart
+      ),
+      anchorAfter: anchor
+    });
+    baseStart = anchor.baseIdx + 1;
+    workingStart = anchor.workingIdx + 1;
+    hasMatchBefore = true;
+  }
+
+  gaps.push({
+    baseStart,
+    baseEnd: baseLines.length,
+    workingStart,
+    workingEnd: workingLines.length,
+    bracketBefore: hasMatchBefore,
+    bracketAfter,
+    denseCells: denseCellCount(
+      baseLines.length - baseStart,
+      workingLines.length - workingStart
+    )
+  });
+
+  let remainingCells = MAX_DENSE_LCS_CELLS;
+  const denseGaps = gaps
+    .filter(
+      gap =>
+        gap.baseStart < gap.baseEnd &&
+        gap.workingStart < gap.workingEnd &&
+        gap.denseCells <= MAX_DENSE_LCS_CELLS
+    )
+    .sort(
+      (left, right) =>
+        left.denseCells - right.denseCells || left.baseStart - right.baseStart
+    );
+
+  for (const gap of denseGaps) {
+    if (gap.denseCells > remainingCells) continue;
+    gap.mapping = computeCoreMapping(
+      baseLines.slice(gap.baseStart, gap.baseEnd),
+      workingLines.slice(gap.workingStart, gap.workingEnd),
+      gap.bracketBefore,
+      gap.bracketAfter
+    );
+    remainingCells -= gap.denseCells;
+  }
+
   const mapping: LineMapping = new Map();
-  for (let i = 0; i < baseLines.length; i++) {
-    mapping.set(i + 1, undefined);
+  for (const gap of gaps) {
+    appendSparseGap(mapping, gap, baseLines, workingLines);
+    if (gap.anchorAfter) {
+      mapping.set(gap.anchorAfter.baseIdx + 1, gap.anchorAfter.workingIdx + 1);
+    }
   }
   return mapping;
+}
+
+function appendSparseGap(
+  target: LineMapping,
+  gap: SparseGap,
+  baseLines: string[],
+  workingLines: string[]
+): void {
+  const baseLength = gap.baseEnd - gap.baseStart;
+  const workingLength = gap.workingEnd - gap.workingStart;
+  const balancedContext =
+    baseLength === workingLength && (gap.bracketBefore || gap.bracketAfter);
+
+  for (let baseIdx = gap.baseStart; baseIdx < gap.baseEnd; baseIdx++) {
+    const localBaseLine = baseIdx - gap.baseStart + 1;
+    const localWorkingLine = gap.mapping?.get(localBaseLine);
+    if (localWorkingLine === undefined) {
+      target.set(baseIdx + 1, undefined);
+      continue;
+    }
+
+    const workingIdx = gap.workingStart + localWorkingLine - 1;
+    const baseLine = baseLines[baseIdx]!;
+    const workingLine = workingLines[workingIdx]!;
+
+    // One-sided, unbalanced context cannot distinguish an edge insertion
+    // from a modification. Keep only exact/similar matches there.
+    if (
+      baseLine === workingLine ||
+      isSimilarLine(baseLine, workingLine) ||
+      balancedContext
+    ) {
+      target.set(baseIdx + 1, workingIdx + 1);
+    } else {
+      target.set(baseIdx + 1, undefined);
+    }
+  }
+}
+
+function findUniqueAnchors(
+  baseLines: string[],
+  workingLines: string[]
+): LCSMatch[] {
+  const baseOccurrences = countLineOccurrences(baseLines);
+  const workingOccurrences = countLineOccurrences(workingLines);
+  const candidates: LCSMatch[] = [];
+
+  for (let baseIdx = 0; baseIdx < baseLines.length; baseIdx++) {
+    const line = baseLines[baseIdx]!;
+    const baseOccurrence = baseOccurrences.get(line)!;
+    const workingOccurrence = workingOccurrences.get(line);
+    if (baseOccurrence.count === 1 && workingOccurrence?.count === 1) {
+      candidates.push({ baseIdx, workingIdx: workingOccurrence.index });
+    }
+  }
+
+  return longestIncreasingAnchors(candidates);
+}
+
+function countLineOccurrences(lines: string[]): Map<string, LineOccurrence> {
+  const occurrences = new Map<string, LineOccurrence>();
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]!;
+    const occurrence = occurrences.get(line);
+    if (occurrence) {
+      occurrence.count++;
+    } else {
+      occurrences.set(line, { count: 1, index });
+    }
+  }
+  return occurrences;
+}
+
+function longestIncreasingAnchors(candidates: LCSMatch[]): LCSMatch[] {
+  if (candidates.length === 0) return [];
+
+  const tails: number[] = [];
+  const previous = new Array<number>(candidates.length).fill(-1);
+
+  for (let candidateIdx = 0; candidateIdx < candidates.length; candidateIdx++) {
+    const workingIdx = candidates[candidateIdx]!.workingIdx;
+    let low = 0;
+    let high = tails.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (candidates[tails[mid]!]!.workingIdx < workingIdx) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    previous[candidateIdx] = low > 0 ? tails[low - 1]! : -1;
+    tails[low] = candidateIdx;
+  }
+
+  const anchors = new Array<LCSMatch>(tails.length);
+  let candidateIdx = tails[tails.length - 1]!;
+  for (let index = anchors.length - 1; index >= 0; index--) {
+    anchors[index] = candidates[candidateIdx]!;
+    candidateIdx = previous[candidateIdx]!;
+  }
+  return anchors;
 }
 
 /**
