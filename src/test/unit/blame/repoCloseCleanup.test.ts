@@ -62,7 +62,11 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
 
   test("a parent-repo op does not clear a nested repo's caches", () => {
     const parent = { workspaceRoot: "/wc" };
-    const nested = { workspaceRoot: "/wc/nested" };
+    const clearNested = sandbox.stub();
+    const nested = {
+      workspaceRoot: "/wc/nested",
+      repository: { clearBlameCache: clearNested }
+    };
     const nestedUri = Uri.file("/wc/nested/file.ts");
     const scm = {
       repositories: [parent, nested],
@@ -89,5 +93,68 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
       p.blameCache.has(nestedUri.toString()),
       "nested repo's cache must survive a commit in the parent repo"
     );
+    assert.ok(clearNested.notCalled, "nested lower cache must survive commit");
+  });
+
+  test("a parent update invalidates opened nested repositories", () => {
+    const parent = { workspaceRoot: "/wc" };
+    const clearNested = sandbox.stub();
+    const nested = {
+      workspaceRoot: "/wc/nested",
+      repository: { clearBlameCache: clearNested }
+    };
+    const nestedUri = Uri.file("/wc/nested/file.ts");
+    const scm = {
+      repositories: [parent, nested],
+      onDidOpenRepository: () => ({ dispose() {} }),
+      onDidCloseRepository: () => ({ dispose() {} }),
+      getRepositoryFromUri: (uri: Uri) =>
+        uri.path.startsWith("/wc/nested")
+          ? nested
+          : uri.path.startsWith("/wc")
+            ? parent
+            : null
+    };
+    provider = new BlameProvider(scm as never);
+    provider.activate();
+
+    const p = provider as any;
+    p.blameCache.set(nestedUri.toString(), { data: [], version: 1 });
+    sandbox.stub(window, "activeTextEditor").value(undefined);
+
+    p.onRepositoryOperation(Operation.Update, parent);
+
+    assert.ok(!p.blameCache.has(nestedUri.toString()));
+    assert.ok(clearNested.calledOnce, "nested lower cache cleared");
+  });
+
+  test("closing a parent preserves a still-open nested repo", () => {
+    const parent = { workspaceRoot: "/wc" };
+    const nested = { workspaceRoot: "/wc/nested" };
+    let closeCb: ((r: unknown) => void) | undefined;
+    const scm = {
+      repositories: [nested],
+      onDidOpenRepository: () => ({ dispose() {} }),
+      onDidCloseRepository: (cb: (r: unknown) => void) => {
+        closeCb = cb;
+        return { dispose() {} };
+      },
+      getRepositoryFromUri: (uri: Uri) =>
+        uri.path.startsWith("/wc/nested") ? nested : null
+    };
+    provider = new BlameProvider(scm as never);
+    provider.activate();
+
+    const uri = Uri.file("/wc/nested/file.ts");
+    const editor = createEditor(uri);
+    const p = provider as any;
+    p.blameCache.set(uri.toString(), { data: [], version: 1 });
+    (window as any).visibleTextEditors = [editor];
+    const clear = sandbox.stub(p, "clearDecorations");
+
+    closeCb!(parent);
+
+    assert.ok(p.blameCache.has(uri.toString()));
+    assert.ok(clear.notCalled, "nested editor remains decorated");
   });
 });

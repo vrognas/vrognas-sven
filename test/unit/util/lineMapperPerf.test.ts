@@ -33,18 +33,17 @@ describe("computeLineMapping — large inputs", () => {
     expect(mapping.get(N)).toBe(N); // unchanged suffix
   });
 
-  it("maps a large file edited only at both ends (no strippable prefix/suffix)", () => {
-    // 2100 distinct BASE lines, one line inserted at the very top AND bottom
-    // in the working copy. Nothing strips (both ends differ), so the core is
-    // the whole 2100x2102 (~4.4M) - above the OLD 4M cap (would have lost all
-    // blame) but well within the raised cap, so every line still maps.
-    const N = 2100;
-    const base = Array.from({ length: N }, (_, i) => `body ${i}`);
-    const working = ["INSERTED TOP", ...base, "INSERTED BOTTOM"];
+  it("maps sparse survivors in an over-cap core", () => {
+    const base = Array.from({ length: 7000 }, (_, i) => `body ${i}`);
+    const kept = base.slice(1000, 3998);
+    kept[1500] = "body 2500 MODIFIED";
+    const working = ["INSERTED TOP", ...kept, "INSERTED BOTTOM"]; // 3000 lines
 
     const mapping = computeLineMapping(base, working);
 
-    expect(mapping.get(1)).toBe(2); // base line 1 shifted down by the top insert
-    expect(mapping.get(N)).toBe(N + 1); // base line 2100 -> working line 2101
+    expect(mapping.get(1001)).toBe(2); // separate BASE/working offsets
+    expect(mapping.get(2501)).toBe(1502); // modified line between anchors
+    expect(mapping.get(3998)).toBe(2999);
+    expect(mapping.get(1)).toBeUndefined(); // deleted region stays unmapped
   });
 });
