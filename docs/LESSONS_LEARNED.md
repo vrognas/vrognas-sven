@@ -5,6 +5,16 @@
 
 ---
 
+### 86. Trace the ACTUAL Serialization Layer Before "Relaxing" One
+
+**Lesson**: A review flagged `@sequentialize` on `_doBlameFetch` as the thing serializing blame repo-wide, and recommended relaxing it to bounded concurrency. But every blame call goes through `Repository.blame` → `run()` → `retryRun()`, which awaits-and-replaces a per-repo `credentialLock` (it exists so concurrent auth-retries can't race on stored accounts and cause lockout). So the REAL serializer was the credential lock one level up; relaxing `@sequentialize` would have changed nothing. The genuine cost was that even in-memory cache HITS entered `run()` and queued behind a slow in-flight network op.
+
+**Fix**: Lock-free `blameCached`/`getInfoCached` peeks that mirror the exact cache keys; `Repository.blame`/`getInfo` serve a hit directly and only enter `run()` on a miss. The credential lock stays intact for real fetches.
+
+**Rule**: Before optimizing a serialization primitive, trace the call from the public method down and find EVERY lock/queue it passes through — the innermost decorator is often shadowed by an outer mutex. Fix the layer that actually gates the hot path (here: keep hits out of the locked path entirely), not the redundant one a local reading fingers.
+
+---
+
 ### 85. A "Cleanup" Comment Can Encode a False Assumption — Verify Before Paying It Per-Render
 
 **Lesson**: `applyIconDecorations` disposed and recreated every gutter-icon decoration type on _every_ render, justified by a comment: "16 types per file × 100 files = 1600 uncleaned types". But icon types key on the revision-age color palette — a bounded ~13-value set (5 categorical hues + 8 gradient buckets × theme), _shared across all files_, not per-file. The "leak" it guarded against couldn't happen; the dispose+recreate was pure churn on the hottest path (every editor switch), and it ran outside the render cache's hit guard.
