@@ -1,7 +1,17 @@
 # Lessons Learned
 
-**Version**: 0.2.91
+**Version**: 0.2.94
 **Updated**: 2026-07-12
+
+---
+
+### 88. Algorithm Thresholds Must Not Change Attribution
+
+**Lesson**: A unique sparse LCS anchor is not necessarily safe: a moved unique line can cross a much longer repeated match and discard thousands of correct blame mappings. Likewise, choosing the first or last equal Hirschberg split does not reproduce dense backtracking; attribution can flip solely when the core crosses the dense-cell cap.
+
+**Fix**: Before sparse fallback, discover low edit distance with a work-capped frontier and reconstruct the dense policy inside a bounded band. If that budget is exhausted, retain a unique anchor only when no possible exact match crosses it. For linear-space LCS, propagate the midpoint column reached by the dense policy (equal diagonal, strict up win, otherwise left) instead of resolving split ties locally.
+
+**Rule**: Performance thresholds may change cost, never semantics. Differential-test every exact fallback against the reference algorithm, and treat “unique” as an anchor candidate—not proof that the anchor belongs in a maximum alignment.
 
 ---
 

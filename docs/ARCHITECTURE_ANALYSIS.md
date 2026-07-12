@@ -13,7 +13,7 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 
 - ~34,300 source lines (non-test src/\*_/_.ts)
 - 104 contributed commands, 80 settings
-- 1891 tests
+- 2082 tests
 - Targets: vscode ^1.109.0, positron ^2026.04.0
 
 ---
@@ -82,8 +82,9 @@ Per-file blame tracking with:
   within a repo while separate repos repaint concurrently
 - Scoped message LRU invalidates only render entries that depend on the changed
   repo+revision; in-flight add-revision and message fetches are deduplicated
-- Line mapping strips equal edges, then uses bounded dense LCS, bounded exact
-  linear-space LCS, and sparse exact anchors for the largest cores
+- Line mapping strips equal edges, then uses bounded dense LCS, dense-compatible
+  linear-space LCS, a bounded exact low-edit band, and non-crossing sparse
+  anchors for the largest cores
 - autoBlame-gated auto-fetch; CSV/large-file gates on all fetch paths
   (render, cursor, status bar)
 
@@ -199,8 +200,7 @@ External: vscode, @posit-dev/positron
   - cross-platform path assertions based on invariant suffixes, not runner-specific home directory prefixes
   - signal-based timer assertions (promise+timeout) for polling tests instead of fixed sleeps
   - teardown settle window before temp-repo deletion for suites with background poll/status tasks
-- Coverage runs can intermittently report external flake noise:
-  - `phase10` transient `svn` spawn/repository temp path failures
+  - suites unrelated to remote polling disable it before opening temporary repositories
 
 ---
 

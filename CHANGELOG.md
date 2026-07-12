@@ -7,6 +7,17 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.94] - 2026-07-12
+
+Adversarial follow-up for large-file blame mapping.
+
+### Fixed
+
+- **Huge low-edit files keep their long repeated matches.** A bounded exact edit-distance band runs before sparse fallback, so one moved unique line cannot displace thousands of unchanged repeated lines.
+- **Linear-space mapping matches dense attribution at the 4M-cell boundary.** Midpoint selection now propagates the dense backtracking policy instead of choosing an arbitrary equal split.
+- **Sparse anchors cannot cross stronger exact evidence.** Budget-exhausted mappings retain only unique anchors crossed by no possible match; ambiguous regions remain unmapped.
+- **Phase 10 teardown no longer races a delayed remote status.** The non-polling suite disables remote polling until its temporary repository is removed.
+
 ## [0.2.93] - 2026-07-12
 
 Final correctness pass for blame caching, mapping, and shared-provider lifecycle.

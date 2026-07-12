@@ -31,7 +31,7 @@
 - In path validation, reject Windows-absolute forms on all platforms (`C:\`, `\\server\share`, `\rooted`).
 - For VS Code E2E in CI, keep `.vscode-test.mjs` target list explicit and stable; skip suite early when binaries/commands unavailable.
 - In cross-platform unit tests, avoid `startsWith(mockHome)` assertions; assert invariant path suffix + absolute path instead.
-- In suites with background polling/watchers, teardown order: dispose repositories, wait briefly, then delete temp repos.
+- In suites with background polling/watchers, teardown order: dispose repositories, wait briefly, then delete temp repos. Suites not testing remote polling disable it before repository open.
 - In legacy E2E suites, use `suiteReady` + per-test skip guard; do not rely on `suiteSetup` `this.skip()` alone.
 - In timer/poll tests, prefer explicit signal waits with bounded timeout over fixed sleep assertions.
 - Shared async caches: fence writes/applies by owner generation + document version + per-editor render generation + current UI eligibility; clearing is not cancellation.
@@ -39,4 +39,4 @@
 - Coalesce active renders per repository; keep repositories concurrent and URI/editor timers lossless.
 - Message-dependent render caches track exact scoped revision dependencies; do not use a global or repo-wide persistent epoch.
 - Lock-free cache peeks must use the fully resolved canonical key; unresolved BASE is a miss.
-- Oversized quadratic diffs: dense LCS, bounded exact linear-space LCS, then sparse anchors; never positional-fallback blame.
+- Oversized quadratic diffs: dense LCS, dense-compatible linear-space LCS, bounded exact low-edit band, then non-crossing sparse anchors; never positional-fallback blame.
