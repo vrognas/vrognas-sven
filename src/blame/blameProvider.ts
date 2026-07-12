@@ -206,6 +206,15 @@ export class BlameProvider implements Disposable {
           }
         });
       }
+      // Paint the active file immediately if this newly-opened repo owns it.
+      // Repos are discovered asynchronously AFTER activate(), so without this
+      // the initially-open file would stay blank until statusReady resolves
+      // (the multi-second initial crawl) - the old per-repo provider painted
+      // it at repo-open because it was constructed there.
+      const active = window.activeTextEditor;
+      if (active && this.repoFor(active.document.uri) === repo) {
+        void this.updateDecorations(active);
+      }
     };
     (this.sourceControlManager.repositories ?? []).forEach(hookRepository);
     if (typeof this.sourceControlManager.onDidOpenRepository === "function") {
