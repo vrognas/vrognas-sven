@@ -12,6 +12,12 @@ export type LineMapping = Map<number, number | undefined>;
  * preserve confident matches above this bound without freezing the host. */
 const MAX_DENSE_LCS_CELLS = 4_000_000;
 
+/** Exact Hirschberg LCS work limit. Covers a full default-gated 3000×3000
+ * pair with headroom while keeping runtime bounded. */
+const MAX_LINEAR_LCS_CELLS = 20_000_000;
+/** Caps live rolling-row storage independently of the work-product limit. */
+const MAX_LINEAR_LCS_ROW_LENGTH = 100_000;
+
 /**
  * Compute line mapping from BASE content to working copy content.
  * Uses LCS (Longest Common Subsequence) to find matching lines,
@@ -78,10 +84,25 @@ export function computeLineMapping(
   // line apart from a deletion once its neighbours are no longer in view.
   const bracketBefore = prefix > 0;
   const bracketAfter = suffix > 0;
+  const cells = denseCellCount(baseMid.length, workMid.length);
   const midMapping =
-    denseCellCount(baseMid.length, workMid.length) <= MAX_DENSE_LCS_CELLS
+    cells <= MAX_DENSE_LCS_CELLS
       ? computeCoreMapping(baseMid, workMid, bracketBefore, bracketAfter)
-      : computeSparseCoreMapping(baseMid, workMid, bracketBefore, bracketAfter);
+      : cells <= MAX_LINEAR_LCS_CELLS &&
+          workMid.length <= MAX_LINEAR_LCS_ROW_LENGTH
+        ? computeCoreMapping(
+            baseMid,
+            workMid,
+            bracketBefore,
+            bracketAfter,
+            true
+          )
+        : computeSparseCoreMapping(
+            baseMid,
+            workMid,
+            bracketBefore,
+            bracketAfter
+          );
 
   // Re-offset the core mapping by the stripped prefix length.
   for (const [baseLineNum, workLineNum] of midMapping) {
@@ -104,12 +125,15 @@ function computeCoreMapping(
   baseLines: string[],
   workingLines: string[],
   bracketBefore: boolean,
-  bracketAfter: boolean
+  bracketAfter: boolean,
+  linearSpace = false
 ): LineMapping {
   const mapping: LineMapping = new Map();
 
   // Compute LCS to find matching lines
-  const lcs = computeLCS(baseLines, workingLines);
+  const lcs = linearSpace
+    ? computeLinearSpaceLCS(baseLines, workingLines)
+    : computeLCS(baseLines, workingLines);
 
   // Build indexed structures for O(1) lookups (instead of O(n) array.find())
   const lcsIndex = buildLCSIndex(lcs);
@@ -422,6 +446,166 @@ function buildLCSIndex(lcs: LCSMatch[]): LCSIndex {
     sortedBaseIndices,
     sortedWorkingIndices
   };
+}
+
+/**
+ * Exact Hirschberg LCS: quadratic time like the dense algorithm, but linear
+ * memory. The caller bounds its cell count before selecting this path.
+ */
+function computeLinearSpaceLCS(base: string[], working: string[]): LCSMatch[] {
+  const matches: LCSMatch[] = [];
+  // Preserve the dense algorithm's BASE/working tie-breaking asymmetry.
+  // The caller caps the working-axis row length explicitly.
+  appendLinearSpaceLCS(
+    base,
+    0,
+    base.length,
+    working,
+    0,
+    working.length,
+    matches
+  );
+  return matches;
+}
+
+function appendLinearSpaceLCS(
+  left: string[],
+  leftStart: number,
+  leftEnd: number,
+  right: string[],
+  rightStart: number,
+  rightEnd: number,
+  matches: LCSMatch[]
+): void {
+  const leftLength = leftEnd - leftStart;
+  const rightLength = rightEnd - rightStart;
+  if (leftLength === 0 || rightLength === 0) return;
+
+  // Dense backtracking chooses the last available occurrence.
+  if (leftLength === 1) {
+    for (let rightIdx = rightEnd - 1; rightIdx >= rightStart; rightIdx--) {
+      if (left[leftStart] === right[rightIdx]) {
+        matches.push({ baseIdx: leftStart, workingIdx: rightIdx });
+        break;
+      }
+    }
+    return;
+  }
+  if (rightLength === 1) {
+    for (let leftIdx = leftEnd - 1; leftIdx >= leftStart; leftIdx--) {
+      if (left[leftIdx] === right[rightStart]) {
+        matches.push({ baseIdx: leftIdx, workingIdx: rightStart });
+        break;
+      }
+    }
+    return;
+  }
+
+  const leftMid = leftStart + Math.floor(leftLength / 2);
+  const rightOffset = findLinearSpaceSplit(
+    left,
+    leftStart,
+    leftMid,
+    leftEnd,
+    right,
+    rightStart,
+    rightEnd
+  );
+  const rightMid = rightStart + rightOffset;
+
+  appendLinearSpaceLCS(
+    left,
+    leftStart,
+    leftMid,
+    right,
+    rightStart,
+    rightMid,
+    matches
+  );
+  appendLinearSpaceLCS(
+    left,
+    leftMid,
+    leftEnd,
+    right,
+    rightMid,
+    rightEnd,
+    matches
+  );
+}
+
+/** Keep the rolling rows out of the recursive frame so only one split's
+ * arrays remain live at a time. */
+function findLinearSpaceSplit(
+  left: string[],
+  leftStart: number,
+  leftMid: number,
+  leftEnd: number,
+  right: string[],
+  rightStart: number,
+  rightEnd: number
+): number {
+  const forward = computeLCSLengthRow(
+    left,
+    leftStart,
+    leftMid,
+    right,
+    rightStart,
+    rightEnd,
+    false
+  );
+  const backward = computeLCSLengthRow(
+    left,
+    leftMid,
+    leftEnd,
+    right,
+    rightStart,
+    rightEnd,
+    true
+  );
+
+  let rightOffset = 0;
+  let bestLength = -1;
+  const rightLength = rightEnd - rightStart;
+  for (let offset = 0; offset <= rightLength; offset++) {
+    const length = forward[offset]! + backward[rightLength - offset]!;
+    if (length > bestLength) {
+      bestLength = length;
+      rightOffset = offset;
+    }
+  }
+  return rightOffset;
+}
+
+function computeLCSLengthRow(
+  left: string[],
+  leftStart: number,
+  leftEnd: number,
+  right: string[],
+  rightStart: number,
+  rightEnd: number,
+  reverse: boolean
+): Uint32Array {
+  const leftLength = leftEnd - leftStart;
+  const rightLength = rightEnd - rightStart;
+  let previous = new Uint32Array(rightLength + 1);
+  let current = new Uint32Array(rightLength + 1);
+
+  for (let leftOffset = 0; leftOffset < leftLength; leftOffset++) {
+    const leftIdx = reverse ? leftEnd - 1 - leftOffset : leftStart + leftOffset;
+    current[0] = 0;
+    for (let rightOffset = 1; rightOffset <= rightLength; rightOffset++) {
+      const rightIdx = reverse
+        ? rightEnd - rightOffset
+        : rightStart + rightOffset - 1;
+      current[rightOffset] =
+        left[leftIdx] === right[rightIdx]
+          ? previous[rightOffset - 1]! + 1
+          : Math.max(previous[rightOffset]!, current[rightOffset - 1]!);
+    }
+    [previous, current] = [current, previous];
+  }
+
+  return previous;
 }
 
 /**

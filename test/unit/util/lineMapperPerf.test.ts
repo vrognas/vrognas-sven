@@ -57,4 +57,28 @@ describe("computeLineMapping — large inputs", () => {
     expect(mapping.get(1)).toBe(1);
     expect(mapping.get(base.length)).toBe(working.length);
   });
+
+  it("prefers a long repeated LCS over one moved unique line", () => {
+    const repeated = Array<string>(2000).fill("same");
+    const base = ["moved", ...repeated];
+    const working = [...repeated, "moved"];
+
+    const mapping = computeLineMapping(base, working);
+
+    expect(mapping.get(1)).toBeUndefined();
+    expect(mapping.get(2)).toBe(1);
+    expect(mapping.get(base.length)).toBe(working.length - 1);
+  });
+
+  it("maps a repeated oversized core changed at both edges", () => {
+    const repeated = Array<string>(2000).fill("same");
+    const base = ["old top", ...repeated, "old bottom"];
+    const working = ["new top", ...repeated, "new bottom"];
+
+    const mapping = computeLineMapping(base, working);
+
+    expect(mapping.get(1)).toBe(1);
+    expect(mapping.get(1001)).toBe(1001);
+    expect(mapping.get(base.length)).toBe(working.length);
+  });
 });
