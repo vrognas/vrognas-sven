@@ -236,6 +236,7 @@ export class BlameProvider implements Disposable {
         this.sourceControlManager.onDidCloseRepository((repo: Repository) => {
           this.repoHooks.get(repo)?.forEach(d => d.dispose());
           this.repoHooks.delete(repo);
+          this.onRepositoryClosed(repo);
         })
       );
     }
@@ -1024,15 +1025,38 @@ export class BlameProvider implements Disposable {
     }
 
     // Shared provider: a mutation in repo A must only drop repo A's files'
-    // entries, not every repo's. clearCache(uri) already clears all per-uri
-    // structures, so scope-clear the union of their keys under repo.root.
-    const owns = (key: string) => {
-      try {
-        return isDescendant(repo.workspaceRoot, Uri.parse(key).fsPath);
-      } catch {
-        return false;
-      }
-    };
+    // entries. Use PRECISE ownership (the deepest repo that owns each file),
+    // not a lexical descendant test - else a parent-repo commit would also
+    // clear a nested repo's still-valid caches.
+    this.clearRepoScope(repo, key => this.repoForKey(key) === repo);
+
+    if (window.activeTextEditor) {
+      void this.updateDecorations();
+    }
+  }
+
+  /** Resolve the owning repo for a cache key (a uri.toString()); undefined on
+   *  an unparseable key or a path outside any open working copy. */
+  private repoForKey(key: string): Repository | undefined {
+    try {
+      return this.repoFor(Uri.parse(key));
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Drop every cache entry belonging to one repo. `ownsUri` decides which
+   * uri-keyed entries belong to it (precise ownership for a live-repo op;
+   * a descendant test on close, when the repo is already deregistered and
+   * repoFor can no longer find it). Message-cache entries are keyed by
+   * `revision@workspaceRoot`, so they clear by exact scope with no nesting
+   * ambiguity.
+   */
+  private clearRepoScope(
+    repo: Repository,
+    ownsUri: (key: string) => boolean
+  ): void {
     const keys = new Set<string>([
       ...this.blameCache.keys(),
       ...this.lineMappingCache.keys(),
@@ -1042,14 +1066,67 @@ export class BlameProvider implements Disposable {
       ...this.inFlightMessageFetches.keys()
     ]);
     for (const key of keys) {
-      if (owns(key)) {
+      if (ownsUri(key)) {
         this.clearCache(Uri.parse(key));
       }
     }
 
-    const editor = window.activeTextEditor;
-    if (editor) {
-      void this.updateDecorations(editor);
+    let root: string | undefined;
+    try {
+      root = repo.workspaceRoot;
+    } catch {
+      root = undefined;
+    }
+    if (root) {
+      for (const key of [...this.messageCache.keys()]) {
+        const at = key.indexOf("@");
+        if (at >= 0 && key.slice(at + 1) === root) {
+          this.messageCache.delete(key);
+        }
+      }
+    }
+  }
+
+  /**
+   * A repository closed: drop its cached blame (otherwise stale authors/
+   * revisions linger on the still-open file, and a checkout reopened at the
+   * same path could read pre-close data) and clear decorations on the
+   * editors it owned. The repo is already deregistered, so scope by
+   * descendant path - repoFor can no longer resolve it.
+   */
+  private onRepositoryClosed(repo: Repository): void {
+    let root: string | undefined;
+    try {
+      root = repo.workspaceRoot;
+    } catch {
+      root = undefined;
+    }
+    const owned = (uri: Uri) => {
+      if (!root) return false;
+      try {
+        return isDescendant(root, uri.fsPath);
+      } catch {
+        return false;
+      }
+    };
+    this.clearRepoScope(repo, key => {
+      try {
+        return owned(Uri.parse(key));
+      } catch {
+        return false;
+      }
+    });
+    // Shared decoration types can't be disposed (other repos use them), so
+    // clear per editor the closed repo owned.
+    for (const ed of window.visibleTextEditors ?? []) {
+      if (owned(ed.document.uri)) {
+        this.clearDecorations(ed);
+      }
+    }
+    // Reconcile the active editor: a parent repo may now own it (re-render),
+    // else it stays cleared.
+    if (window.activeTextEditor) {
+      void this.updateDecorations();
     }
   }
 
@@ -1235,14 +1312,17 @@ export class BlameProvider implements Disposable {
     try {
       const data = await repository.blame(uri.fsPath);
 
-      // Cache with document version (for staleness detection on external changes)
-      this.blameCache.set(key, { data, version: currentVersion });
-
-      // Track access time for LRU
-      this.cacheAccessOrder.set(key, ++this.cacheAccessCounter);
-
-      // Evict oldest entry if cache exceeds limit
-      this.evictOldestCache();
+      // Don't cache if this repo is no longer the file's owner (closed or
+      // replaced during the fetch) - a reopen at the same uri must not read
+      // pre-close data. Still return it to the (now superseded) caller.
+      if (this.repoFor(uri) === repository) {
+        // Cache with document version (staleness detection on external changes)
+        this.blameCache.set(key, { data, version: currentVersion });
+        // Track access time for LRU
+        this.cacheAccessOrder.set(key, ++this.cacheAccessCounter);
+        // Evict oldest entry if cache exceeds limit
+        this.evictOldestCache();
+      }
 
       return data;
     } catch (err) {
