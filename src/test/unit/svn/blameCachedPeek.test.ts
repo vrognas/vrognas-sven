@@ -26,6 +26,21 @@ suite("svnRepository.blameCached / getInfoCached (lock-free peeks)", () => {
     assert.strictEqual(getCount(), before, "cold peek spawns nothing");
   });
 
+  test("blameCached misses unresolved literal BASE entries", async () => {
+    const { repo } = await makeFakeSvnRepo();
+
+    // The fake's initial info probe fails, so blame caches under literal BASE.
+    await repo.blame("file.txt");
+    assert.ok(repo._blameCache.get("file.txt@BASE"));
+    assert.strictEqual(repo._baseKeyCache.has("file.txt"), false);
+
+    assert.strictEqual(
+      repo.blameCached("file.txt"),
+      undefined,
+      "full blame must retry info and resolve the current numeric BASE"
+    );
+  });
+
   test("getInfoCached returns warm info without spawning svn", async () => {
     const { repo, getCount } = await makeFakeSvnRepo();
     // getInfo default throws in the fake; wire a real-ish info exec via cache.

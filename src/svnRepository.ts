@@ -931,13 +931,17 @@ export class Repository {
     pegRevision?: string
   ): ISvnBlameLine[] | undefined {
     const relativePath = this.relativize(file);
-    // Only a memoized BASE resolution is used - never trigger an info fetch.
-    // On a cold file the key falls back to the literal BASE keyword, which is
-    // exactly how blame() keys it before resolution, so both stay coherent.
+    // Only a memoized BASE resolution is safe to peek - never trigger an info
+    // fetch here. Without one, full blame() must retry info before consulting
+    // a literal @BASE entry: that entry may predate a transient info failure
+    // and a subsequent mixed-revision working-copy change.
     const keyRevision =
       revision.toUpperCase() === "BASE"
-        ? (this._baseKeyCache.get(relativePath) ?? revision)
+        ? this._baseKeyCache.get(relativePath)
         : revision;
+    if (keyRevision === undefined) {
+      return undefined;
+    }
     const cacheKey = pegRevision
       ? `${relativePath}@${keyRevision}@${pegRevision}`
       : `${relativePath}@${keyRevision}`;
