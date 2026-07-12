@@ -29,20 +29,24 @@ export function scmFor(repo: unknown): SourceControlManager {
     return undefined;
   };
 
+  const resolve = (hint: unknown) => {
+    const root = rootOf();
+    const fsPath =
+      hint instanceof Uri
+        ? hint.fsPath
+        : typeof hint === "string"
+          ? hint
+          : undefined;
+    if (root && fsPath && !isDescendant(root, fsPath)) {
+      return null;
+    }
+    return repo;
+  };
+
   return {
-    getRepository: (hint: unknown) => {
-      const root = rootOf();
-      const fsPath =
-        hint instanceof Uri
-          ? hint.fsPath
-          : typeof hint === "string"
-            ? hint
-            : undefined;
-      if (root && fsPath && !isDescendant(root, fsPath)) {
-        return null;
-      }
-      return repo;
-    },
+    getRepository: resolve,
+    // BlameProvider.repoFor uses getRepositoryFromUri (pure descendant match).
+    getRepositoryFromUri: resolve,
     get repositories() {
       return [repo];
     },

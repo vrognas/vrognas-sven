@@ -114,11 +114,16 @@ export class BlameProvider implements Disposable {
 
   /**
    * Resolve the repository that owns a file (single shared provider across
-   * all repos, like BlameStatusBar). Returns undefined for files outside any
-   * open working copy - callers then clear/skip.
+   * all repos, like BlameStatusBar). Uses getRepositoryFromUri (a pure
+   * workspaceRoot descendant match), NOT getRepository, so files inside an
+   * svn:external - which getRepository rejects via the repo's excluded set -
+   * still resolve to the owning repo and get blamed, matching the old
+   * per-repo isDescendant gate. Returns undefined for files outside any open
+   * working copy.
    */
   private repoFor(hint: Uri | string): Repository | undefined {
-    return this.sourceControlManager.getRepository(hint) ?? undefined;
+    const uri = typeof hint === "string" ? Uri.file(hint) : hint;
+    return this.sourceControlManager.getRepositoryFromUri(uri) ?? undefined;
   }
 
   /**
