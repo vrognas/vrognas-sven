@@ -50,6 +50,12 @@ export function computeLineMapping(
   }
 
   // Strip identical leading lines (map by identity).
+  // Known limitation: for a run of IDENTICAL adjacent lines with different
+  // blame (committed in different revisions), deleting one makes this greedy
+  // left-to-right strip bind the survivor to a different revision than a
+  // full-file LCS would. Duplicate lines are inherently ambiguous to align,
+  // so either choice is defensible; this is an accepted divergence from the
+  // pre-strip behaviour, not a general blame error.
   let prefix = 0;
   while (
     prefix < m &&
