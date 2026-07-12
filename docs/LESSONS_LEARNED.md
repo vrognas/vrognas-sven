@@ -9,9 +9,9 @@
 
 **Lesson**: Merging the per-repository `BlameProvider` into one shared singleton looked like a clean dedup, but every assumption that used to be true "because there's one instance per repo" quietly became false, and an adversarial review found four regressions the tests missed: (1) repo resolution switched from `isDescendant(workspaceRoot)` to `getRepository`, which _excludes_ svn:externals — so files under an external lost blame; (2) `messageCache` keyed by bare revision number collided across repos (r42 is a different commit in each); (3) `onRepositoryOperation` cleared _all_ caches, so a commit in repo A wiped repo B's blame; (4) lifecycle moved — the per-repo provider painted at repo-open and disposed at repo-close, but the singleton activates once at startup (before repos are discovered) and never releases per-repo hooks.
 
-**Fix**: Resolve via `getRepositoryFromUri` (pure descendant match, includes externals); scope `messageCache` by owning-repo `workspaceRoot`; scope invalidation to the operating repo's files; render on repo-open and release hooks on repo-close (tracked in a per-repo `Map`).
+**Fix**: Resolve via `getRepositoryFromUri` (pure descendant match, includes externals); scope `messageCache` by owning-repo `workspaceRoot`; scope invalidation to the operating repo's files; render on repo-open and release hooks on repo-close (tracked in a per-repo `Map`). Revalidate owner, document version, per-editor render generation, liveness, and settings after every await. Coalesce active work per repo, run repos concurrently, and key edit/cursor timers by URI/editor.
 
-**Rule**: When collapsing N instances into one shared instance, enumerate everything that was implicitly scoped by the instance boundary — resolution, cache keys, invalidation blast radius, subscription lifecycle — and re-scope each explicitly. A cache key that was unique "per instance" (a bare revision) is almost never globally unique. And unit tests that construct one instance won't exercise the cross-instance collisions; reach for an adversarial multi-repo review.
+**Rule**: When collapsing N instances into one shared instance, enumerate everything implicitly scoped by that boundary: resolution, cache keys, invalidation, subscriptions, async applies, timers, and scheduling. Preserve the old concurrency partition: one slow repo must not block another, and target-specific cleanup/repaint must be lossless. Cache invalidation must follow exact dependencies, not a global or coarse scope. Test multiple repos and visible splits.
 
 ---
 
@@ -19,9 +19,9 @@
 
 **Lesson**: A review flagged `@sequentialize` on `_doBlameFetch` as the thing serializing blame repo-wide, and recommended relaxing it to bounded concurrency. But every blame call goes through `Repository.blame` → `run()` → `retryRun()`, which awaits-and-replaces a per-repo `credentialLock` (it exists so concurrent auth-retries can't race on stored accounts and cause lockout). So the REAL serializer was the credential lock one level up; relaxing `@sequentialize` would have changed nothing. The genuine cost was that even in-memory cache HITS entered `run()` and queued behind a slow in-flight network op.
 
-**Fix**: Lock-free `blameCached`/`getInfoCached` peeks that mirror the exact cache keys; `Repository.blame`/`getInfo` serve a hit directly and only enter `run()` on a miss. The credential lock stays intact for real fetches.
+**Fix**: Lock-free `blameCached`/`getInfoCached` peeks that mirror the exact cache keys; `Repository.blame`/`getInfo` serve a hit directly and only enter `run()` on a miss. A BASE blame peek requires its memoized numeric revision; unresolved BASE misses and takes the full info-retry path. The credential lock stays intact for real fetches.
 
-**Rule**: Before optimizing a serialization primitive, trace the call from the public method down and find EVERY lock/queue it passes through — the innermost decorator is often shadowed by an outer mutex. Fix the layer that actually gates the hot path (here: keep hits out of the locked path entirely), not the redundant one a local reading fingers.
+**Rule**: Before optimizing a serialization primitive, trace the call through every lock/queue. Keep true hits out of the locked path, but never approximate a normalized/resolved cache key to manufacture a hit; uncertainty is a miss.
 
 ---
 
@@ -39,7 +39,7 @@
 
 **Lesson**: To bound an O(m·n) LCS line-mapping (freeze/OOM on large files), the obvious win is to strip the identical prefix/suffix and run the quadratic step only on the differing core. But the core algorithm told a _modified_ line apart from a _deleted_ one via context anchoring — "is there an LCS match before AND after this position?". Once the surrounding identical lines are stripped away, the core has no such matches, and every modified line in the core is misclassified as deleted (an existing "modified line still maps" test caught it).
 
-**Fix**: Pass a `bracketBefore`/`bracketAfter` signal into the core: a stripped prefix/suffix _is_ a bracketing match, so `hasMatchBefore/After` must count it even though those lines are no longer in the core's own LCS.
+**Fix**: Pass a `bracketBefore`/`bracketAfter` signal into the core: a stripped prefix/suffix _is_ a bracketing match, so `hasMatchBefore/After` must count it even though those lines are no longer in the core's own LCS. Above the dense-memory budget, use bounded Hirschberg LCS before sparse unique anchors; duplicate-heavy cores may have no unique anchors despite thousands of exact matches.
 
 **Rule**: Before slicing an input to a heuristic that reasons about neighbouring context, ask what signal the removed region was carrying. Re-inject it as an explicit flag, and let the existing behavioural tests (not just the happy path) confirm the classification didn't shift.
 
@@ -47,11 +47,11 @@
 
 ### 83. A Global Epoch in a Cache Key Invalidates Everything on Any Change
 
-**Lesson**: The blame render cache keyed on a single global `messageEpoch`, bumped whenever _any_ file's commit message landed — so a message fetch for file A invalidated file B's cached render (rebuilding B's gutter+icons, which carry no message). Worse, the coupling was unnecessary: after progressive rendering split inline-with-messages into its own Phase-2 path, the cached decorations' inline field is only ever _applied_ when messages are off — so the reused render never depended on message content at all.
+**Lesson**: The blame render cache keyed on one global `messageEpoch`, so a message fetched for file A invalidated every file. Removing it entirely looked safe because message text is applied in Phase 2, but missed a hidden dependency: cached inline decorations still embed commit messages in their hover. A late message write could therefore leave a same-version cached hover stale forever.
 
-**Fix**: Removed `messageEpoch` from the render key (and the field entirely). Message freshness is owned by the separate Phase-2 inline apply, not the render cache.
+**Fix**: Render entries record the exact repository scope and blamed revisions whose cached messages they embed. Writes and LRU evictions invalidate only matching entries; a transient scope epoch fences a message landing while an entry is being built.
 
-**Rule**: A cache key shared across independent entries (a global counter/epoch) makes every entry's validity depend on every other entry's activity. Key on what the entry actually depends on; when a refactor moves a dependency to a different code path, delete the stale key component rather than leaving it as defensive noise.
+**Rule**: Replace coarse invalidation with exact dependencies, not with no invalidation. Audit the whole cached object—including hover/tooltips—not just its visible text, and fence concurrent construction as well as later reuse.
 
 ---
 

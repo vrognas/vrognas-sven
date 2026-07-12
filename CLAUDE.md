@@ -34,6 +34,9 @@
 - In suites with background polling/watchers, teardown order: dispose repositories, wait briefly, then delete temp repos.
 - In legacy E2E suites, use `suiteReady` + per-test skip guard; do not rely on `suiteSetup` `this.skip()` alone.
 - In timer/poll tests, prefer explicit signal waits with bounded timeout over fixed sleep assertions.
-- Shared async caches: fence writes/applies by owner generation + document version; clearing is not cancellation.
+- Shared async caches: fence writes/applies by owner generation + document version + per-editor render generation + current UI eligibility; clearing is not cancellation.
 - Deduplicate fetches, not editor-specific apply continuations.
-- Oversized quadratic diffs: use exact sparse anchors; leave ambiguity unmapped, never positional-fallback blame.
+- Coalesce active renders per repository; keep repositories concurrent and URI/editor timers lossless.
+- Message-dependent render caches track exact scoped revision dependencies; do not use a global or repo-wide persistent epoch.
+- Lock-free cache peeks must use the fully resolved canonical key; unresolved BASE is a miss.
+- Oversized quadratic diffs: dense LCS, bounded exact linear-space LCS, then sparse anchors; never positional-fallback blame.

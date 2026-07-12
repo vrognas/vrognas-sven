@@ -74,11 +74,16 @@ Per-file blame tracking with:
 - Template compilation for status bar/gutter
 - Batch log fetching (50x faster), targeted at the blamed file
 - LRU cache eviction (MAX_CACHE_SIZE=20)
-- Shared provider resolves deepest repo ownership per URI; owner generations and
-  document versions fence async cache writes/applies
-- Visible split editors reconcile on repo open/close/status/mutations
-- Line mapping uses prefix/suffix stripping, bounded dense LCS, then sparse
-  exact anchors for oversized cores
+- Shared provider resolves deepest repo ownership per URI; owner generations,
+  document versions, per-editor render generations, liveness, and current
+  settings fence async writes/applies
+- Visible split editors reconcile losslessly on repo open/close/status,
+  mutations, saves, state changes, and configuration changes; work coalesces
+  within a repo while separate repos repaint concurrently
+- Scoped message LRU invalidates only render entries that depend on the changed
+  repo+revision; in-flight add-revision and message fetches are deduplicated
+- Line mapping strips equal edges, then uses bounded dense LCS, bounded exact
+  linear-space LCS, and sparse exact anchors for the largest cores
 - autoBlame-gated auto-fetch; CSV/large-file gates on all fetch paths
   (render, cursor, status bar)
 
@@ -131,8 +136,9 @@ All critical bottlenecks fixed:
 Caching strategy:
 
 - LRU eviction for info, blame, log caches
-- Blame: lock-free warm reads guarded by mutation state, in-flight dedup, 30s
-  negative cache, owner-generation invalidation on BASE-changing operations
+- Blame: lock-free warm reads require a resolved numeric BASE key and are
+  guarded by mutation state; in-flight dedup, 30s negative cache, and
+  owner-generation invalidation cover BASE-changing operations
 - Immutable data (SVN logs) = infinite TTL
 - Remote-check result cached with poll-frequency TTL for pre-commit reuse
 

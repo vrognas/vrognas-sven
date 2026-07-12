@@ -7,6 +7,17 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.93] - 2026-07-12
+
+Final correctness pass for blame caching, mapping, and shared-provider lifecycle.
+
+### Fixed
+
+- **Duplicate-heavy large edits keep exact blame mapping.** Moderate oversized cores use bounded linear-space LCS before the sparse fallback, preserving thousands of valid matches without quadratic memory.
+- **Warm BASE peeks cannot reuse an unresolved stale key.** Lock-free blame reads require the memoized numeric BASE revision; cold reads take the serialized resolution path.
+- **Visible editors reconcile losslessly without cross-repo blocking.** Save, per-file state, repo lifecycle, add-revision, and configuration refreshes target every affected split; repo-scoped queues/timers, per-editor generations, and deduplicated async lookups prevent stale or redirected paints.
+- **Message LRU and render-cache coherence stay precisely scoped.** Reads refresh recency, writes/evictions invalidate only render entries using that repo+revision, and disabled logs/messages cannot reappear from late work.
+
 ## [0.2.92] - 2026-07-12
 
 Adversarial correctness hardening for the blame performance/shared-provider pass.

@@ -319,11 +319,14 @@ SVN: r1234 by John Doe
      event editor, so non-active visible editors cache-hit too)
    - Repo tier (Repository.\_blameCache): LRU max 100, 5-min TTL backstop,
      cleared on mutating operations
+   - Lock-free BASE peeks only after BASE resolves to a memoized numeric key
 
 2. **Message Cache**
-   - By revision number
-   - Max 500 entries, oldest 25% evicted when full
-   - Provider-scoped messageCache
+   - By owning-repository root plus revision number
+   - Max 500 entries, true LRU eviction
+   - Shared-provider cache; repo close/invalidation clears only that scope
+   - Render entries record exact message-revision dependencies, avoiding
+     cross-file invalidation while keeping cached hovers coherent
 
 3. **SVG Cache**
    - By HSL color string
@@ -351,6 +354,7 @@ SVN: r1234 by John Doe
 - Configurable line limit (default 3000; CSV-like files capped at 500)
 - Warning dialog before processing
 - Graceful fallback to no blame if cancelled
+- Equal-edge stripping plus dense, bounded linear-space, then sparse LCS mapping
 - Visible range optimization (Phase 2.6)
 
 ---
