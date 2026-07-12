@@ -93,7 +93,8 @@ describe("decoration render cache", () => {
       decorationTypes: { gutter: {}, icon: {}, inline: {} },
       iconTypes: new Map(),
       renderCache: new Map(),
-      messageEpoch: 0,
+      messageScopeEpochs: new Map(),
+      renderGenerations: new WeakMap(),
       addRevisionCache: new Map(),
       shouldDecorate: () => true,
       getParentFolderStatus: () => undefined,
@@ -111,7 +112,8 @@ describe("decoration render cache", () => {
       prefetchMessagesProgressively: vi.fn(async () => {}),
       prefetchPeekData: vi.fn(async () => {}),
       claimOwner: () => ({ repository: mockThis.repository }),
-      isCurrentOwner: () => true
+      isCurrentOwner: () => true,
+      canApplyRender: () => true
     };
     (mockThis as unknown as { repoFor: unknown }).repoFor = () =>
       mockThis.repository;

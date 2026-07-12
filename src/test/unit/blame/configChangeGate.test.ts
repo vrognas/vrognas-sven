@@ -1,9 +1,19 @@
 import { scmFor } from "./helpers/blameScm";
 import * as assert from "assert";
 import * as sinon from "sinon";
-import { window } from "vscode";
+import { Uri, window } from "vscode";
 import { BlameProvider } from "../../../blame/blameProvider";
+import { blameConfiguration } from "../../../blame/blameConfiguration";
 import { Repository } from "../../../repository";
+
+function editorFor(path: string): any {
+  const uri = Uri.file(path);
+  return {
+    document: { uri, lineCount: 10, version: 1, isClosed: false },
+    selection: { active: { line: 0 } },
+    setDecorations: sinon.stub()
+  };
+}
 
 suite("BlameProvider - config change gating", () => {
   let provider: BlameProvider;
@@ -16,6 +26,7 @@ suite("BlameProvider - config change gating", () => {
   teardown(() => {
     provider?.dispose();
     sandbox.restore();
+    delete (window as any).visibleTextEditors;
   });
 
   test("non-visual config change skips the decoration teardown", async () => {
@@ -65,6 +76,51 @@ suite("BlameProvider - config change gating", () => {
     assert.ok(
       created.length > baseCount,
       "a visual key change must recreate the decoration types"
+    );
+  });
+
+  test("gate config clears and rerenders every visible editor", async () => {
+    const mockRepo = sandbox.createStubInstance(Repository);
+    provider = new BlameProvider(scmFor(mockRepo as any));
+    const active = editorFor("/test/active.csv");
+    const inactive = editorFor("/test/inactive.csv");
+    sandbox.stub(window, "activeTextEditor").value(active);
+    (window as any).visibleTextEditors = [active, inactive];
+    const clear = sandbox.stub(provider, "clearDecorations");
+    const render = sandbox
+      .stub(provider as any, "renderDecorations")
+      .resolves(undefined);
+
+    await (provider as any).onConfigurationChange({
+      affectsConfiguration: (key: string) => key === "sven.blame.csvLineLimit"
+    });
+
+    assert.ok(clear.calledWith(active));
+    assert.ok(clear.calledWith(inactive));
+    assert.ok(render.calledWith(active));
+    assert.ok(render.calledWith(inactive));
+  });
+
+  test("size gate clears decorations left by an earlier render", async () => {
+    const mockRepo = sandbox.createStubInstance(Repository);
+    provider = new BlameProvider(scmFor(mockRepo as any));
+    const editor = editorFor("/test/large.csv");
+    sandbox.stub(blameConfiguration, "getBlameSizeGate").returns("csv");
+    sandbox.stub(window, "showWarningMessage").resolves(undefined);
+
+    await provider.updateDecorations(editor);
+
+    assert.ok(
+      editor.setDecorations.called,
+      "rejected render must remove prior decorations"
+    );
+    assert.ok(
+      editor.setDecorations
+        .getCalls()
+        .every(
+          (call: sinon.SinonSpyCall) =>
+            Array.isArray(call.args[1]) && call.args[1].length === 0
+        )
     );
   });
 });

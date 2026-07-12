@@ -130,7 +130,8 @@ describe("updateDecorations pipeline", () => {
       }),
       ensureAddRevision: vi.fn(async () => false),
       renderCache: new Map(),
-      messageEpoch: 0,
+      messageScopeEpochs: new Map(),
+      renderGenerations: new WeakMap(),
       addRevisionCache: new Map(),
       createAllDecorations: vi.fn(async () => ({
         gutter: [],
@@ -141,7 +142,8 @@ describe("updateDecorations pipeline", () => {
       applyIconDecorations: vi.fn(),
       prefetchMessagesProgressively: vi.fn(async () => {}),
       claimOwner: () => ({ repository: mockThis.repository }),
-      isCurrentOwner: () => true
+      isCurrentOwner: () => true,
+      canApplyRender: () => true
     };
     (mockThis as unknown as { repoFor: unknown }).repoFor = () =>
       mockThis.repository;

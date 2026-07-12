@@ -126,4 +126,28 @@ suite("BlameProvider - Message Fetching", () => {
     assert.strictEqual(mockRepository.log.callCount, 1);
     assert.strictEqual((provider as any).messageCache.size, 3);
   });
+
+  test("prefetch eviction preserves current-file cache hits", async () => {
+    const p = provider as any;
+    const key = (r: string) => p.msgKey("/test", r);
+    const hits = Array.from({ length: 80 }, (_, i) => `hit-${i}`);
+    const misses = Array.from({ length: 20 }, (_, i) => `miss-${i}`);
+    for (const revision of hits) {
+      p.messageCache.set(key(revision), `message ${revision}`);
+    }
+    for (let i = 0; i < 410; i++) {
+      p.messageCache.set(key(`other-${i}`), `other ${i}`);
+    }
+    mockRepository.logBatch.resolves(
+      misses.map(revision => ({ revision, msg: `message ${revision}` })) as any
+    );
+    sandbox.stub(blameConfiguration, "isLogsEnabled").returns(true);
+
+    await p.prefetchMessages([...hits, ...misses], TARGET);
+
+    assert.ok(
+      hits.every(revision => p.messageCache.has(key(revision))),
+      "messages needed by this apply must survive eviction"
+    );
+  });
 });

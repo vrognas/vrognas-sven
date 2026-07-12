@@ -34,6 +34,7 @@ suite("BlameProvider E2E Tests", () => {
       provider.dispose();
     }
     sandbox.restore();
+    delete (window as any).visibleTextEditors;
   });
 
   test("shows gutter decorations when blame enabled", async () => {
@@ -442,6 +443,7 @@ suite("BlameProvider Cursor Tracking Optimization", () => {
       provider.dispose();
     }
     sandbox.restore();
+    delete (window as any).visibleTextEditors;
   });
 
   test("cursor movement triggers lightweight inline-only update", async () => {
@@ -491,6 +493,7 @@ suite("BlameProvider Cursor Tracking Optimization", () => {
       setDecorations: sandbox.stub(),
       visibleRanges: [{ start: { line: 0 }, end: { line: 3 } }]
     } as any;
+    (window as any).visibleTextEditors = [mockEditor];
 
     // Act - Initial full update
     await provider.updateDecorations(mockEditor);
@@ -623,6 +626,7 @@ suite("BlameProvider Cursor Tracking Optimization", () => {
       setDecorations: sandbox.stub(),
       visibleRanges: [{ start: { line: 0 }, end: { line: 2 } }]
     } as any;
+    (window as any).visibleTextEditors = [mockEditor];
 
     // Act - Initial load
     await provider.updateDecorations(mockEditor);

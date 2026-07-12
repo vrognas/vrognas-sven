@@ -13,7 +13,7 @@ function createEditor(uri: Uri): any {
   };
 }
 
-suite("BlameProvider - active editor throttle", () => {
+suite("BlameProvider - active editor repo scheduler", () => {
   let provider: BlameProvider;
   let sandbox: sinon.SinonSandbox;
 
@@ -28,11 +28,9 @@ suite("BlameProvider - active editor throttle", () => {
     sandbox.restore();
   });
 
-  test("does not pin the editor into the throttled render", async () => {
-    // @throttle is not keep-last: a queued render keeps the FIRST queued
-    // call's args. Pinning an explicit editor there renders a stale (maybe
-    // off-screen) editor on rapid switching. Passing no arg lets the render
-    // resolve window.activeTextEditor at execution time.
+  test("lets the no-arg scheduler resolve the live active repo", async () => {
+    // Active events use the no-arg per-repo scheduler. Explicit editor calls
+    // remain reserved for lossless URI/lifecycle work.
     const updateStub = sandbox
       .stub(provider as any, "updateDecorations")
       .resolves(undefined);
@@ -45,7 +43,7 @@ suite("BlameProvider - active editor throttle", () => {
     assert.strictEqual(
       updateStub.firstCall.args[0],
       undefined,
-      "active-editor change must not pin an explicit editor"
+      "active-editor change must select the live repo"
     );
   });
 });

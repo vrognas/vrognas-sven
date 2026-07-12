@@ -110,8 +110,8 @@ suite("BlameProvider - Fail Cluster", () => {
       fn: (_ctx: any) => "y"
     };
 
-    const updateStub = sandbox
-      .stub(provider as any, "updateDecorations")
+    const renderStub = sandbox
+      .stub(provider as any, "renderDecorations")
       .resolves(undefined);
 
     await (provider as any).onConfigurationChange({} as any);
@@ -126,7 +126,7 @@ suite("BlameProvider - Fail Cluster", () => {
     assert.strictEqual((provider as any).compiledGutterTemplate, undefined);
     assert.strictEqual((provider as any).compiledInlineTemplate, undefined);
     assert.ok(editor.setDecorations.callCount >= 4);
-    assert.ok(updateStub.calledOnce);
+    assert.ok(renderStub.calledOnceWith(editor));
   });
 
   test("getBlameData uses cache when editor version matches", async () => {
@@ -351,6 +351,9 @@ suite("BlameProvider - Fail Cluster", () => {
     const updateStub = sandbox
       .stub(provider as any, "updateDecorations")
       .resolves(undefined);
+    const renderStub = sandbox
+      .stub(provider as any, "renderDecorations")
+      .resolves(undefined);
     const inlineStub = sandbox
       .stub(provider as any, "updateInlineDecorationsForCursor")
       .resolves(undefined);
@@ -361,32 +364,29 @@ suite("BlameProvider - Fail Cluster", () => {
 
     await (provider as any).onDocumentSave({ uri });
     assert.ok(cacheStub.calledWith(uri));
-    assert.ok(updateStub.calledOnceWith(editor));
+    assert.ok(renderStub.calledOnceWith(editor));
 
     (provider as any).onDocumentClose({ uri });
     assert.ok(cacheStub.calledTwice);
 
     await (provider as any).onActiveEditorChange(undefined);
-    assert.ok(updateStub.calledOnce);
+    assert.ok(updateStub.notCalled);
 
     const currentLineOnlyStub = sandbox
       .stub(blameConfiguration, "isInlineCurrentLineOnly")
       .returns(true);
-    (provider as any).currentLineNumber = 0;
-    (provider as any).onCursorPositionChange({
-      textEditor: { ...editor, selection: { active: { line: 0 } } }
-    });
+    (provider as any).cursorLines.set(editor, 0);
+    (provider as any).onCursorPositionChange({ textEditor: editor });
     clock.tick(151);
     await Promise.resolve();
     assert.ok(inlineStub.notCalled);
 
-    (provider as any).onCursorPositionChange({
-      textEditor: { ...editor, selection: { active: { line: 1 } } }
-    });
+    editor.selection = { active: { line: 1 } };
+    (provider as any).onCursorPositionChange({ textEditor: editor });
     clock.tick(151);
     await Promise.resolve();
     assert.ok(inlineStub.calledOnce);
-    assert.strictEqual((provider as any).currentLineNumber, 1);
+    assert.strictEqual((provider as any).cursorLines.get(editor), 1);
     assert.ok(currentLineOnlyStub.called);
   });
 
@@ -494,6 +494,7 @@ suite("BlameProvider - Fail Cluster", () => {
 
   test("updateInlineDecorationsForCursor handles early exits and skip branches", async () => {
     const editor = createEditor(Uri.file("/test/cursor.ts"), 2, 1);
+    (window as any).visibleTextEditors = [editor];
 
     sandbox.stub(blameConfiguration, "isInlineEnabled").returns(false);
     await (provider as any).updateInlineDecorationsForCursor(editor);

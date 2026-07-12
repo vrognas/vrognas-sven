@@ -88,4 +88,41 @@ suite("BlameProvider - render on repo open", () => {
     assert.ok(render.calledWith(active));
     assert.ok(render.calledWith(inactive));
   });
+
+  test("bulk render skips an editor hidden while an earlier render waits", async () => {
+    let resolveStatus!: () => void;
+    const statusReady = new Promise<void>(resolve => (resolveStatus = resolve));
+    const repo = { workspaceRoot: "/ws", statusReady };
+    provider = new BlameProvider({
+      repositories: [repo],
+      getRepositoryFromUri: () => repo
+    } as never);
+    const first = createEditor(Uri.file("/ws/first.ts"));
+    const hidden = createEditor(Uri.file("/ws/hidden.ts"));
+    const last = createEditor(Uri.file("/ws/last.ts"));
+    let releaseFirst!: () => void;
+    const firstPending = new Promise<void>(resolve => (releaseFirst = resolve));
+    sandbox.stub(window, "activeTextEditor").value(first);
+    (window as any).visibleTextEditors = [first, hidden, last];
+    const render = sandbox.stub(provider as any, "renderDecorations");
+    render.callsFake((editor: any) =>
+      editor === first ? firstPending : Promise.resolve()
+    );
+
+    provider.activate();
+    render.resetHistory();
+    resolveStatus();
+    await statusReady;
+    await Promise.resolve();
+    (window as any).visibleTextEditors = [first, last];
+    hidden.document.isClosed = true;
+    releaseFirst();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.ok(render.calledWith(first));
+    assert.ok(!render.calledWith(hidden), "dead editor must be skipped");
+    assert.ok(render.calledWith(last), "later live editor still renders");
+  });
 });

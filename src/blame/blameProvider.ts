@@ -18,7 +18,6 @@ import {
   window,
   workspace
 } from "vscode";
-import { debounce, throttleLatest } from "../decorators";
 import { ISvnBlameLine } from "../common/types";
 import { configuration } from "../helpers/configuration";
 import { Repository } from "../repository";
@@ -75,8 +74,9 @@ export class BlameProvider implements Disposable {
   >(); // uri → line mapping for modified files
   private revisionColors = new Map<string, string>(); // revision → gradient color
   private svgCache = new Map<string, Uri>(); // color → SVG data URI
-  private messageCache = new Map<string, string>(); // revision → commit message
+  private messageCache = new Map<string, string>(); // scope+revision → message
   private inFlightMessageFetches = new Map<string, Promise<void>>();
+  private messageScopeEpochs = new Map<string, number>();
   private uriOwners = new Map<string, UriOwnerToken>();
   private nextOwnerGeneration = 0;
   // uri → monotonic access sequence for LRU eviction. A counter, not
@@ -93,6 +93,8 @@ export class BlameProvider implements Disposable {
       version: number;
       addRevision: string | undefined;
       cursorLine: number | undefined;
+      messageScope?: string;
+      messageRevisions?: Set<string>;
       decorations: {
         gutter: DecorationOptions[];
         icon: DecorationOptions[];
@@ -109,12 +111,23 @@ export class BlameProvider implements Disposable {
   // fired ~2 speculative svn subprocesses per revision - a server storm most
   // files never cashed in.
   private static readonly MAX_PEEK_PREFETCH = 5;
-  private currentLineNumber?: number; // Track cursor position for current-line-only mode
+  private documentChangeTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  private cursorTimers = new Map<TextEditor, ReturnType<typeof setTimeout>>();
+  private cursorLines = new WeakMap<TextEditor, number>();
+  private renderGenerations = new WeakMap<TextEditor, number>();
   private disposables: Disposable[] = [];
   /** Per-repo event subscriptions, released when the repo closes so a churny
    *  session (externals add/remove) doesn't accumulate dead subscriptions. */
   private repoHooks = new Map<Repository, Disposable[]>();
+  private repoRenderFlights = new Map<
+    Repository,
+    { rerun: boolean; promise: Promise<void> }
+  >();
   private isActivated = false;
+  private isDisposed = false;
 
   // LRU cache limits
   private readonly MAX_CACHE_SIZE = 20; // Keep last 20 files (prevents unbounded growth)
@@ -186,6 +199,83 @@ export class BlameProvider implements Disposable {
 
   private isEditorVisible(editor: TextEditor): boolean {
     return this.visibleEditors().includes(editor);
+  }
+
+  private visibleEditorsForUri(uri?: Uri): readonly TextEditor[] {
+    if (!uri) {
+      return [...this.visibleEditors()];
+    }
+    const key = uri.toString();
+    return this.visibleEditors().filter(
+      editor => editor.document.uri.toString() === key
+    );
+  }
+
+  private isEditorLive(editor: TextEditor): boolean {
+    return editor.document.isClosed !== true && this.isEditorVisible(editor);
+  }
+
+  /**
+   * Lifecycle snapshots can outlive a pane. Revalidate every editor at its
+   * actual turn and contain one failed render so later split panes still run.
+   */
+  private async renderVisibleEditors(
+    editors: readonly TextEditor[]
+  ): Promise<void> {
+    for (const editor of editors) {
+      try {
+        if (this.isDisposed) {
+          return;
+        }
+        if (!this.isEditorLive(editor)) {
+          continue;
+        }
+        await this.renderDecorations(editor, true);
+      } catch (err) {
+        logError("BlameProvider: Failed to render visible editor", err);
+      }
+    }
+  }
+
+  private async renderVisibleEditorsByRepository(
+    editors: readonly TextEditor[]
+  ): Promise<void> {
+    const groups = new Map<Repository | undefined, TextEditor[]>();
+    for (const editor of editors) {
+      const repo = this.repoFor(editor.document.uri);
+      const group = groups.get(repo) ?? [];
+      group.push(editor);
+      groups.set(repo, group);
+    }
+    await Promise.all(
+      [...groups.values()].map(group => this.renderVisibleEditors(group))
+    );
+  }
+
+  private scheduleRepositoryRender(repo: Repository): Promise<void> {
+    const current = this.repoRenderFlights.get(repo);
+    if (current) {
+      current.rerun = true;
+      return current.promise;
+    }
+
+    const state = { rerun: false, promise: Promise.resolve() };
+    const run = async () => {
+      do {
+        state.rerun = false;
+        const editors = this.visibleEditors().filter(
+          editor => this.repoFor(editor.document.uri) === repo
+        );
+        await this.renderVisibleEditors(editors);
+      } while (state.rerun && !this.isDisposed);
+    };
+    state.promise = run().finally(() => {
+      if (this.repoRenderFlights.get(repo) === state) {
+        this.repoRenderFlights.delete(repo);
+      }
+    });
+    this.repoRenderFlights.set(repo, state);
+    return state.promise;
   }
 
   private clearCacheEntries(key: string): void {
@@ -288,11 +378,7 @@ export class BlameProvider implements Disposable {
             this.clearDecorations(editor);
           }
           if (editors.length > 0) {
-            void (async () => {
-              for (const editor of editors) {
-                await this.renderDecorations(editor);
-              }
-            })();
+            void this.renderVisibleEditors(editors);
           }
         });
       }
@@ -310,11 +396,7 @@ export class BlameProvider implements Disposable {
         this.clearDecorations(editor);
       }
       if (editors.length > 0) {
-        void (async () => {
-          for (const editor of editors) {
-            await this.renderDecorations(editor);
-          }
-        })();
+        void this.renderVisibleEditors(editors);
       }
     };
     (this.sourceControlManager.repositories ?? []).forEach(hookRepository);
@@ -328,6 +410,7 @@ export class BlameProvider implements Disposable {
         this.sourceControlManager.onDidCloseRepository((repo: Repository) => {
           this.repoHooks.get(repo)?.forEach(d => d.dispose());
           this.repoHooks.delete(repo);
+          this.repoRenderFlights.delete(repo);
           this.onRepositoryClosed(repo);
         })
       );
@@ -341,20 +424,40 @@ export class BlameProvider implements Disposable {
     }
   }
 
-  /**
-   * Update decorations for editor (throttled to prevent spam)
-   */
-  @throttleLatest
+  /** Explicit targets render losslessly; no-arg active renders coalesce per repo. */
   public async updateDecorations(editor?: TextEditor): Promise<void> {
-    await this.renderDecorations(editor);
-  }
-
-  private async renderDecorations(editor?: TextEditor): Promise<void> {
-    const target = editor || window.activeTextEditor;
-
+    if (editor) {
+      await this.renderDecorations(editor);
+      return;
+    }
+    const target = window.activeTextEditor;
     if (!target) {
       return;
     }
+    const repo = this.repoFor(target.document.uri);
+    if (!repo) {
+      await this.renderDecorations(target, true);
+      return;
+    }
+    await this.scheduleRepositoryRender(repo);
+  }
+
+  private async renderDecorations(
+    editor?: TextEditor,
+    requireVisible = false
+  ): Promise<void> {
+    const target = editor || window.activeTextEditor;
+
+    if (
+      this.isDisposed ||
+      !target ||
+      target.document.isClosed === true ||
+      (requireVisible && !this.isEditorVisible(target))
+    ) {
+      return;
+    }
+    const renderGeneration = (this.renderGenerations.get(target) ?? 0) + 1;
+    this.renderGenerations.set(target, renderGeneration);
 
     // Resolve the owning repository. Files outside any open working copy
     // (no repo) are cleared - running SVN commands on them returns
@@ -421,6 +524,7 @@ export class BlameProvider implements Disposable {
       target.document.lineCount
     );
     if (sizeGate === "csv") {
+      this.clearDecorations(target);
       window.showWarningMessage(
         `Blame skipped for large CSV (${target.document.lineCount} lines > ` +
           `${blameConfiguration.getCsvLineLimit()} limit). ` +
@@ -429,6 +533,7 @@ export class BlameProvider implements Disposable {
       return;
     }
     if (sizeGate === "largeFile") {
+      this.clearDecorations(target);
       window.showWarningMessage(
         `File too large for blame (${target.document.lineCount} lines). Consider disabling blame.`
       );
@@ -445,8 +550,13 @@ export class BlameProvider implements Disposable {
       ]);
 
       if (
-        !this.isCurrentOwner(ownerToken) ||
-        target.document.version !== documentVersion
+        !this.canApplyRender(
+          target,
+          ownerToken,
+          documentVersion,
+          requireVisible,
+          renderGeneration
+        )
       ) {
         return;
       }
@@ -458,10 +568,14 @@ export class BlameProvider implements Disposable {
       // Render cache: same document version + message state -> reuse
       // the built decoration objects instead of rebuilding them all
       const uriKey = target.document.uri.toString();
-      // NOTE: no message epoch here. The cached decorations' inline field is
-      // applied only when messages are OFF (Phase 2 handles the messages-on
-      // case separately), so the reused render never depends on message
-      // content - a global epoch just invalidated every file on any fetch.
+      const messageScope = repository.workspaceRoot;
+      const embedsCachedMessage =
+        blameConfiguration.isInlineEnabled() &&
+        !blameConfiguration.shouldShowInlineMessage() &&
+        blameConfiguration.isLogsEnabled();
+      const messageEpoch = embedsCachedMessage
+        ? (this.messageScopeEpochs.get(messageScope) ?? 0)
+        : undefined;
       const renderKey = {
         version: target.document.version,
         addRevision: this.addRevisionCache.get(uriKey),
@@ -494,18 +608,47 @@ export class BlameProvider implements Disposable {
           lineMapping,
           ownerToken
         });
-        if (!this.isCurrentOwner(ownerToken)) {
+        if (
+          !this.canApplyRender(
+            target,
+            ownerToken,
+            documentVersion,
+            requireVisible,
+            renderGeneration
+          )
+        ) {
           return;
         }
         revisionRange = this.getRevisionRange(blameData);
-        this.renderCache.set(uriKey, {
-          ...renderKey,
-          decorations,
-          revisionRange
-        });
+        if (
+          messageEpoch === undefined ||
+          (this.messageScopeEpochs.get(messageScope) ?? 0) === messageEpoch
+        ) {
+          this.renderCache.set(uriKey, {
+            ...renderKey,
+            messageScope: embedsCachedMessage ? messageScope : undefined,
+            messageRevisions: embedsCachedMessage
+              ? new Set(
+                  blameData
+                    .map(line => line.revision)
+                    .filter((revision): revision is string => !!revision)
+                )
+              : undefined,
+            decorations,
+            revisionRange
+          });
+        }
       }
 
-      if (!this.isCurrentOwner(ownerToken)) {
+      if (
+        !this.canApplyRender(
+          target,
+          ownerToken,
+          documentVersion,
+          requireVisible,
+          renderGeneration
+        )
+      ) {
         return;
       }
       // PHASE 1: Apply decorations immediately (gutter + icons + inline without messages)
@@ -521,7 +664,8 @@ export class BlameProvider implements Disposable {
       // Prevents duplicate setDecorations() call (first without messages, second with messages)
       const willFetchMessages =
         blameConfiguration.isInlineEnabled() &&
-        blameConfiguration.shouldShowInlineMessage();
+        blameConfiguration.shouldShowInlineMessage() &&
+        blameConfiguration.isLogsEnabled();
 
       if (!willFetchMessages) {
         // Render inline immediately (no progressive update will happen)
@@ -541,13 +685,10 @@ export class BlameProvider implements Disposable {
       // never gate the paint on it; one re-render when it first lands
       void this.ensureAddRevision(target.document.uri, ownerToken).then(
         landed => {
-          if (
-            landed &&
-            this.isCurrentOwner(ownerToken) &&
-            window.activeTextEditor?.document.uri.toString() ===
-              target.document.uri.toString()
-          ) {
-            void this.updateDecorations();
+          if (landed && this.isCurrentOwner(ownerToken)) {
+            void this.renderVisibleEditors(
+              this.visibleEditorsForUri(target.document.uri)
+            );
           }
         }
       );
@@ -561,14 +702,25 @@ export class BlameProvider implements Disposable {
           target,
           undefined,
           lineMapping,
-          ownerToken
+          ownerToken,
+          renderGeneration
         ).catch(err => {
           logError("BlameProvider: Progressive message fetch failed", err);
         });
       }
     } catch (err) {
       logError("BlameProvider: Failed to update decorations", err);
-      this.clearDecorations(target);
+      if (
+        this.canApplyRender(
+          target,
+          ownerToken,
+          documentVersion,
+          requireVisible,
+          renderGeneration
+        )
+      ) {
+        this.clearDecorations(target);
+      }
     }
   }
 
@@ -589,6 +741,45 @@ export class BlameProvider implements Disposable {
       // churn that dominated every editor switch. Disposed only in
       // dispose(); recreated in onConfigurationChange (palette may change).
     }
+  }
+
+  /**
+   * Async work is valid only while ownership, document contents, pane
+   * liveness, and render eligibility still match the render that started it.
+   */
+  private canApplyRender(
+    editor: TextEditor,
+    ownerToken: UriOwnerToken,
+    documentVersion: number,
+    requireVisible: boolean,
+    renderGeneration?: number
+  ): boolean {
+    if (
+      this.isDisposed ||
+      !this.isCurrentOwner(ownerToken) ||
+      editor.document.version !== documentVersion ||
+      editor.document.isClosed === true ||
+      (requireVisible && !this.isEditorVisible(editor)) ||
+      (renderGeneration !== undefined &&
+        (this.renderGenerations.get(editor) ?? 0) !== renderGeneration)
+    ) {
+      return false;
+    }
+    if (!this.isRenderEligible(editor)) {
+      this.clearDecorations(editor);
+      return false;
+    }
+    return true;
+  }
+
+  private isRenderEligible(editor: TextEditor): boolean {
+    return (
+      this.shouldDecorate(editor) &&
+      !blameConfiguration.getBlameSizeGate(
+        editor.document.uri,
+        editor.document.lineCount
+      )
+    );
   }
 
   /**
@@ -634,7 +825,7 @@ export class BlameProvider implements Disposable {
 
   /**
    * Evict message cache entries when exceeding limit
-   * Uses simple eviction (remove first entries) since messages are immutable
+   * Map order is LRU: reads/writes reinsert hits before oldest-first eviction.
    */
   private evictMessageCache(): void {
     if (this.messageCache.size <= this.MAX_MESSAGE_CACHE_SIZE) {
@@ -644,9 +835,22 @@ export class BlameProvider implements Disposable {
     // Evict oldest 25% of entries (batch eviction for efficiency)
     const toRemove = Math.ceil(this.messageCache.size * 0.25);
     const keys = Array.from(this.messageCache.keys()).slice(0, toRemove);
+    const affectedScopes = new Set<string>();
 
     for (const key of keys) {
       this.messageCache.delete(key);
+      const at = key.indexOf("@");
+      if (at >= 0) {
+        const scope = key.slice(at + 1);
+        affectedScopes.add(scope);
+        this.invalidateMessageDependentRenders(scope, key.slice(0, at));
+      }
+    }
+    for (const scope of affectedScopes) {
+      this.messageScopeEpochs.set(
+        scope,
+        (this.messageScopeEpochs.get(scope) ?? 0) + 1
+      );
     }
   }
 
@@ -672,6 +876,9 @@ export class BlameProvider implements Disposable {
    * won't be evicted just because it was fetched long ago).
    */
   private readMessage(scope: string, revision: string): string | undefined {
+    if (!blameConfiguration.isLogsEnabled()) {
+      return undefined;
+    }
     const key = this.msgKey(scope, revision);
     const msg = this.messageCache.get(key);
     if (msg !== undefined) {
@@ -679,6 +886,39 @@ export class BlameProvider implements Disposable {
       this.messageCache.set(key, msg);
     }
     return msg;
+  }
+
+  private writeMessage(scope: string, revision: string, message: string): void {
+    const key = this.msgKey(scope, revision);
+    const previous = this.messageCache.get(key);
+    if (previous === message) {
+      this.messageCache.delete(key);
+      this.messageCache.set(key, message);
+      return;
+    }
+    if (previous !== undefined) {
+      this.messageCache.delete(key);
+    }
+    this.messageCache.set(key, message);
+    this.messageScopeEpochs.set(
+      scope,
+      (this.messageScopeEpochs.get(scope) ?? 0) + 1
+    );
+    this.invalidateMessageDependentRenders(scope, revision);
+  }
+
+  private invalidateMessageDependentRenders(
+    scope: string,
+    revision: string
+  ): void {
+    for (const [uri, entry] of this.renderCache) {
+      if (
+        entry.messageScope === scope &&
+        entry.messageRevisions?.has(revision)
+      ) {
+        this.renderCache.delete(uri);
+      }
+    }
   }
 
   /**
@@ -693,7 +933,8 @@ export class BlameProvider implements Disposable {
     editor: TextEditor,
     precomputedUniqueRevisions?: string[],
     lineMapping?: LineMapping,
-    ownerToken?: UriOwnerToken
+    ownerToken?: UriOwnerToken,
+    renderGeneration?: number
   ): Promise<void> {
     const repository = ownerToken?.repository ?? this.repoFor(uri);
     if (!repository) {
@@ -727,18 +968,21 @@ export class BlameProvider implements Disposable {
     await fetchPromise;
 
     if (
-      !this.isCurrentOwner(token) ||
-      editor.document.version !== documentVersion
+      !this.canApplyRender(
+        editor,
+        token,
+        documentVersion,
+        true,
+        renderGeneration
+      )
     ) {
       return;
     }
-    if (!blameStateManager.isBlameEnabled(uri)) {
-      if (this.isEditorVisible(editor)) {
-        this.clearDecorations(editor);
-      }
-      return;
-    }
-    if (!this.isEditorVisible(editor)) {
+    if (
+      !blameConfiguration.isInlineEnabled() ||
+      !blameConfiguration.shouldShowInlineMessage() ||
+      !blameConfiguration.isLogsEnabled()
+    ) {
       return;
     }
     this.updateInlineDecorationsWithMessages(
@@ -859,6 +1103,7 @@ export class BlameProvider implements Disposable {
   /** Oldest revision that touched each file - marks "added here" lines.
    *  "" is the negative sentinel: lookup failed, don't retry per render. */
   private addRevisionCache = new Map<string, string>();
+  private inFlightAddRevisions = new Map<string, Promise<boolean>>();
 
   /**
    * Resolve the file's ADD revision (`svn log -r 1:HEAD --limit=1`, the
@@ -881,25 +1126,41 @@ export class BlameProvider implements Disposable {
     if (!this.isCurrentOwner(token) || this.addRevisionCache.has(key)) {
       return false;
     }
-    try {
-      const entries = await repository.repository.log(
-        "1",
-        "HEAD",
-        1,
-        uri.fsPath
-      );
-      if (!this.isCurrentOwner(token)) {
-        return false;
-      }
-      const first = entries[0]?.revision;
-      this.addRevisionCache.set(key, first ?? "");
-      return !!first;
-    } catch {
-      if (!this.isCurrentOwner(token)) {
-        return false;
-      }
-      this.addRevisionCache.set(key, "");
+    const flightKey = `${token.generation}:${key}`;
+    const pending = this.inFlightAddRevisions.get(flightKey);
+    if (pending) {
+      await pending;
       return false;
+    }
+    const lookup = (async () => {
+      try {
+        const entries = await repository.repository.log(
+          "1",
+          "HEAD",
+          1,
+          uri.fsPath
+        );
+        if (!this.isCurrentOwner(token)) {
+          return false;
+        }
+        const first = entries[0]?.revision;
+        this.addRevisionCache.set(key, first ?? "");
+        return !!first;
+      } catch {
+        if (!this.isCurrentOwner(token)) {
+          return false;
+        }
+        this.addRevisionCache.set(key, "");
+        return false;
+      }
+    })();
+    this.inFlightAddRevisions.set(flightKey, lookup);
+    try {
+      return await lookup;
+    } finally {
+      if (this.inFlightAddRevisions.get(flightKey) === lookup) {
+        this.inFlightAddRevisions.delete(flightKey);
+      }
     }
   }
 
@@ -941,7 +1202,9 @@ export class BlameProvider implements Disposable {
       }
 
       // Get message from cache (should be available now)
-      const message = this.readMessage(scope, blameLine.revision) || "";
+      const message = blameConfiguration.shouldShowInlineMessage()
+        ? this.readMessage(scope, blameLine.revision) || ""
+        : "";
       const inlineText = this.formatInlineText(blameLine, message);
 
       inlineDecorations.push(
@@ -985,6 +1248,8 @@ export class BlameProvider implements Disposable {
       return;
     }
     const ownerToken = this.claimOwner(editor.document.uri, repository);
+    const documentVersion = editor.document.version;
+    const renderGeneration = this.renderGenerations.get(editor) ?? 0;
 
     // Check if decorations should be shown (respects per-file state)
     if (!this.shouldDecorate(editor)) {
@@ -1009,7 +1274,15 @@ export class BlameProvider implements Disposable {
       repository,
       ownerToken
     );
-    if (!blameData || !this.isCurrentOwner(ownerToken)) {
+    if (
+      !blameData ||
+      !this.canApplyCursorRender(
+        editor,
+        ownerToken,
+        documentVersion,
+        renderGeneration
+      )
+    ) {
       return;
     }
 
@@ -1020,7 +1293,14 @@ export class BlameProvider implements Disposable {
       repository,
       ownerToken
     );
-    if (!this.isCurrentOwner(ownerToken)) {
+    if (
+      !this.canApplyCursorRender(
+        editor,
+        ownerToken,
+        documentVersion,
+        renderGeneration
+      )
+    ) {
       return;
     }
 
@@ -1049,7 +1329,9 @@ export class BlameProvider implements Disposable {
       }
 
       // Get message from cache (may not be loaded yet, that's okay)
-      const message = this.readMessage(scope, blameLine.revision) || "";
+      const message = blameConfiguration.shouldShowInlineMessage()
+        ? this.readMessage(scope, blameLine.revision) || ""
+        : "";
       const inlineText = this.formatInlineText(blameLine, message);
 
       inlineDecorations.push(
@@ -1070,10 +1352,35 @@ export class BlameProvider implements Disposable {
     editor.setDecorations(this.decorationTypes.inline, inlineDecorations);
   }
 
+  private canApplyCursorRender(
+    editor: TextEditor,
+    ownerToken: UriOwnerToken,
+    documentVersion: number,
+    renderGeneration: number
+  ): boolean {
+    return (
+      this.canApplyRender(
+        editor,
+        ownerToken,
+        documentVersion,
+        true,
+        renderGeneration
+      ) &&
+      blameConfiguration.isInlineEnabled() &&
+      blameConfiguration.isInlineCurrentLineOnly()
+    );
+  }
+
   /**
    * Dispose provider - cleanup resources
    */
   public dispose(): void {
+    this.isDisposed = true;
+    this.documentChangeTimers.forEach(timer => clearTimeout(timer));
+    this.documentChangeTimers.clear();
+    this.cursorTimers.forEach(timer => clearTimeout(timer));
+    this.cursorTimers.clear();
+    this.repoRenderFlights.clear();
     this.decorationTypes.gutter.dispose();
     this.decorationTypes.icon.dispose();
     this.decorationTypes.inline.dispose();
@@ -1085,7 +1392,9 @@ export class BlameProvider implements Disposable {
     this.revisionColors.clear();
     this.svgCache.clear();
     this.messageCache.clear();
+    this.messageScopeEpochs.clear();
     this.inFlightMessageFetches.clear(); // Owner guards suppress late applies
+    this.inFlightAddRevisions.clear();
     this.uriOwners.clear();
     this.disposables.forEach(d => d.dispose());
     this.disposables = [];
@@ -1103,54 +1412,99 @@ export class BlameProvider implements Disposable {
       return;
     }
 
-    // Update current line number for new editor
-    this.currentLineNumber = editor.selection.active.line;
-    // Resolve the live active editor inside the throttled execution.
+    this.cursorLines.set(editor, editor.selection.active.line);
+    // Same-repo activations coalesce; different repositories run independently.
     await this.updateDecorations();
   }
 
-  @debounce(500)
   private onDocumentChange(event: { document: { uri: Uri } }): void {
-    // Clear decorations on text change (debounced to wait for typing to stop)
     const key = event.document.uri.toString();
-    for (const editor of this.visibleEditors()) {
+    const pending = this.documentChangeTimers.get(key);
+    if (pending) {
+      clearTimeout(pending);
+    }
+    this.documentChangeTimers.set(
+      key,
+      setTimeout(() => {
+        this.documentChangeTimers.delete(key);
+        if (this.isDisposed) {
+          return;
+        }
+        for (const editor of this.visibleEditors()) {
+          if (editor.document.uri.toString() === key) {
+            this.clearDecorations(editor);
+          }
+        }
+      }, 500)
+    );
+  }
+
+  private cancelDocumentChange(uri: Uri): void {
+    const key = uri.toString();
+    const pending = this.documentChangeTimers.get(key);
+    if (pending) {
+      clearTimeout(pending);
+      this.documentChangeTimers.delete(key);
+    }
+  }
+
+  private clearCursorState(uri: Uri): void {
+    const key = uri.toString();
+    for (const [editor, timer] of this.cursorTimers) {
       if (editor.document.uri.toString() === key) {
-        this.clearDecorations(editor);
+        clearTimeout(timer);
+        this.cursorTimers.delete(editor);
+        this.cursorLines.delete(editor);
       }
     }
   }
 
   private async onDocumentSave(document: { uri: Uri }): Promise<void> {
+    this.cancelDocumentChange(document.uri);
     // Invalidate cache and refresh on save
     this.clearCache(document.uri);
 
-    const editor = window.activeTextEditor;
-    if (editor && editor.document.uri.toString() === document.uri.toString()) {
-      await this.updateDecorations(editor);
-    }
+    await this.renderVisibleEditors(this.visibleEditorsForUri(document.uri));
   }
 
   private onDocumentClose(document: { uri: Uri }): void {
+    this.cancelDocumentChange(document.uri);
+    this.clearCursorState(document.uri);
     // Clear cache on close
     this.clearCache(document.uri);
   }
 
-  @debounce(150)
-  private async onCursorPositionChange(event: {
-    textEditor: TextEditor;
-  }): Promise<void> {
-    // Update current line number and refresh inline decorations (debounced 150ms)
+  private onCursorPositionChange(event: { textEditor: TextEditor }): void {
+    const editor = event.textEditor;
+    const pending = this.cursorTimers.get(editor);
+    if (pending) {
+      clearTimeout(pending);
+    }
+    this.cursorTimers.set(
+      editor,
+      setTimeout(() => {
+        this.cursorTimers.delete(editor);
+        if (!this.isDisposed) {
+          void this.applyCursorPositionChange(editor).catch(err => {
+            logError("BlameProvider: Failed to update cursor decorations", err);
+          });
+        }
+      }, 150)
+    );
+  }
+
+  private async applyCursorPositionChange(editor: TextEditor): Promise<void> {
     if (!blameConfiguration.isInlineCurrentLineOnly()) {
       return; // Skip if not in current-line-only mode
     }
 
-    const newLine = event.textEditor.selection.active.line;
-    if (this.currentLineNumber === newLine) {
+    const newLine = editor.selection.active.line;
+    if (this.cursorLines.get(editor) === newLine) {
       return; // Skip if cursor still on same line
     }
 
-    this.currentLineNumber = newLine;
-    await this.updateInlineDecorationsForCursor(event.textEditor);
+    this.cursorLines.set(editor, newLine);
+    await this.updateInlineDecorationsForCursor(editor);
   }
 
   /**
@@ -1201,11 +1555,7 @@ export class BlameProvider implements Disposable {
       this.clearDecorations(editor);
     }
     if (editors.length > 0) {
-      void (async () => {
-        for (const editor of editors) {
-          await this.renderDecorations(editor);
-        }
-      })();
+      void this.renderVisibleEditorsByRepository(editors);
     }
   }
 
@@ -1265,6 +1615,7 @@ export class BlameProvider implements Disposable {
           this.messageCache.delete(key);
         }
       }
+      this.messageScopeEpochs.delete(root);
     }
   }
 
@@ -1325,20 +1676,18 @@ export class BlameProvider implements Disposable {
       }
     }
     if (rerender.length > 0) {
-      void (async () => {
-        for (const editor of rerender) {
-          await this.renderDecorations(editor);
-        }
-      })();
+      void this.renderVisibleEditorsByRepository(rerender);
     }
   }
 
   private async onBlameStateChange(uri: Uri | undefined): Promise<void> {
-    // State toggled - update decorations
-    const editor = window.activeTextEditor;
-    if (!uri || (editor && editor.document.uri.toString() === uri.toString())) {
-      await this.updateDecorations(editor);
+    const editors = this.visibleEditorsForUri(uri);
+    for (const editor of editors) {
+      if (this.isEditorLive(editor)) {
+        this.clearDecorations(editor);
+      }
     }
+    await this.renderVisibleEditorsByRepository(editors);
   }
 
   /** sven.blame.* keys whose change alters what's rendered (templates,
@@ -1362,6 +1711,7 @@ export class BlameProvider implements Disposable {
   private async onConfigurationChange(
     event: ConfigurationChangeEvent
   ): Promise<void> {
+    const editors = [...this.visibleEditors()];
     // Only appearance keys need the type/cache teardown below. For anything
     // else (gate limits, autoBlame, enableLogs) a re-render suffices - it
     // picks up a changed gate without disposing types or clearing caches.
@@ -1373,9 +1723,12 @@ export class BlameProvider implements Disposable {
 
     if (!affectsAppearance) {
       this.renderCache.clear();
-      if (window.activeTextEditor) {
-        await this.updateDecorations();
+      for (const editor of editors) {
+        if (this.isEditorLive(editor)) {
+          this.clearDecorations(editor);
+        }
       }
+      await this.renderVisibleEditorsByRepository(editors);
       return;
     }
 
@@ -1391,12 +1744,15 @@ export class BlameProvider implements Disposable {
     this.iconTypes = new Map<string, TextEditorDecorationType>();
 
     // Clear decorations using old types before disposing
-    if (window.activeTextEditor) {
-      window.activeTextEditor.setDecorations(oldTypes.gutter, []);
-      window.activeTextEditor.setDecorations(oldTypes.icon, []);
-      window.activeTextEditor.setDecorations(oldTypes.inline, []);
+    for (const editor of editors) {
+      if (!this.isEditorLive(editor)) {
+        continue;
+      }
+      editor.setDecorations(oldTypes.gutter, []);
+      editor.setDecorations(oldTypes.icon, []);
+      editor.setDecorations(oldTypes.inline, []);
       oldIconTypes.forEach(type => {
-        window.activeTextEditor!.setDecorations(type, []);
+        editor.setDecorations(type, []);
       });
     }
 
@@ -1417,9 +1773,7 @@ export class BlameProvider implements Disposable {
     clearTemplateCache();
 
     // Refresh all editors with new decoration types
-    if (window.activeTextEditor) {
-      await this.updateDecorations(window.activeTextEditor);
-    }
+    await this.renderVisibleEditorsByRepository(editors);
   }
 
   // ===== Helper Methods =====
@@ -1669,18 +2023,20 @@ export class BlameProvider implements Disposable {
     const inlineEnabled = blameConfiguration.isInlineEnabled();
     const inlineCurrentLineOnly = blameConfiguration.isInlineCurrentLineOnly();
     const showInlineMessage = blameConfiguration.shouldShowInlineMessage();
+    const fetchInlineMessage =
+      showInlineMessage && blameConfiguration.isLogsEnabled();
     // On the progressive path the inline array is discarded and rebuilt in
     // Phase 2 (with batched messages), so building it here - one svn log per
     // line when messages are on - is pure waste. Only skip when messages are
     // on; without messages this call's inline output IS the one applied.
     const buildInline =
-      inlineEnabled && !(options.skipMessagePrefetch && showInlineMessage);
+      inlineEnabled && !(options.skipMessagePrefetch && fetchInlineMessage);
     const inlineColor = `rgba(127, 127, 127, ${blameConfiguration.getInlineOpacity()})`;
     const activeLine = editor.selection.active.line;
     const scope = this.messageScope(editor.document.uri);
 
     // Prefetch messages if inline enabled (unless skipped for progressive rendering)
-    if (!options.skipMessagePrefetch && inlineEnabled && showInlineMessage) {
+    if (!options.skipMessagePrefetch && inlineEnabled && fetchInlineMessage) {
       const uniqueRevisions = [
         ...new Set(blameData.map(b => b.revision).filter(Boolean))
       ] as string[];
@@ -1729,7 +2085,7 @@ export class BlameProvider implements Disposable {
         const isCurrentLine = lineIndex === activeLine;
 
         if (!inlineCurrentLineOnly || isCurrentLine) {
-          const message = showInlineMessage
+          const message = fetchInlineMessage
             ? await this.getCommitMessage(
                 blameLine.revision,
                 editor.document.uri,
@@ -2116,7 +2472,7 @@ export class BlameProvider implements Disposable {
         return "";
       }
       const message = log[0]?.msg || "";
-      this.messageCache.set(this.msgKey(scope, revision), message);
+      this.writeMessage(scope, revision, message);
 
       // Evict message cache if exceeding limit
       this.evictMessageCache();
@@ -2155,7 +2511,7 @@ export class BlameProvider implements Disposable {
     const scope = repository.workspaceRoot;
 
     const uncached = revisions.filter(
-      r => !this.messageCache.has(this.msgKey(scope, r))
+      r => this.readMessage(scope, r) === undefined
     );
 
     if (uncached.length === 0) {
@@ -2174,7 +2530,7 @@ export class BlameProvider implements Disposable {
       // Cache all fetched messages
       for (const entry of logEntries) {
         if (entry.revision && entry.msg !== undefined) {
-          this.messageCache.set(this.msgKey(scope, entry.revision), entry.msg);
+          this.writeMessage(scope, entry.revision, entry.msg);
         }
       }
 

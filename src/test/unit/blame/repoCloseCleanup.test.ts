@@ -42,6 +42,10 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
     const p = provider as any;
     p.blameCache.set(uri.toString(), { data: [], version: 1 });
     p.messageCache.set(p.msgKey("/ws", "42"), "msg");
+    p.repoRenderFlights.set(repo, {
+      rerun: false,
+      promise: new Promise<void>(() => undefined)
+    });
 
     const editor = createEditor(uri);
     (window as any).visibleTextEditors = [editor];
@@ -50,6 +54,7 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
     closeCb!(repo);
 
     assert.ok(!p.blameCache.has(uri.toString()), "blame cache cleared");
+    assert.ok(!p.repoRenderFlights.has(repo), "repo scheduler released");
     assert.ok(
       !p.messageCache.has(p.msgKey("/ws", "42")),
       "message cache cleared"
@@ -158,7 +163,7 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
     assert.ok(clear.notCalled, "nested editor remains decorated");
   });
 
-  test("owner transition rerenders without the shared throttle", async () => {
+  test("owner transition rerenders its direct target", async () => {
     const parent = { workspaceRoot: "/wc" };
     const nested = { workspaceRoot: "/wc/nested" };
     let owner: unknown = parent;
@@ -192,7 +197,7 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
 
     assert.ok(clear.calledWith(editor));
     assert.ok(render.calledWith(editor));
-    assert.ok(update.notCalled, "close recovery bypasses the shared throttle");
+    assert.ok(update.notCalled, "close recovery uses the direct target path");
   });
 
   test("parent update rerenders a visible nested external", async () => {
@@ -299,5 +304,74 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
     p.onRepositoryOperation(Operation.Commit, nested);
 
     assert.ok(!p.blameCache.has(uri.toString()));
+  });
+
+  test("save renders its target independently", async () => {
+    const repo = { workspaceRoot: "/wc" };
+    provider = new BlameProvider({
+      repositories: [repo],
+      getRepositoryFromUri: () => repo
+    } as never);
+    const first = createEditor(Uri.file("/wc/first.ts"));
+    const saved = createEditor(Uri.file("/wc/saved.ts"));
+    const latest = createEditor(Uri.file("/wc/latest.ts"));
+    let active = saved;
+    sandbox.stub(window, "activeTextEditor").get(() => active);
+    (window as any).visibleTextEditors = [first, saved, latest];
+    let releaseFirst!: () => void;
+    const firstPending = new Promise<void>(resolve => (releaseFirst = resolve));
+    const render = sandbox.stub(provider as any, "renderDecorations");
+    render.callsFake((editor: any) =>
+      editor === first ? firstPending : Promise.resolve()
+    );
+
+    const running = provider.updateDecorations(first);
+    await Promise.resolve();
+    const save = (provider as any).onDocumentSave(saved.document);
+    active = latest;
+    const queued = provider.updateDecorations(latest);
+    releaseFirst();
+    await Promise.all([running, save, queued]);
+
+    assert.ok(render.calledWith(saved), "save target must render losslessly");
+    assert.ok(render.calledWith(latest));
+  });
+
+  test("explicit blame-state cleanup renders its target independently", async () => {
+    const repo = { workspaceRoot: "/wc" };
+    provider = new BlameProvider({
+      repositories: [repo],
+      getRepositoryFromUri: () => repo
+    } as never);
+    const first = createEditor(Uri.file("/wc/first.ts"));
+    const target = createEditor(Uri.file("/wc/target.ts"));
+    const latest = createEditor(Uri.file("/wc/latest.ts"));
+    let active = target;
+    sandbox.stub(window, "activeTextEditor").get(() => active);
+    (window as any).visibleTextEditors = [first, target, latest];
+    let releaseFirst!: () => void;
+    const firstPending = new Promise<void>(resolve => (releaseFirst = resolve));
+    const render = sandbox.stub(provider as any, "renderDecorations");
+    render.callsFake((editor: any) =>
+      editor === first ? firstPending : Promise.resolve()
+    );
+    const clear = sandbox.stub(provider, "clearDecorations");
+
+    const running = provider.updateDecorations(first);
+    await Promise.resolve();
+    const stateChange = (provider as any).onBlameStateChange(
+      target.document.uri
+    );
+    active = latest;
+    const queued = provider.updateDecorations(latest);
+    releaseFirst();
+    await Promise.all([running, stateChange, queued]);
+
+    assert.ok(clear.calledWith(target));
+    assert.ok(
+      render.calledWith(target),
+      "explicit state target must render losslessly"
+    );
+    assert.ok(render.calledWith(latest));
   });
 });

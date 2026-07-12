@@ -24,6 +24,7 @@ describe("blame add-revision marking", () => {
     const repository = { repository: { log } };
     const mockThis = {
       addRevisionCache: new Map<string, string>(),
+      inFlightAddRevisions: new Map<string, Promise<boolean>>(),
       repository,
       repoFor: () => repository,
       claimOwner: () => ({ repository }),
@@ -46,6 +47,7 @@ describe("blame add-revision marking", () => {
     const repository = { repository: { log } };
     const mockThis = {
       addRevisionCache: new Map<string, string>(),
+      inFlightAddRevisions: new Map<string, Promise<boolean>>(),
       repository,
       repoFor: () => repository,
       claimOwner: () => ({ repository }),
