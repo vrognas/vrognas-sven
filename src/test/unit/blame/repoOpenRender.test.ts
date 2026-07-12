@@ -53,6 +53,8 @@ suite("BlameProvider - render on repo open", () => {
       updateStub.called,
       "opening the active file's repo must trigger an immediate render"
     );
-    assert.strictEqual(updateStub.firstCall.args[0], editor);
+    // No explicit editor: the throttled render resolves the live active
+    // editor at exec time (avoids repainting a stale editor on queue races).
+    assert.strictEqual(updateStub.firstCall.args[0], undefined);
   });
 });

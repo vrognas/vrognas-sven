@@ -204,10 +204,14 @@ export class BlameProvider implements Disposable {
         );
       }
       this.repoHooks.set(repo, hooks);
+      // No explicit editor on these renders: @throttle keeps the FIRST
+      // queued call's args, so pinning an editor here can repaint a stale/
+      // hidden editor when several repos' renders queue behind a slow one.
+      // Passing no arg resolves window.activeTextEditor at execution time.
       if (typeof repo.statusReady?.then === "function") {
         void repo.statusReady.then(() => {
           if (window.activeTextEditor) {
-            void this.updateDecorations(window.activeTextEditor);
+            void this.updateDecorations();
           }
         });
       }
@@ -218,7 +222,7 @@ export class BlameProvider implements Disposable {
       // it at repo-open because it was constructed there.
       const active = window.activeTextEditor;
       if (active && this.repoFor(active.document.uri) === repo) {
-        void this.updateDecorations(active);
+        void this.updateDecorations();
       }
     };
     (this.sourceControlManager.repositories ?? []).forEach(hookRepository);
