@@ -16,6 +16,8 @@ suite("BlameProvider - Message Fetching", () => {
   setup(() => {
     sandbox = sinon.createSandbox();
     mockRepository = sandbox.createStubInstance(Repository);
+    // workspaceRoot (getter delegates to inner repo) scopes the message cache.
+    (mockRepository as any).repository = { workspaceRoot: "/test" };
     provider = new BlameProvider(scmFor(mockRepository as any));
   });
 
@@ -107,9 +109,10 @@ suite("BlameProvider - Message Fetching", () => {
   });
 
   test("prefetch skips already cached revisions", async () => {
-    // Given: 2 revisions already cached
-    (provider as any).messageCache.set("1000", "Cached 1");
-    (provider as any).messageCache.set("1001", "Cached 2");
+    // Given: 2 revisions already cached (under the target's repo scope)
+    const key = (r: string) => (provider as any).msgKey("/test", r);
+    (provider as any).messageCache.set(key("1000"), "Cached 1");
+    (provider as any).messageCache.set(key("1001"), "Cached 2");
 
     mockRepository.log.resolves([{ msg: "New", revision: "1002" }] as any);
 

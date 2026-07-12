@@ -47,18 +47,19 @@ suite("BlameProvider - cache eviction", () => {
     provider = makeProvider(sandbox);
     const cache: Map<string, string> = provider.messageCache;
     const max: number = provider.MAX_MESSAGE_CACHE_SIZE;
+    const key = (r: string) => provider.msgKey("", r); // scope-agnostic here
     for (let i = 0; i < max; i++) {
-      cache.set(`r${i}`, `m${i}`);
+      cache.set(key(`r${i}`), `m${i}`);
     }
 
     // Read the oldest entry - LRU must refresh its recency.
-    provider.readMessage("r0");
+    provider.readMessage("", "r0");
 
     // Push past the cap and evict.
-    cache.set("rNew", "mNew");
+    cache.set(key("rNew"), "mNew");
     provider.evictMessageCache();
 
-    assert.ok(cache.has("r0"), "recently-read oldest entry survives");
-    assert.ok(!cache.has("r1"), "never-read next-oldest is evicted");
+    assert.ok(cache.has(key("r0")), "recently-read oldest entry survives");
+    assert.ok(!cache.has(key("r1")), "never-read next-oldest is evicted");
   });
 });

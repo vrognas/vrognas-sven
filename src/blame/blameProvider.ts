@@ -510,17 +510,33 @@ export class BlameProvider implements Disposable {
     }
   }
 
+  /** Per-repo scope for the (shared) message cache: revision numbers are only
+   *  unique within a repository, so a bare-revision key would let r42 in one
+   *  open checkout show the other checkout's r42 message. Scope by the owning
+   *  repo's workspace root. */
+  private messageScope(uri: Uri): string {
+    return this.repoFor(uri)?.workspaceRoot ?? "";
+  }
+
+  /** Composite (scope, revision) message-cache key. Revision-first: a
+   *  revision is always digits (no '@'), so the first '@' unambiguously
+   *  separates it from the scope path even when the path contains '@'. */
+  private msgKey(scope: string, revision: string): string {
+    return `${revision}@${scope}`;
+  }
+
   /**
    * Read a cached commit message, refreshing its recency. Re-inserting the
    * key moves it to the end of the Map so the insertion-order eviction in
    * evictMessageCache() behaves as true LRU (a hot message read every render
    * won't be evicted just because it was fetched long ago).
    */
-  private readMessage(revision: string): string | undefined {
-    const msg = this.messageCache.get(revision);
+  private readMessage(scope: string, revision: string): string | undefined {
+    const key = this.msgKey(scope, revision);
+    const msg = this.messageCache.get(key);
     if (msg !== undefined) {
-      this.messageCache.delete(revision);
-      this.messageCache.set(revision, msg);
+      this.messageCache.delete(key);
+      this.messageCache.set(key, msg);
     }
     return msg;
   }
@@ -605,7 +621,8 @@ export class BlameProvider implements Disposable {
     lineIndex: number,
     blameLine: ISvnBlameLine,
     inlineText: string,
-    inlineColor: string
+    inlineColor: string,
+    scope: string
   ): DecorationOptions {
     const line = editor.document.lineAt(lineIndex);
     return {
@@ -623,7 +640,9 @@ export class BlameProvider implements Disposable {
       },
       hoverMessage: buildBlameHover(
         blameLine,
-        blameLine.revision ? this.readMessage(blameLine.revision) : undefined,
+        blameLine.revision
+          ? this.readMessage(scope, blameLine.revision)
+          : undefined,
         editor.document.uri,
         this.addRevisionCache.get(editor.document.uri.toString()),
         lineIndex
@@ -737,6 +756,7 @@ export class BlameProvider implements Disposable {
     const currentLineOnly = blameConfiguration.isInlineCurrentLineOnly();
     const inlineColor = `rgba(127, 127, 127, ${blameConfiguration.getInlineOpacity()})`;
     const activeLine = editor.selection.active.line;
+    const scope = this.messageScope(editor.document.uri);
 
     for (const blameLine of blameData) {
       // Apply line mapping (handles modified files)
@@ -758,7 +778,7 @@ export class BlameProvider implements Disposable {
       }
 
       // Get message from cache (should be available now)
-      const message = this.readMessage(blameLine.revision) || "";
+      const message = this.readMessage(scope, blameLine.revision) || "";
       const inlineText = this.formatInlineText(blameLine, message);
 
       inlineDecorations.push(
@@ -767,7 +787,8 @@ export class BlameProvider implements Disposable {
           lineIndex,
           blameLine,
           inlineText,
-          inlineColor
+          inlineColor,
+          scope
         )
       );
     }
@@ -828,6 +849,7 @@ export class BlameProvider implements Disposable {
     const currentLine = editor.selection.active.line;
     const inlineDecorations: DecorationOptions[] = [];
     const inlineColor = `rgba(127, 127, 127, ${blameConfiguration.getInlineOpacity()})`;
+    const scope = this.messageScope(editor.document.uri);
 
     // Find blame info for current line only
     for (const blameLine of blameData) {
@@ -849,7 +871,7 @@ export class BlameProvider implements Disposable {
       }
 
       // Get message from cache (may not be loaded yet, that's okay)
-      const message = this.readMessage(blameLine.revision) || "";
+      const message = this.readMessage(scope, blameLine.revision) || "";
       const inlineText = this.formatInlineText(blameLine, message);
 
       inlineDecorations.push(
@@ -858,7 +880,8 @@ export class BlameProvider implements Disposable {
           lineIndex,
           blameLine,
           inlineText,
-          inlineColor
+          inlineColor,
+          scope
         )
       );
 
@@ -1308,6 +1331,7 @@ export class BlameProvider implements Disposable {
       inlineEnabled && !(options.skipMessagePrefetch && showInlineMessage);
     const inlineColor = `rgba(127, 127, 127, ${blameConfiguration.getInlineOpacity()})`;
     const activeLine = editor.selection.active.line;
+    const scope = this.messageScope(editor.document.uri);
 
     // Prefetch messages if inline enabled (unless skipped for progressive rendering)
     if (!options.skipMessagePrefetch && inlineEnabled && showInlineMessage) {
@@ -1370,7 +1394,8 @@ export class BlameProvider implements Disposable {
               lineIndex,
               blameLine,
               inlineText,
-              inlineColor
+              inlineColor,
+              scope
             )
           );
         }
@@ -1705,7 +1730,8 @@ export class BlameProvider implements Disposable {
    * query (logBatch) needs a target - that's where the cost lives.
    */
   private async getCommitMessage(revision: string, uri: Uri): Promise<string> {
-    const cached = this.readMessage(revision);
+    const scope = this.messageScope(uri);
+    const cached = this.readMessage(scope, revision);
     if (cached !== undefined) {
       return cached;
     }
@@ -1722,7 +1748,7 @@ export class BlameProvider implements Disposable {
     try {
       const log = await repository.log(revision, revision, 1);
       const message = log[0]?.msg || "";
-      this.messageCache.set(revision, message);
+      this.messageCache.set(this.msgKey(scope, revision), message);
 
       // Evict message cache if exceeding limit
       this.evictMessageCache();
@@ -1746,16 +1772,19 @@ export class BlameProvider implements Disposable {
       return;
     }
 
-    const uncached = revisions.filter(r => !this.messageCache.has(r));
-
-    if (uncached.length === 0) {
-      return;
-    }
-
     // The batch log must be targeted at the blamed file's repo; without a
     // resolvable target there's nothing to query.
     const repository = target ? this.repoFor(target) : undefined;
     if (!repository || !target) {
+      return;
+    }
+    const scope = this.messageScope(target);
+
+    const uncached = revisions.filter(
+      r => !this.messageCache.has(this.msgKey(scope, r))
+    );
+
+    if (uncached.length === 0) {
       return;
     }
 
@@ -1768,7 +1797,7 @@ export class BlameProvider implements Disposable {
       // Cache all fetched messages
       for (const entry of logEntries) {
         if (entry.revision && entry.msg !== undefined) {
-          this.messageCache.set(entry.revision, entry.msg);
+          this.messageCache.set(this.msgKey(scope, entry.revision), entry.msg);
         }
       }
 
