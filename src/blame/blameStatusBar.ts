@@ -15,7 +15,7 @@ import {
   Uri,
   window
 } from "vscode";
-import { debounce } from "../decorators";
+import { cancelDebounce, debounce } from "../decorators";
 import { classifyBlameError } from "./classifyBlameError";
 import { ISvnBlameLine, Operation, Status } from "../common/types";
 import { BLAME_INVALIDATING_OPERATIONS } from "../util";
@@ -41,6 +41,7 @@ import { showActionFeedback } from "../util/actionFeedback";
 export class BlameStatusBar implements Disposable {
   private statusBarItem: StatusBarItem;
   private disposables: Disposable[] = [];
+  private isDisposed = false;
   // Last `${uri}#${line}` the status bar was updated for; selection events
   // on the same line are skipped before they reach the blame pipeline.
   private lastLineKey?: string;
@@ -95,6 +96,9 @@ export class BlameStatusBar implements Disposable {
       // it lands - a file blamed during the empty-index window reconciles.
       if (typeof repo.statusReady?.then === "function") {
         void repo.statusReady.then(() => {
+          if (this.isDisposed) {
+            return;
+          }
           this.lastLineKey = undefined;
           void this.updateStatusBar();
         });
@@ -118,6 +122,9 @@ export class BlameStatusBar implements Disposable {
    */
   @debounce(150)
   public async updateStatusBar(): Promise<void> {
+    if (this.isDisposed) {
+      return;
+    }
     const editor = window.activeTextEditor;
 
     // Hide if no editor
@@ -151,6 +158,9 @@ export class BlameStatusBar implements Disposable {
 
     // Fetch blame data for file (cached)
     const blameData = await this.getBlameData(editor.document.uri);
+    if (this.isDisposed) {
+      return;
+    }
     if (!blameData) {
       this.lastLineKey = undefined;
       this.showUncommittedStatus();
@@ -231,6 +241,11 @@ export class BlameStatusBar implements Disposable {
    * Dispose status bar
    */
   public dispose(): void {
+    if (this.isDisposed) {
+      return;
+    }
+    this.isDisposed = true;
+    cancelDebounce(this, "updateStatusBar");
     this.statusBarItem.dispose();
     this.disposables.forEach(d => d.dispose());
     this.disposables = [];

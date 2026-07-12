@@ -1,6 +1,6 @@
 import * as assert from "assert";
 import * as sinon from "sinon";
-import { Uri } from "vscode";
+import { Uri, window } from "vscode";
 import { BlameStatusBar } from "../../../blame/blameStatusBar";
 import { SourceControlManager } from "../../../source_control_manager";
 import { ISvnBlameLine } from "../../../common/types";
@@ -48,5 +48,57 @@ suite("BlameStatusBar - initial status crawl", () => {
       "getBlameData must not await the initial status crawl"
     );
     assert.ok(repo.blame.called, "blame is attempted immediately");
+  });
+
+  test("ignores status completion after disposal", async () => {
+    let resolveStatus!: () => void;
+    const repo = {
+      workspaceRoot: "/test",
+      statusReady: new Promise<void>(resolve => {
+        resolveStatus = resolve;
+      })
+    };
+    const scm = { repositories: [repo] };
+
+    statusBar = new BlameStatusBar(scm as any);
+    const updateStatusBar = sandbox.spy(statusBar, "updateStatusBar");
+    void statusBar.updateStatusBar();
+
+    statusBar.dispose();
+    resolveStatus();
+    await Promise.resolve();
+
+    assert.strictEqual(updateStatusBar.callCount, 1);
+    assert.strictEqual((statusBar as any).$debounce$updateStatusBar, undefined);
+  });
+
+  test("drops an in-flight status update after disposal", async () => {
+    const clock = sandbox.useFakeTimers();
+    const uri = Uri.file("/test/file.ts");
+    const editor = {
+      document: { uri, lineCount: 1 },
+      selection: { active: { line: 0 } }
+    };
+    let resolveBlame!: (value: undefined) => void;
+    const pendingBlame = new Promise<undefined>(resolve => {
+      resolveBlame = resolve;
+    });
+
+    statusBar = new BlameStatusBar({ repositories: [] } as any);
+    sandbox.stub(window, "activeTextEditor").value(editor);
+    sandbox.stub(statusBar as any, "shouldShowStatusBar").returns(true);
+    sandbox.stub(statusBar as any, "getBlameData").returns(pendingBlame);
+    const showUncommitted = sandbox.stub(
+      statusBar as any,
+      "showUncommittedStatus"
+    );
+
+    void statusBar.updateStatusBar();
+    await clock.tickAsync(150);
+    statusBar.dispose();
+    resolveBlame(undefined);
+    await Promise.resolve();
+
+    assert.ok(showUncommitted.notCalled);
   });
 });

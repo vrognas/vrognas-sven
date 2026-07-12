@@ -193,9 +193,19 @@ export function debounce(
 
     return function (this: any, ...args: any[]): void {
       clearTimeout(this[timerKey]);
-      this[timerKey] = setTimeout(() => fn.apply(this, args), delay);
+      this[timerKey] = setTimeout(() => {
+        this[timerKey] = undefined;
+        fn.apply(this, args);
+      }, delay);
     } as any;
   });
+}
+
+/** Cancel one pending invocation created by {@link debounce}. */
+export function cancelDebounce(target: any, key: string): void {
+  const timerKey = `$debounce$${key}`;
+  clearTimeout(target[timerKey]);
+  target[timerKey] = undefined;
 }
 
 const _seqList: Record<string, Promise<unknown>> = {};
