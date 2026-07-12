@@ -1,15 +1,18 @@
 import * as assert from "assert";
-import { commands, Uri } from "vscode";
+import { commands, Uri, workspace } from "vscode";
 import { SourceControlManager } from "../source_control_manager";
 import { Repository } from "../repository";
 import * as testUtil from "./testUtil";
 
 suite("Phase 10: Regression + Hot Path Performance", () => {
+  const remoteFrequencyKey = "remoteChanges.checkFrequency";
   let repoUri: Uri;
   let checkoutDir: Uri;
   let sourceControlManager: SourceControlManager;
   let repository: Repository;
   let suiteReady = false;
+  let previousRemoteFrequency: number | undefined;
+  let remotePollingDisabled = false;
   function testIfReady(
     title: string,
     fn: (this: Mocha.Context) => Promise<void> | void
@@ -46,6 +49,15 @@ suite("Phase 10: Regression + Hot Path Performance", () => {
       testUtil.getSvnUrl(repoUri) + "/trunk"
     );
 
+    // Phase 10 does not exercise remote polling. Disable it before opening
+    // the Repository so statusReady cannot queue a late StatusRemote against
+    // the temporary repository during teardown.
+    const remoteConfig = workspace.getConfiguration("sven");
+    previousRemoteFrequency =
+      remoteConfig.inspect<number>(remoteFrequencyKey)?.workspaceValue;
+    await remoteConfig.update(remoteFrequencyKey, 0, false);
+    remotePollingDisabled = true;
+
     sourceControlManager = (await commands.executeCommand(
       "sven.getSourceControlManager",
       checkoutDir
@@ -59,9 +71,14 @@ suite("Phase 10: Regression + Hot Path Performance", () => {
 
   suiteTeardown(async () => {
     sourceControlManager?.openRepositories.forEach(r => r.dispose());
-    // Allow in-flight background poll/status tasks to settle before removing temp repos.
+    // Flush the already-scheduled debounced no-op while polling stays disabled.
     await new Promise(resolve => setTimeout(resolve, 750));
     testUtil.destroyAllTempPaths();
+    if (remotePollingDisabled) {
+      await workspace
+        .getConfiguration("sven")
+        .update(remoteFrequencyKey, previousRemoteFrequency, false);
+    }
   });
 
   testIfReady(
