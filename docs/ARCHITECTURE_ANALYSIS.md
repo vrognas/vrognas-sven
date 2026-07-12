@@ -83,8 +83,10 @@ Per-file blame tracking with:
 - Scoped message LRU invalidates only render entries that depend on the changed
   repo+revision; in-flight add-revision and message fetches are deduplicated
 - Line mapping strips equal edges, then uses bounded dense LCS, dense-compatible
-  linear-space LCS, a bounded exact low-edit band, and non-crossing sparse
-  anchors for the largest cores
+  linear-space LCS, a bounded exact low-edit band with checkpointed traceback,
+  and non-crossing sparse anchors for the largest cores
+- Status-bar teardown fences deferred repository readiness and cancels pending
+  debounce work before disposing UI resources
 - autoBlame-gated auto-fetch; CSV/large-file gates on all fetch paths
   (render, cursor, status bar)
 

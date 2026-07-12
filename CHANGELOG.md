@@ -7,6 +7,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.95] - 2026-07-12
+
+Final blame mapping and lifecycle corrections.
+
+### Fixed
+
+- **Moved blocks retain exact blame past the trace-memory cap.** Checkpointed band traceback preserves unchanged mappings without retaining the whole direction matrix.
+- **Late startup status cannot refresh a disposed status bar.** Disposal cancels pending debounce work and fences the `statusReady` continuation.
+
 ## [0.2.94] - 2026-07-12
 
 Adversarial follow-up for large-file blame mapping.
