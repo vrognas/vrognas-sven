@@ -295,22 +295,30 @@ suite("BlameProvider - Fail Cluster", () => {
   test("prefetchMessagesProgressively reuses in-flight, skips empty, clears when disabled", async () => {
     const uri = Uri.file("/test/prefetch.ts");
     const editor = createEditor(uri);
-    const uriKey = uri.toString();
-
-    const existing = Promise.resolve();
+    let release!: () => void;
     const prefetchStub = sandbox
       .stub(provider as any, "prefetchMessages")
-      .resolves(undefined);
-    (provider as any).inFlightMessageFetches.set(uriKey, existing);
-    const reused = await (provider as any).prefetchMessagesProgressively(
+      .returns(new Promise<void>(resolve => (release = resolve)));
+    const data = [
+      { lineNumber: 1, revision: "1", author: "dev", date: "2026-01-01" }
+    ];
+    const first = (provider as any).prefetchMessagesProgressively(
       uri,
-      [],
+      data,
       editor
     );
-    assert.strictEqual(reused, undefined);
-    assert.ok(prefetchStub.notCalled);
+    const reused = (provider as any).prefetchMessagesProgressively(
+      uri,
+      data,
+      editor
+    );
+    assert.ok(prefetchStub.calledOnce);
+    release();
+    await Promise.all([first, reused]);
 
     (provider as any).inFlightMessageFetches.clear();
+    prefetchStub.reset();
+    prefetchStub.resolves(undefined);
     const skipped = await (provider as any).prefetchMessagesProgressively(
       uri,
       [],

@@ -26,7 +26,9 @@ function harness() {
   const getInfo = vi.fn(async () => ({ revision: "3000" }));
   const mockThis: Record<string, unknown> = {
     repository: { repository: { patchRevision, show, getInfo } },
-    peekPrefetchDone: new Set<string>()
+    peekPrefetchDone: new Set<string>(),
+    claimOwner: () => ({ repository: mockThis.repository }),
+    isCurrentOwner: () => true
   };
   mockThis.repoFor = () => mockThis.repository;
   const prefetch = (

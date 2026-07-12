@@ -138,7 +138,9 @@ describe("updateDecorations pipeline", () => {
       })),
       getRevisionRange: vi.fn(() => ({ oldest: 42, newest: 42 })),
       applyIconDecorations: vi.fn(),
-      prefetchMessagesProgressively: vi.fn(async () => {})
+      prefetchMessagesProgressively: vi.fn(async () => {}),
+      claimOwner: () => ({ repository: mockThis.repository }),
+      isCurrentOwner: () => true
     };
     (mockThis as unknown as { repoFor: unknown }).repoFor = () =>
       mockThis.repository;

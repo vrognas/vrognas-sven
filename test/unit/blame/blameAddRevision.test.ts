@@ -25,7 +25,9 @@ describe("blame add-revision marking", () => {
     const mockThis = {
       addRevisionCache: new Map<string, string>(),
       repository,
-      repoFor: () => repository
+      repoFor: () => repository,
+      claimOwner: () => ({ repository }),
+      isCurrentOwner: () => true
     };
 
     await (
@@ -45,7 +47,9 @@ describe("blame add-revision marking", () => {
     const mockThis = {
       addRevisionCache: new Map<string, string>(),
       repository,
-      repoFor: () => repository
+      repoFor: () => repository,
+      claimOwner: () => ({ repository }),
+      isCurrentOwner: () => true
     };
     const ensure = proto("ensureAddRevision") as (
       this: unknown,

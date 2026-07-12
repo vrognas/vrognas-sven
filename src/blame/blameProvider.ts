@@ -18,7 +18,7 @@ import {
   window,
   workspace
 } from "vscode";
-import { debounce, throttle } from "../decorators";
+import { debounce, throttleLatest } from "../decorators";
 import { ISvnBlameLine } from "../common/types";
 import { configuration } from "../helpers/configuration";
 import { Repository } from "../repository";
@@ -34,13 +34,24 @@ import { logError } from "../util/errorLogger";
 import { classifyBlameError, BlameErrorKind } from "./classifyBlameError";
 import { buildBlameHover } from "./blameHover";
 import { Operation, Status } from "../common/types";
-import { BLAME_INVALIDATING_OPERATIONS, isDescendant } from "../util";
+import {
+  BLAME_INVALIDATING_OPERATIONS,
+  DESCENDANT_BLAME_INVALIDATING_OPERATIONS,
+  isDescendant
+} from "../util";
 import {
   computeLineMapping,
   LineMapping,
   mapBlameLineNumber
 } from "../util/lineMapper";
 import { formatBlameDate } from "../util/formatting";
+
+interface UriOwnerToken {
+  key: string;
+  uri: Uri;
+  repository: Repository;
+  generation: number;
+}
 
 /**
  * BlameProvider manages blame decorations for SVN.
@@ -65,7 +76,9 @@ export class BlameProvider implements Disposable {
   private revisionColors = new Map<string, string>(); // revision → gradient color
   private svgCache = new Map<string, Uri>(); // color → SVG data URI
   private messageCache = new Map<string, string>(); // revision → commit message
-  private inFlightMessageFetches = new Map<string, Promise<void>>(); // uri → fetch promise
+  private inFlightMessageFetches = new Map<number, Promise<void>>();
+  private uriOwners = new Map<string, UriOwnerToken>();
+  private nextOwnerGeneration = 0;
   // uri → monotonic access sequence for LRU eviction. A counter, not
   // Date.now(): same-millisecond accesses tie on wall-clock time, making
   // eviction order arbitrary (and the LRU test flaky on fast runners)
@@ -127,6 +140,42 @@ export class BlameProvider implements Disposable {
   private repoFor(hint: Uri | string): Repository | undefined {
     const uri = typeof hint === "string" ? Uri.file(hint) : hint;
     return this.sourceControlManager.getRepositoryFromUri(uri) ?? undefined;
+  }
+
+  private claimOwner(uri: Uri, repository: Repository): UriOwnerToken {
+    const key = uri.toString();
+    const current = this.uriOwners.get(key);
+    if (current?.repository === repository) {
+      return current;
+    }
+    if (current) {
+      this.inFlightMessageFetches.delete(current.generation);
+      this.clearCacheEntries(key);
+    }
+    const token = {
+      key,
+      uri,
+      repository,
+      generation: ++this.nextOwnerGeneration
+    };
+    this.uriOwners.set(key, token);
+    return token;
+  }
+
+  private isCurrentOwner(token: UriOwnerToken): boolean {
+    return (
+      this.uriOwners.get(token.key) === token &&
+      this.repoFor(token.uri) === token.repository
+    );
+  }
+
+  private clearCacheEntries(key: string): void {
+    this.blameCache.delete(key);
+    this.lineMappingCache.delete(key);
+    this.cacheAccessOrder.delete(key);
+    this.addRevisionCache.delete(key);
+    this.renderCache.delete(key);
+    this.peekPrefetchDone.delete(key);
   }
 
   /**
@@ -210,7 +259,7 @@ export class BlameProvider implements Disposable {
       // Passing no arg resolves window.activeTextEditor at execution time.
       if (typeof repo.statusReady?.then === "function") {
         void repo.statusReady.then(() => {
-          if (window.activeTextEditor) {
+          if (this.repoHooks.has(repo) && window.activeTextEditor) {
             void this.updateDecorations();
           }
         });
@@ -252,7 +301,7 @@ export class BlameProvider implements Disposable {
   /**
    * Update decorations for editor (throttled to prevent spam)
    */
-  @throttle
+  @throttleLatest
   public async updateDecorations(editor?: TextEditor): Promise<void> {
     const target = editor || window.activeTextEditor;
 
@@ -265,9 +314,12 @@ export class BlameProvider implements Disposable {
     // NotASvnRepository, which would incorrectly dispose a repo.
     const repository = this.repoFor(target.document.uri);
     if (!repository) {
+      this.clearCache(target.document.uri);
       this.clearDecorations(target);
       return;
     }
+    const ownerToken = this.claimOwner(target.document.uri, repository);
+    const documentVersion = target.document.version;
 
     // Check if should decorate
     const shouldDec = this.shouldDecorate(target);
@@ -341,10 +393,16 @@ export class BlameProvider implements Disposable {
       // are independent - fetch them concurrently instead of paying a
       // serial subprocess spawn before the first paint
       const [blameData, lineMapping] = await Promise.all([
-        this.getBlameData(target.document.uri, target, repository),
-        this.getLineMapping(target.document.uri, target, repository)
+        this.getBlameData(target.document.uri, target, repository, ownerToken),
+        this.getLineMapping(target.document.uri, target, repository, ownerToken)
       ]);
 
+      if (
+        !this.isCurrentOwner(ownerToken) ||
+        target.document.version !== documentVersion
+      ) {
+        return;
+      }
       if (!blameData) {
         this.clearDecorations(target);
         return;
@@ -386,8 +444,12 @@ export class BlameProvider implements Disposable {
         // PROGRESSIVE RENDERING: build without waiting for messages
         decorations = await this.createAllDecorations(blameData, target, {
           skipMessagePrefetch: true, // Don't block on message fetching
-          lineMapping
+          lineMapping,
+          ownerToken
         });
+        if (!this.isCurrentOwner(ownerToken)) {
+          return;
+        }
         revisionRange = this.getRevisionRange(blameData);
         this.renderCache.set(uriKey, {
           ...renderKey,
@@ -396,6 +458,9 @@ export class BlameProvider implements Disposable {
         });
       }
 
+      if (!this.isCurrentOwner(ownerToken)) {
+        return;
+      }
       // PHASE 1: Apply decorations immediately (gutter + icons + inline without messages)
       target.setDecorations(
         this.decorationTypes.gutter,
@@ -422,20 +487,23 @@ export class BlameProvider implements Disposable {
       // Pre-warm Peek Changes data in the background (diffs + hop
       // contents; never historical blames)
       if (configuration.get<boolean>("blame.prefetchHistory", true)) {
-        void this.prefetchPeekData(target.document.uri, blameData);
+        void this.prefetchPeekData(target.document.uri, blameData, ownerToken);
       }
 
       // Add-revision marker resolves in the background (network log) -
       // never gate the paint on it; one re-render when it first lands
-      void this.ensureAddRevision(target.document.uri).then(landed => {
-        if (
-          landed &&
-          window.activeTextEditor?.document.uri.toString() ===
-            target.document.uri.toString()
-        ) {
-          void this.updateDecorations(target);
+      void this.ensureAddRevision(target.document.uri, ownerToken).then(
+        landed => {
+          if (
+            landed &&
+            this.isCurrentOwner(ownerToken) &&
+            window.activeTextEditor?.document.uri.toString() ===
+              target.document.uri.toString()
+          ) {
+            void this.updateDecorations();
+          }
         }
-      });
+      );
 
       // PHASE 2: Fetch messages asynchronously and update inline decorations
       // (Fire-and-forget - don't block UI)
@@ -445,7 +513,8 @@ export class BlameProvider implements Disposable {
           blameData,
           target,
           undefined,
-          lineMapping
+          lineMapping,
+          ownerToken
         ).catch(err => {
           logError("BlameProvider: Progressive message fetch failed", err);
         });
@@ -480,14 +549,12 @@ export class BlameProvider implements Disposable {
    */
   public clearCache(uri: Uri): void {
     const key = uri.toString();
-    this.blameCache.delete(key);
-    this.lineMappingCache.delete(key); // Clear line mapping too
-    this.cacheAccessOrder.delete(key); // Clean up access tracking
-    this.addRevisionCache.delete(key);
-    this.renderCache.delete(key);
-    this.peekPrefetchDone.delete(key);
-    // Cancel any in-flight message fetches for this URI
-    this.inFlightMessageFetches.delete(key);
+    const token = this.uriOwners.get(key);
+    if (token) {
+      this.inFlightMessageFetches.delete(token.generation);
+      this.uriOwners.delete(key);
+    }
+    this.clearCacheEntries(key);
   }
 
   /**
@@ -514,7 +581,6 @@ export class BlameProvider implements Disposable {
     if (oldestKey) {
       this.blameCache.delete(oldestKey);
       this.cacheAccessOrder.delete(oldestKey);
-      this.inFlightMessageFetches.delete(oldestKey);
       this.renderCache.delete(oldestKey);
     }
   }
@@ -579,12 +645,21 @@ export class BlameProvider implements Disposable {
     blameData: ISvnBlameLine[],
     editor: TextEditor,
     precomputedUniqueRevisions?: string[],
-    lineMapping?: LineMapping
+    lineMapping?: LineMapping,
+    ownerToken?: UriOwnerToken
   ): Promise<void> {
-    const uriKey = uri.toString();
+    const repository = ownerToken?.repository ?? this.repoFor(uri);
+    if (!repository) {
+      return;
+    }
+    const token = ownerToken ?? this.claimOwner(uri, repository);
+    if (!this.isCurrentOwner(token)) {
+      return;
+    }
+    const documentVersion = editor.document.version;
 
     // Check if already fetching messages for this file
-    const existingFetch = this.inFlightMessageFetches.get(uriKey);
+    const existingFetch = this.inFlightMessageFetches.get(token.generation);
     if (existingFetch) {
       return existingFetch; // Reuse existing fetch
     }
@@ -604,18 +679,24 @@ export class BlameProvider implements Disposable {
     const fetchPromise = (async () => {
       try {
         // Fetch all messages
-        await this.prefetchMessages(uniqueRevisions, uri);
+        await this.prefetchMessages(uniqueRevisions, uri, token);
 
-        // Check if blame still enabled and editor still active
+        // Check if the owner, state, and active editor are still current
+        if (
+          !this.isCurrentOwner(token) ||
+          editor.document.version !== documentVersion
+        ) {
+          return;
+        }
         if (!blameStateManager.isBlameEnabled(uri)) {
           // Blame was disabled, clear decorations
-          if (window.activeTextEditor?.document.uri.toString() === uriKey) {
+          if (window.activeTextEditor?.document.uri.toString() === token.key) {
             this.clearDecorations(editor);
           }
           return;
         }
 
-        if (window.activeTextEditor?.document.uri.toString() !== uriKey) {
+        if (window.activeTextEditor?.document.uri.toString() !== token.key) {
           return; // User navigated away, don't update
         }
 
@@ -623,16 +704,16 @@ export class BlameProvider implements Disposable {
         this.updateInlineDecorationsWithMessages(
           blameData,
           editor,
-          lineMapping
+          lineMapping,
+          token
         );
       } finally {
-        // Remove from in-flight map when done
-        this.inFlightMessageFetches.delete(uriKey);
+        this.inFlightMessageFetches.delete(token.generation);
       }
     })();
 
     // Track this fetch
-    this.inFlightMessageFetches.set(uriKey, fetchPromise);
+    this.inFlightMessageFetches.set(token.generation, fetchPromise);
 
     return fetchPromise;
   }
@@ -687,14 +768,19 @@ export class BlameProvider implements Disposable {
    */
   private async prefetchPeekData(
     uri: Uri,
-    blameData: ISvnBlameLine[]
+    blameData: ISvnBlameLine[],
+    ownerToken?: UriOwnerToken
   ): Promise<void> {
     const key = uri.toString();
     if (this.peekPrefetchDone.has(key)) {
       return;
     }
-    const repository = this.repoFor(uri);
+    const repository = ownerToken?.repository ?? this.repoFor(uri);
     if (!repository) {
+      return;
+    }
+    const token = ownerToken ?? this.claimOwner(uri, repository);
+    if (!this.isCurrentOwner(token)) {
       return;
     }
     this.peekPrefetchDone.add(key);
@@ -710,6 +796,9 @@ export class BlameProvider implements Disposable {
     let peg: string | undefined;
     try {
       const info = await repository.repository.getInfo(uri.fsPath);
+      if (!this.isCurrentOwner(token)) {
+        return;
+      }
       if (/^\d+$/.test(info.revision)) {
         peg = info.revision;
       }
@@ -718,6 +807,9 @@ export class BlameProvider implements Disposable {
     }
 
     for (const rev of revisions) {
+      if (!this.isCurrentOwner(token)) {
+        return;
+      }
       try {
         await repository.repository.patchRevision(String(rev), uri);
       } catch {
@@ -745,13 +837,17 @@ export class BlameProvider implements Disposable {
    * re-render once on true). Failures negative-cache so an offline
    * session doesn't re-spawn a doomed subprocess on every render.
    */
-  private async ensureAddRevision(uri: Uri): Promise<boolean> {
+  private async ensureAddRevision(
+    uri: Uri,
+    ownerToken?: UriOwnerToken
+  ): Promise<boolean> {
     const key = uri.toString();
-    if (this.addRevisionCache.has(key)) {
+    const repository = ownerToken?.repository ?? this.repoFor(uri);
+    if (!repository) {
       return false;
     }
-    const repository = this.repoFor(uri);
-    if (!repository) {
+    const token = ownerToken ?? this.claimOwner(uri, repository);
+    if (!this.isCurrentOwner(token) || this.addRevisionCache.has(key)) {
       return false;
     }
     try {
@@ -761,10 +857,16 @@ export class BlameProvider implements Disposable {
         1,
         uri.fsPath
       );
+      if (!this.isCurrentOwner(token)) {
+        return false;
+      }
       const first = entries[0]?.revision;
       this.addRevisionCache.set(key, first ?? "");
       return !!first;
     } catch {
+      if (!this.isCurrentOwner(token)) {
+        return false;
+      }
       this.addRevisionCache.set(key, "");
       return false;
     }
@@ -777,13 +879,16 @@ export class BlameProvider implements Disposable {
   private updateInlineDecorationsWithMessages(
     blameData: ISvnBlameLine[],
     editor: TextEditor,
-    lineMapping?: LineMapping
+    lineMapping?: LineMapping,
+    ownerToken?: UriOwnerToken
   ): void {
     const inlineDecorations: DecorationOptions[] = [];
     const currentLineOnly = blameConfiguration.isInlineCurrentLineOnly();
     const inlineColor = `rgba(127, 127, 127, ${blameConfiguration.getInlineOpacity()})`;
     const activeLine = editor.selection.active.line;
-    const scope = this.messageScope(editor.document.uri);
+    const scope =
+      ownerToken?.repository.workspaceRoot ??
+      this.messageScope(editor.document.uri);
 
     for (const blameLine of blameData) {
       // Apply line mapping (handles modified files)
@@ -848,6 +953,7 @@ export class BlameProvider implements Disposable {
     if (!repository) {
       return;
     }
+    const ownerToken = this.claimOwner(editor.document.uri, repository);
 
     // Check if decorations should be shown (respects per-file state)
     if (!this.shouldDecorate(editor)) {
@@ -869,9 +975,10 @@ export class BlameProvider implements Disposable {
     const blameData = await this.getBlameData(
       editor.document.uri,
       editor,
-      repository
+      repository,
+      ownerToken
     );
-    if (!blameData) {
+    if (!blameData || !this.isCurrentOwner(ownerToken)) {
       return;
     }
 
@@ -879,8 +986,12 @@ export class BlameProvider implements Disposable {
     const lineMapping = await this.getLineMapping(
       editor.document.uri,
       editor,
-      repository
+      repository,
+      ownerToken
     );
+    if (!this.isCurrentOwner(ownerToken)) {
+      return;
+    }
 
     const currentLine = editor.selection.active.line;
     const inlineDecorations: DecorationOptions[] = [];
@@ -944,6 +1055,7 @@ export class BlameProvider implements Disposable {
     this.svgCache.clear();
     this.messageCache.clear();
     this.inFlightMessageFetches.clear(); // Cancel all in-flight fetches
+    this.uriOwners.clear();
     this.disposables.forEach(d => d.dispose());
     this.disposables = [];
     this.repoHooks.forEach(hooks => hooks.forEach(d => d.dispose()));
@@ -1028,7 +1140,27 @@ export class BlameProvider implements Disposable {
     // entries. Use PRECISE ownership (the deepest repo that owns each file),
     // not a lexical descendant test - else a parent-repo commit would also
     // clear a nested repo's still-valid caches.
-    this.clearRepoScope(repo, key => this.repoForKey(key) === repo);
+    this.clearRepoScope(repo, key => {
+      const token = this.uriOwners.get(key);
+      return token ? token.repository === repo : this.repoForKey(key) === repo;
+    });
+
+    if (DESCENDANT_BLAME_INVALIDATING_OPERATIONS.has(operation)) {
+      for (const child of this.sourceControlManager.repositories ?? []) {
+        if (
+          child !== repo &&
+          isDescendant(repo.workspaceRoot, child.workspaceRoot)
+        ) {
+          child.repository.clearBlameCache();
+          this.clearRepoScope(child, key => {
+            const token = this.uriOwners.get(key);
+            return token
+              ? token.repository === child
+              : this.repoForKey(key) === child;
+          });
+        }
+      }
+    }
 
     if (window.activeTextEditor) {
       void this.updateDecorations();
@@ -1063,7 +1195,7 @@ export class BlameProvider implements Disposable {
       ...this.renderCache.keys(),
       ...this.addRevisionCache.keys(),
       ...this.peekPrefetchDone,
-      ...this.inFlightMessageFetches.keys()
+      ...this.uriOwners.keys()
     ]);
     for (const key of keys) {
       if (ownsUri(key)) {
@@ -1104,11 +1236,27 @@ export class BlameProvider implements Disposable {
     const owned = (uri: Uri) => {
       if (!root) return false;
       try {
-        return isDescendant(root, uri.fsPath);
+        if (!isDescendant(root, uri.fsPath)) {
+          return false;
+        }
+        const token = this.uriOwners.get(uri.toString());
+        if (token) {
+          return token.repository === repo;
+        }
+        const survivingOwner = this.repoFor(uri);
+        return !(
+          survivingOwner &&
+          survivingOwner !== repo &&
+          isDescendant(root, survivingOwner.workspaceRoot)
+        );
       } catch {
         return false;
       }
     };
+    const visibleOwnership = (window.visibleTextEditors ?? []).map(editor => ({
+      editor,
+      owned: owned(editor.document.uri)
+    }));
     this.clearRepoScope(repo, key => {
       try {
         return owned(Uri.parse(key));
@@ -1118,15 +1266,21 @@ export class BlameProvider implements Disposable {
     });
     // Shared decoration types can't be disposed (other repos use them), so
     // clear per editor the closed repo owned.
-    for (const ed of window.visibleTextEditors ?? []) {
-      if (owned(ed.document.uri)) {
-        this.clearDecorations(ed);
+    const rerender: TextEditor[] = [];
+    for (const entry of visibleOwnership) {
+      if (entry.owned) {
+        this.clearDecorations(entry.editor);
+        if (this.repoFor(entry.editor.document.uri)) {
+          rerender.push(entry.editor);
+        }
       }
     }
-    // Reconcile the active editor: a parent repo may now own it (re-render),
-    // else it stays cleared.
-    if (window.activeTextEditor) {
-      void this.updateDecorations();
+    if (rerender.length > 0) {
+      void (async () => {
+        for (const editor of rerender) {
+          await this.updateDecorations(editor);
+        }
+      })();
     }
   }
 
@@ -1266,7 +1420,8 @@ export class BlameProvider implements Disposable {
   private async getBlameData(
     uri: Uri,
     editor: TextEditor,
-    owner?: Repository
+    owner?: Repository,
+    ownerToken?: UriOwnerToken
   ): Promise<ISvnBlameLine[] | undefined> {
     const key = uri.toString();
 
@@ -1276,19 +1431,22 @@ export class BlameProvider implements Disposable {
     const currentVersion =
       editor.document.uri.toString() === key ? editor.document.version : -1;
 
-    // Check cache - validate version to detect external changes (svn update, etc.)
-    const cached = this.blameCache.get(key);
-    if (cached && cached.version === currentVersion && currentVersion !== -1) {
-      // Update access time for LRU
-      this.cacheAccessOrder.set(key, ++this.cacheAccessCounter);
-      return cached.data;
-    }
-
     // Reuse the caller's already-resolved repo when given (the cache-hit path
     // above never resolves), else resolve it now.
     const repository = owner ?? this.repoFor(uri);
     if (!repository) {
       return undefined;
+    }
+    const token = ownerToken ?? this.claimOwner(uri, repository);
+    if (!this.isCurrentOwner(token)) {
+      return undefined;
+    }
+
+    // Check cache - validate version to detect external changes (svn update, etc.)
+    const cached = this.blameCache.get(key);
+    if (cached && cached.version === currentVersion && currentVersion !== -1) {
+      this.cacheAccessOrder.set(key, ++this.cacheAccessCounter);
+      return cached.data;
     }
 
     // Pre-check: verify file is under version control before attempting blame
@@ -1312,20 +1470,20 @@ export class BlameProvider implements Disposable {
     try {
       const data = await repository.blame(uri.fsPath);
 
-      // Don't cache if this repo is no longer the file's owner (closed or
-      // replaced during the fetch) - a reopen at the same uri must not read
-      // pre-close data. Still return it to the (now superseded) caller.
-      if (this.repoFor(uri) === repository) {
-        // Cache with document version (staleness detection on external changes)
-        this.blameCache.set(key, { data, version: currentVersion });
-        // Track access time for LRU
-        this.cacheAccessOrder.set(key, ++this.cacheAccessCounter);
-        // Evict oldest entry if cache exceeds limit
-        this.evictOldestCache();
+      if (
+        !this.isCurrentOwner(token) ||
+        editor.document.version !== currentVersion
+      ) {
+        return undefined;
       }
-
+      this.blameCache.set(key, { data, version: currentVersion });
+      this.cacheAccessOrder.set(key, ++this.cacheAccessCounter);
+      this.evictOldestCache();
       return data;
     } catch (err) {
+      if (!this.isCurrentOwner(token)) {
+        return undefined;
+      }
       const kind = classifyBlameError(err);
       if (kind === "untracked") {
         return undefined; // Silently skip unversioned files
@@ -1374,21 +1532,27 @@ export class BlameProvider implements Disposable {
   private async getLineMapping(
     uri: Uri,
     editor: TextEditor,
-    owner?: Repository
+    owner?: Repository,
+    ownerToken?: UriOwnerToken
   ): Promise<LineMapping | undefined> {
     const key = uri.toString();
     const currentVersion = editor.document.version;
 
-    // Check cache
+    // Check if file is modified (reuse the caller's resolved repo if given)
+    const repository = owner ?? this.repoFor(uri);
+    if (!repository) {
+      return undefined;
+    }
+    const token = ownerToken ?? this.claimOwner(uri, repository);
+    if (!this.isCurrentOwner(token)) {
+      return undefined;
+    }
     const cached = this.lineMappingCache.get(key);
     if (cached && cached.version === currentVersion) {
       return cached.mapping;
     }
-
-    // Check if file is modified (reuse the caller's resolved repo if given)
-    const repository = owner ?? this.repoFor(uri);
     const resource = repository?.getResourceFromFile(uri);
-    if (!repository || !resource || resource.type !== Status.MODIFIED) {
+    if (!resource || resource.type !== Status.MODIFIED) {
       // File not modified (or no repo) - no mapping needed (identity mapping)
       return undefined;
     }
@@ -1396,6 +1560,12 @@ export class BlameProvider implements Disposable {
     try {
       // Get BASE content (committed version)
       const baseContent = await repository.repository.show(uri.fsPath, "BASE");
+      if (
+        !this.isCurrentOwner(token) ||
+        editor.document.version !== currentVersion
+      ) {
+        return undefined;
+      }
       const baseLines = baseContent.split(/\r?\n/);
 
       // Get working copy content (current editor)
@@ -1405,7 +1575,9 @@ export class BlameProvider implements Disposable {
       // Compute mapping
       const mapping = computeLineMapping(baseLines, workingLines);
 
-      // Cache the mapping
+      if (!this.isCurrentOwner(token)) {
+        return undefined;
+      }
       this.lineMappingCache.set(key, { mapping, version: currentVersion });
 
       return mapping;
@@ -1422,7 +1594,11 @@ export class BlameProvider implements Disposable {
   private async createAllDecorations(
     blameData: ISvnBlameLine[],
     editor: TextEditor,
-    options: { skipMessagePrefetch?: boolean; lineMapping?: LineMapping } = {}
+    options: {
+      skipMessagePrefetch?: boolean;
+      lineMapping?: LineMapping;
+      ownerToken?: UriOwnerToken;
+    } = {}
   ): Promise<{
     gutter: DecorationOptions[];
     icon: DecorationOptions[];
@@ -1433,7 +1609,7 @@ export class BlameProvider implements Disposable {
 
     const template = blameConfiguration.getGutterTemplate();
     const dateFormat = blameConfiguration.getDateFormat();
-    const { lineMapping } = options;
+    const { lineMapping, ownerToken } = options;
 
     // Hoist config reads + color-string allocation out of the per-line loop.
     // For a 1000-line file these were ~6000 redundant config reads and
@@ -1461,7 +1637,11 @@ export class BlameProvider implements Disposable {
       ] as string[];
 
       if (uniqueRevisions.length > 0 && uniqueRevisions.length <= 100) {
-        await this.prefetchMessages(uniqueRevisions, editor.document.uri);
+        await this.prefetchMessages(
+          uniqueRevisions,
+          editor.document.uri,
+          ownerToken
+        );
       }
     }
 
@@ -1503,7 +1683,8 @@ export class BlameProvider implements Disposable {
           const message = showInlineMessage
             ? await this.getCommitMessage(
                 blameLine.revision,
-                editor.document.uri
+                editor.document.uri,
+                ownerToken
               )
             : "";
 
@@ -1850,24 +2031,41 @@ export class BlameProvider implements Disposable {
    * in prefetchMessages fails for exactly that reason). Only the RANGE
    * query (logBatch) needs a target - that's where the cost lives.
    */
-  private async getCommitMessage(revision: string, uri: Uri): Promise<string> {
-    const scope = this.messageScope(uri);
+  private async getCommitMessage(
+    revision: string,
+    uri?: Uri,
+    ownerToken?: UriOwnerToken
+  ): Promise<string> {
+    if (!blameConfiguration.isLogsEnabled()) {
+      return "";
+    }
+
+    const repository =
+      ownerToken?.repository ??
+      (uri
+        ? this.repoFor(uri)
+        : (this.sourceControlManager.repositories?.[0] as
+            | Repository
+            | undefined));
+    if (!repository) {
+      return "";
+    }
+    const target = uri ?? Uri.file(repository.workspaceRoot);
+    const token = ownerToken ?? this.claimOwner(target, repository);
+    if (!this.isCurrentOwner(token)) {
+      return "";
+    }
+    const scope = repository.workspaceRoot;
     const cached = this.readMessage(scope, revision);
     if (cached !== undefined) {
       return cached;
     }
 
-    if (!blameConfiguration.isLogsEnabled()) {
-      return "";
-    }
-
-    const repository = this.repoFor(uri);
-    if (!repository) {
-      return "";
-    }
-
     try {
       const log = await repository.log(revision, revision, 1);
+      if (!this.isCurrentOwner(token)) {
+        return "";
+      }
       const message = log[0]?.msg || "";
       this.messageCache.set(this.msgKey(scope, revision), message);
 
@@ -1887,7 +2085,8 @@ export class BlameProvider implements Disposable {
    */
   private async prefetchMessages(
     revisions: string[],
-    target?: Uri
+    target?: Uri,
+    ownerToken?: UriOwnerToken
   ): Promise<void> {
     if (!blameConfiguration.isLogsEnabled()) {
       return;
@@ -1895,11 +2094,16 @@ export class BlameProvider implements Disposable {
 
     // The batch log must be targeted at the blamed file's repo; without a
     // resolvable target there's nothing to query.
-    const repository = target ? this.repoFor(target) : undefined;
+    const repository =
+      ownerToken?.repository ?? (target ? this.repoFor(target) : undefined);
     if (!repository || !target) {
       return;
     }
-    const scope = this.messageScope(target);
+    const token = ownerToken ?? this.claimOwner(target, repository);
+    if (!this.isCurrentOwner(token)) {
+      return;
+    }
+    const scope = repository.workspaceRoot;
 
     const uncached = revisions.filter(
       r => !this.messageCache.has(this.msgKey(scope, r))
@@ -1914,6 +2118,9 @@ export class BlameProvider implements Disposable {
       // blamed file so the server filters to its history. Without a target
       // this spanned every revision in the checkout between min and max.
       const logEntries = await repository.logBatch(uncached, target.fsPath);
+      if (!this.isCurrentOwner(token)) {
+        return;
+      }
 
       // Cache all fetched messages
       for (const entry of logEntries) {
@@ -1925,6 +2132,9 @@ export class BlameProvider implements Disposable {
       // Evict message cache if exceeding limit
       this.evictMessageCache();
     } catch (err) {
+      if (!this.isCurrentOwner(token)) {
+        return;
+      }
       logError(
         "BlameProvider: Batch message fetch failed, falling back to sequential",
         err
@@ -1934,7 +2144,7 @@ export class BlameProvider implements Disposable {
       // getCommitMessage; the targeted range log may have failed because
       // of the target)
       for (const revision of uncached) {
-        await this.getCommitMessage(revision, target);
+        await this.getCommitMessage(revision, target, token);
       }
     }
   }

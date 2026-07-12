@@ -141,4 +141,37 @@ suite("BlameProvider - owner epoch lifecycle", () => {
     );
     assert.ok(apply.calledOnceWith(newBlame, editor));
   });
+
+  test("progressive messages do not repaint an edited document", async () => {
+    const uri = Uri.file("/a/file.ts");
+    const pending = deferred<Array<{ revision: string; msg: string }>>();
+    const repo = {
+      workspaceRoot: "/a",
+      logBatch: sandbox.stub().returns(pending.promise)
+    };
+    provider = new BlameProvider({
+      repositories: [repo],
+      getRepositoryFromUri: () => repo
+    } as never);
+
+    const editor = editorFor(uri);
+    sandbox.stub(window, "activeTextEditor").value(editor);
+    sandbox.stub(blameConfiguration, "isLogsEnabled").returns(true);
+    sandbox.stub(blameStateManager, "isBlameEnabled").returns(true);
+    const apply = sandbox.stub(
+      provider as any,
+      "updateInlineDecorationsWithMessages"
+    );
+
+    const fetch = (provider as any).prefetchMessagesProgressively(
+      uri,
+      [{ lineNumber: 1, revision: "9", author: "old" }],
+      editor
+    );
+    editor.document.version++;
+    pending.resolve([{ revision: "9", msg: "message" }]);
+    await fetch;
+
+    assert.ok(apply.notCalled);
+  });
 });

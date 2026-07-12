@@ -157,4 +157,38 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
     assert.ok(p.blameCache.has(uri.toString()));
     assert.ok(clear.notCalled, "nested editor remains decorated");
   });
+
+  test("owner transition rerenders decorations produced by the closing repo", async () => {
+    const parent = { workspaceRoot: "/wc" };
+    const nested = { workspaceRoot: "/wc/nested" };
+    let owner: unknown = parent;
+    let closeCb: ((r: unknown) => void) | undefined;
+    const scm = {
+      repositories: [nested],
+      onDidOpenRepository: () => ({ dispose() {} }),
+      onDidCloseRepository: (cb: (r: unknown) => void) => {
+        closeCb = cb;
+        return { dispose() {} };
+      },
+      getRepositoryFromUri: () => owner
+    };
+    provider = new BlameProvider(scm as never);
+    provider.activate();
+
+    const uri = Uri.file("/wc/nested/file.ts");
+    const editor = createEditor(uri);
+    const p = provider as any;
+    p.claimOwner(uri, parent);
+    p.blameCache.set(uri.toString(), { data: [], version: 1 });
+    owner = nested;
+    (window as any).visibleTextEditors = [editor];
+    const clear = sandbox.stub(p, "clearDecorations");
+    const update = sandbox.stub(p, "updateDecorations").resolves();
+
+    closeCb!(parent);
+    await Promise.resolve();
+
+    assert.ok(clear.calledWith(editor));
+    assert.ok(update.calledWith(editor));
+  });
 });
