@@ -5,6 +5,16 @@
 
 ---
 
+### 87. Collapsing Per-Instance State Into a Singleton Silently Breaks Scoping
+
+**Lesson**: Merging the per-repository `BlameProvider` into one shared singleton looked like a clean dedup, but every assumption that used to be true "because there's one instance per repo" quietly became false, and an adversarial review found four regressions the tests missed: (1) repo resolution switched from `isDescendant(workspaceRoot)` to `getRepository`, which _excludes_ svn:externals — so files under an external lost blame; (2) `messageCache` keyed by bare revision number collided across repos (r42 is a different commit in each); (3) `onRepositoryOperation` cleared _all_ caches, so a commit in repo A wiped repo B's blame; (4) lifecycle moved — the per-repo provider painted at repo-open and disposed at repo-close, but the singleton activates once at startup (before repos are discovered) and never releases per-repo hooks.
+
+**Fix**: Resolve via `getRepositoryFromUri` (pure descendant match, includes externals); scope `messageCache` by owning-repo `workspaceRoot`; scope invalidation to the operating repo's files; render on repo-open and release hooks on repo-close (tracked in a per-repo `Map`).
+
+**Rule**: When collapsing N instances into one shared instance, enumerate everything that was implicitly scoped by the instance boundary — resolution, cache keys, invalidation blast radius, subscription lifecycle — and re-scope each explicitly. A cache key that was unique "per instance" (a bare revision) is almost never globally unique. And unit tests that construct one instance won't exercise the cross-instance collisions; reach for an adversarial multi-repo review.
+
+---
+
 ### 86. Trace the ACTUAL Serialization Layer Before "Relaxing" One
 
 **Lesson**: A review flagged `@sequentialize` on `_doBlameFetch` as the thing serializing blame repo-wide, and recommended relaxing it to bounded concurrency. But every blame call goes through `Repository.blame` → `run()` → `retryRun()`, which awaits-and-replaces a per-repo `credentialLock` (it exists so concurrent auth-retries can't race on stored accounts and cause lockout). So the REAL serializer was the credential lock one level up; relaxing `@sequentialize` would have changed nothing. The genuine cost was that even in-memory cache HITS entered `run()` and queued behind a slow in-flight network op.
