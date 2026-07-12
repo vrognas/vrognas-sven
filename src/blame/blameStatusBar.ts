@@ -29,7 +29,8 @@ import { showActionFeedback } from "../util/actionFeedback";
 
 /**
  * BlameStatusBar manages the status bar item showing blame info for current line
- * Singleton instance (unlike BlameProvider which is per-repo).
+ * Singleton instance (like BlameProvider - both resolve the owning repo
+ * per file via SourceControlManager).
  *
  * Blame data is fetched via `Repository.blame`, which is itself
  * cached by `SvnRepository._blameCache` (5min TTL). No local cache layer

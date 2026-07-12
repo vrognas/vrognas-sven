@@ -98,6 +98,9 @@ export class BlameProvider implements Disposable {
   private static readonly MAX_PEEK_PREFETCH = 5;
   private currentLineNumber?: number; // Track cursor position for current-line-only mode
   private disposables: Disposable[] = [];
+  /** Per-repo event subscriptions, released when the repo closes so a churny
+   *  session (externals add/remove) doesn't accumulate dead subscriptions. */
+  private repoHooks = new Map<Repository, Disposable[]>();
   private isActivated = false;
 
   // LRU cache limits
@@ -194,11 +197,13 @@ export class BlameProvider implements Disposable {
     // (Guarded: stubbed repositories in unit tests may lack the instance
     // fields.)
     const hookRepository = (repo: Repository) => {
+      const hooks: Disposable[] = [];
       if (typeof repo.onDidRunOperation === "function") {
-        this.disposables.push(
+        hooks.push(
           repo.onDidRunOperation(op => this.onRepositoryOperation(op, repo))
         );
       }
+      this.repoHooks.set(repo, hooks);
       if (typeof repo.statusReady?.then === "function") {
         void repo.statusReady.then(() => {
           if (window.activeTextEditor) {
@@ -220,6 +225,14 @@ export class BlameProvider implements Disposable {
     if (typeof this.sourceControlManager.onDidOpenRepository === "function") {
       this.disposables.push(
         this.sourceControlManager.onDidOpenRepository(hookRepository)
+      );
+    }
+    if (typeof this.sourceControlManager.onDidCloseRepository === "function") {
+      this.disposables.push(
+        this.sourceControlManager.onDidCloseRepository((repo: Repository) => {
+          this.repoHooks.get(repo)?.forEach(d => d.dispose());
+          this.repoHooks.delete(repo);
+        })
       );
     }
 
@@ -919,6 +932,8 @@ export class BlameProvider implements Disposable {
     this.inFlightMessageFetches.clear(); // Cancel all in-flight fetches
     this.disposables.forEach(d => d.dispose());
     this.disposables = [];
+    this.repoHooks.forEach(hooks => hooks.forEach(d => d.dispose()));
+    this.repoHooks.clear();
     this.isActivated = false;
   }
 
