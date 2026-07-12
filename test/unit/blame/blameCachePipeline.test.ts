@@ -98,6 +98,7 @@ describe("updateDecorations pipeline", () => {
         version: 1,
         getText: () => ""
       },
+      selection: { active: { line: 0 } },
       setDecorations: vi.fn()
     };
     let releaseMapping!: () => void;
@@ -144,6 +145,10 @@ describe("updateDecorations pipeline", () => {
     };
     (mockThis as unknown as { repoFor: unknown }).repoFor = () =>
       mockThis.repository;
+    (mockThis as unknown as { renderDecorations: unknown }).renderDecorations =
+      (
+        BlameProvider.prototype as unknown as Record<string, unknown>
+      ).renderDecorations;
     const updateDecorations = (
       BlameProvider.prototype as unknown as Record<string, unknown>
     ).updateDecorations as (this: unknown, editor?: unknown) => Promise<void>;

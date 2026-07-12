@@ -135,12 +135,13 @@ function _throttleLatest<T extends AsyncMethod>(
     if (this[currentKey]) {
       this[nextArgsKey] = args;
       if (!this[nextKey]) {
-        this[nextKey] = done(this[currentKey]).then(() => {
+        const runQueued = () => {
           const latestArgs = this[nextArgsKey] as Parameters<T>;
           this[nextArgsKey] = undefined;
           this[nextKey] = undefined;
           return trigger.apply(this, latestArgs);
-        });
+        };
+        this[nextKey] = done(this[currentKey]).then(runQueued, runQueued);
       }
       return this[nextKey];
     }

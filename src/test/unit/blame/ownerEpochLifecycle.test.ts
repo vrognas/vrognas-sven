@@ -34,6 +34,7 @@ suite("BlameProvider - owner epoch lifecycle", () => {
   teardown(() => {
     provider?.dispose();
     sandbox.restore();
+    delete (window as any).visibleTextEditors;
   });
 
   test("discards blame returned after its repository stops owning the URI", async () => {
@@ -173,5 +174,118 @@ suite("BlameProvider - owner epoch lifecycle", () => {
     await fetch;
 
     assert.ok(apply.notCalled);
+  });
+
+  test("edited document starts a version-specific message fetch", async () => {
+    const uri = Uri.file("/a/file.ts");
+    const oldLog = deferred<Array<{ revision: string; msg: string }>>();
+    const newLog = deferred<Array<{ revision: string; msg: string }>>();
+    const logBatch = sandbox.stub();
+    logBatch.onFirstCall().returns(oldLog.promise);
+    logBatch.onSecondCall().returns(newLog.promise);
+    const repo = { workspaceRoot: "/a", logBatch };
+    provider = new BlameProvider({
+      repositories: [repo],
+      getRepositoryFromUri: () => repo
+    } as never);
+
+    const editor = editorFor(uri);
+    sandbox.stub(window, "activeTextEditor").value(editor);
+    sandbox.stub(blameConfiguration, "isLogsEnabled").returns(true);
+    sandbox.stub(blameStateManager, "isBlameEnabled").returns(true);
+    const apply = sandbox.stub(
+      provider as any,
+      "updateInlineDecorationsWithMessages"
+    );
+    const oldBlame = [{ lineNumber: 1, revision: "8", author: "old" }];
+    const newBlame = [{ lineNumber: 1, revision: "9", author: "new" }];
+
+    const first = (provider as any).prefetchMessagesProgressively(
+      uri,
+      oldBlame,
+      editor
+    );
+    editor.document.version++;
+    const second = (provider as any).prefetchMessagesProgressively(
+      uri,
+      newBlame,
+      editor
+    );
+    newLog.resolve([{ revision: "9", msg: "new message" }]);
+    oldLog.resolve([{ revision: "8", msg: "old message" }]);
+    await Promise.all([first, second]);
+
+    assert.ok(logBatch.calledTwice, "new version starts an independent fetch");
+    assert.ok(apply.calledOnceWith(newBlame, editor));
+  });
+
+  test("progressive messages repaint an inactive visible editor", async () => {
+    const uri = Uri.file("/a/file.ts");
+    const repo = {
+      workspaceRoot: "/a",
+      logBatch: sandbox.stub().resolves([{ revision: "9", msg: "new message" }])
+    };
+    provider = new BlameProvider({
+      repositories: [repo],
+      getRepositoryFromUri: () => repo
+    } as never);
+
+    const editor = editorFor(uri);
+    const active = editorFor(Uri.file("/a/active.ts"));
+    sandbox.stub(window, "activeTextEditor").value(active);
+    (window as any).visibleTextEditors = [active, editor];
+    sandbox.stub(blameConfiguration, "isLogsEnabled").returns(true);
+    sandbox.stub(blameStateManager, "isBlameEnabled").returns(true);
+    const apply = sandbox.stub(
+      provider as any,
+      "updateInlineDecorationsWithMessages"
+    );
+    const blame = [{ lineNumber: 1, revision: "9", author: "new" }];
+
+    await (provider as any).prefetchMessagesProgressively(uri, blame, editor);
+
+    assert.ok(apply.calledOnceWith(blame, editor));
+  });
+
+  test("shared message fetch applies to every visible split", async () => {
+    const uri = Uri.file("/a/file.ts");
+    const pending = deferred<Array<{ revision: string; msg: string }>>();
+    const repo = {
+      workspaceRoot: "/a",
+      logBatch: sandbox.stub().returns(pending.promise)
+    };
+    provider = new BlameProvider({
+      repositories: [repo],
+      getRepositoryFromUri: () => repo
+    } as never);
+
+    const firstEditor = editorFor(uri);
+    const secondEditor = editorFor(uri);
+    sandbox.stub(window, "activeTextEditor").value(firstEditor);
+    (window as any).visibleTextEditors = [firstEditor, secondEditor];
+    sandbox.stub(blameConfiguration, "isLogsEnabled").returns(true);
+    sandbox.stub(blameStateManager, "isBlameEnabled").returns(true);
+    const apply = sandbox.stub(
+      provider as any,
+      "updateInlineDecorationsWithMessages"
+    );
+    const blame = [{ lineNumber: 1, revision: "9", author: "new" }];
+
+    const first = (provider as any).prefetchMessagesProgressively(
+      uri,
+      blame,
+      firstEditor
+    );
+    const second = (provider as any).prefetchMessagesProgressively(
+      uri,
+      blame,
+      secondEditor
+    );
+    pending.resolve([{ revision: "9", msg: "message" }]);
+    await Promise.all([first, second]);
+
+    assert.ok(repo.logBatch.calledOnce, "network fetch remains deduplicated");
+    assert.ok(apply.calledWith(blame, firstEditor));
+    assert.ok(apply.calledWith(blame, secondEditor));
   });
 });

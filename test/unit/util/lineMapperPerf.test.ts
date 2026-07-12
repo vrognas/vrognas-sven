@@ -3,10 +3,9 @@ import { computeLineMapping } from "../../../src/util/lineMapper";
 
 describe("computeLineMapping — large inputs", () => {
   it("shows no blame on a truly oversized diff core (no OOM, no misattribution)", () => {
-    // 5000x5000 fully-distinct lines → product > MAX_LCS_PRODUCT (20M). The
-    // gate must avoid both the OOM full DP matrix AND offset-based positional
-    // mapping (which would attribute blame to the wrong lines): every base
-    // line in the over-cap core is left unmapped (no blame) instead.
+    // 5000x5000 fully-distinct lines exceed the 4M dense-cell budget and have
+    // no exact sparse anchors. Avoid both an OOM matrix and positional
+    // misattribution: every base line stays unmapped.
     const N = 5000;
     const base = Array.from({ length: N }, (_, i) => `b${i}`);
     const working = Array.from({ length: N }, (_, i) => `w${i}`);

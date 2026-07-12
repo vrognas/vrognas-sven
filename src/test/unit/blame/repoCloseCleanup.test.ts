@@ -158,7 +158,7 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
     assert.ok(clear.notCalled, "nested editor remains decorated");
   });
 
-  test("owner transition rerenders decorations produced by the closing repo", async () => {
+  test("owner transition rerenders without the shared throttle", async () => {
     const parent = { workspaceRoot: "/wc" };
     const nested = { workspaceRoot: "/wc/nested" };
     let owner: unknown = parent;
@@ -183,12 +183,121 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
     owner = nested;
     (window as any).visibleTextEditors = [editor];
     const clear = sandbox.stub(p, "clearDecorations");
+    const render = sandbox.stub().resolves();
+    p.renderDecorations = render;
     const update = sandbox.stub(p, "updateDecorations").resolves();
 
     closeCb!(parent);
     await Promise.resolve();
 
     assert.ok(clear.calledWith(editor));
-    assert.ok(update.calledWith(editor));
+    assert.ok(render.calledWith(editor));
+    assert.ok(update.notCalled, "close recovery bypasses the shared throttle");
+  });
+
+  test("parent update rerenders a visible nested external", async () => {
+    const parent = {
+      workspaceRoot: "/wc",
+      repository: { clearBlameCache: sandbox.stub() }
+    };
+    const nested = {
+      workspaceRoot: "/wc/nested",
+      repository: { clearBlameCache: sandbox.stub() }
+    };
+    const nestedEditor = createEditor(Uri.file("/wc/nested/file.ts"));
+    const activeEditor = createEditor(Uri.file("/wc/active.ts"));
+    const scm = {
+      repositories: [parent, nested],
+      getRepositoryFromUri: (uri: Uri) =>
+        uri.path.startsWith("/wc/nested") ? nested : parent
+    };
+    provider = new BlameProvider(scm as never);
+    const p = provider as any;
+    p.claimOwner(nestedEditor.document.uri, nested);
+    (window as any).visibleTextEditors = [activeEditor, nestedEditor];
+    sandbox.stub(window, "activeTextEditor").value(activeEditor);
+    const clear = sandbox.stub(p, "clearDecorations");
+    const render = sandbox.stub().resolves();
+    p.renderDecorations = render;
+    sandbox.stub(p, "updateDecorations").resolves();
+
+    p.onRepositoryOperation(Operation.Update, parent);
+    await Promise.resolve();
+
+    assert.ok(clear.calledWith(nestedEditor));
+    assert.ok(render.calledWith(nestedEditor));
+  });
+
+  test("document changes clear inactive visible editors", async () => {
+    const uri = Uri.file("/wc/file.ts");
+    const editor = createEditor(uri);
+    const active = createEditor(Uri.file("/wc/active.ts"));
+    provider = new BlameProvider({ repositories: [] } as never);
+    const p = provider as any;
+    (window as any).visibleTextEditors = [active, editor];
+    sandbox.stub(window, "activeTextEditor").value(active);
+    const clear = sandbox.stub(p, "clearDecorations");
+    const clock = sandbox.useFakeTimers();
+
+    p.onDocumentChange({ document: editor.document });
+    await clock.tickAsync(500);
+
+    assert.ok(clear.calledWith(editor));
+  });
+
+  test("opening a deeper repo transfers every visible owned editor", async () => {
+    const parent = { workspaceRoot: "/wc" };
+    const nested = { workspaceRoot: "/wc/nested" };
+    const repositories = [parent];
+    let owner: unknown = parent;
+    let openCb: ((repo: unknown) => void) | undefined;
+    const scm = {
+      repositories,
+      onDidOpenRepository: (cb: (repo: unknown) => void) => {
+        openCb = cb;
+        return { dispose() {} };
+      },
+      onDidCloseRepository: () => ({ dispose() {} }),
+      getRepositoryFromUri: () => owner
+    };
+    provider = new BlameProvider(scm as never);
+    provider.activate();
+
+    const editor = createEditor(Uri.file("/wc/nested/file.ts"));
+    const active = createEditor(Uri.file("/wc/active.ts"));
+    const p = provider as any;
+    p.claimOwner(editor.document.uri, parent);
+    (window as any).visibleTextEditors = [active, editor];
+    sandbox.stub(window, "activeTextEditor").value(active);
+    const clear = sandbox.stub(p, "clearDecorations");
+    const render = sandbox.stub().resolves();
+    p.renderDecorations = render;
+
+    owner = nested;
+    repositories.push(nested);
+    openCb!(nested);
+    await Promise.resolve();
+
+    assert.ok(clear.calledWith(editor));
+    assert.ok(render.calledWith(editor));
+  });
+
+  test("child operation clears a cache recorded under its former parent", () => {
+    const parent = { workspaceRoot: "/wc" };
+    const nested = { workspaceRoot: "/wc/nested" };
+    const uri = Uri.file("/wc/nested/file.ts");
+    const scm = {
+      repositories: [parent, nested],
+      getRepositoryFromUri: () => nested
+    };
+    provider = new BlameProvider(scm as never);
+    const p = provider as any;
+    p.claimOwner(uri, parent);
+    p.blameCache.set(uri.toString(), { data: [], version: 1 });
+    sandbox.stub(window, "activeTextEditor").value(undefined);
+
+    p.onRepositoryOperation(Operation.Commit, nested);
+
+    assert.ok(!p.blameCache.has(uri.toString()));
   });
 });

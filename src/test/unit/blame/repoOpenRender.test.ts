@@ -19,6 +19,7 @@ suite("BlameProvider - render on repo open", () => {
   teardown(() => {
     provider?.dispose();
     sandbox.restore();
+    delete (window as any).visibleTextEditors;
   });
 
   test("renders the active editor immediately when its repo opens", async () => {
@@ -40,21 +41,51 @@ suite("BlameProvider - render on repo open", () => {
     const editor = createEditor(Uri.file("/ws/file.ts"));
     sandbox.stub(window, "activeTextEditor").value(editor);
 
-    const updateStub = sandbox
-      .stub(provider as any, "updateDecorations")
+    const renderStub = sandbox
+      .stub(provider as any, "renderDecorations")
       .resolves(undefined);
 
     provider.activate();
-    updateStub.resetHistory(); // ignore activate()'s own initial render
+    renderStub.resetHistory(); // ignore activate()'s own initial render
 
     openCb!(repo); // repo discovered later
 
     assert.ok(
-      updateStub.called,
+      renderStub.calledWith(editor),
       "opening the active file's repo must trigger an immediate render"
     );
-    // No explicit editor: the throttled render resolves the live active
-    // editor at exec time (avoids repainting a stale editor on queue races).
-    assert.strictEqual(updateStub.firstCall.args[0], undefined);
+  });
+
+  test("status ready invalidates and rerenders every visible owned editor", async () => {
+    let resolveStatus!: () => void;
+    const statusReady = new Promise<void>(resolve => (resolveStatus = resolve));
+    const repo = { workspaceRoot: "/ws", statusReady };
+    const scm = {
+      repositories: [repo],
+      getRepositoryFromUri: () => repo
+    };
+    provider = new BlameProvider(scm as never);
+
+    const active = createEditor(Uri.file("/ws/active.ts"));
+    const inactive = createEditor(Uri.file("/ws/inactive.ts"));
+    sandbox.stub(window, "activeTextEditor").value(active);
+    (window as any).visibleTextEditors = [active, inactive];
+    const clear = sandbox.stub(provider, "clearCache");
+    const render = sandbox
+      .stub(provider as any, "renderDecorations")
+      .resolves(undefined);
+
+    provider.activate();
+    clear.resetHistory();
+    render.resetHistory();
+    resolveStatus();
+    await statusReady;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.ok(clear.calledWith(active.document.uri));
+    assert.ok(clear.calledWith(inactive.document.uri));
+    assert.ok(render.calledWith(active));
+    assert.ok(render.calledWith(inactive));
   });
 });

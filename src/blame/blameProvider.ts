@@ -76,7 +76,7 @@ export class BlameProvider implements Disposable {
   private revisionColors = new Map<string, string>(); // revision → gradient color
   private svgCache = new Map<string, Uri>(); // color → SVG data URI
   private messageCache = new Map<string, string>(); // revision → commit message
-  private inFlightMessageFetches = new Map<number, Promise<void>>();
+  private inFlightMessageFetches = new Map<string, Promise<void>>();
   private uriOwners = new Map<string, UriOwnerToken>();
   private nextOwnerGeneration = 0;
   // uri → monotonic access sequence for LRU eviction. A counter, not
@@ -149,7 +149,7 @@ export class BlameProvider implements Disposable {
       return current;
     }
     if (current) {
-      this.inFlightMessageFetches.delete(current.generation);
+      this.clearMessageFlights(current.generation);
       this.clearCacheEntries(key);
     }
     const token = {
@@ -167,6 +167,25 @@ export class BlameProvider implements Disposable {
       this.uriOwners.get(token.key) === token &&
       this.repoFor(token.uri) === token.repository
     );
+  }
+
+  private clearMessageFlights(generation: number): void {
+    const prefix = `${generation}:`;
+    for (const key of this.inFlightMessageFetches.keys()) {
+      if (key.startsWith(prefix)) {
+        this.inFlightMessageFetches.delete(key);
+      }
+    }
+  }
+
+  private visibleEditors(): readonly TextEditor[] {
+    const visible = window.visibleTextEditors ?? [];
+    const active = window.activeTextEditor;
+    return active && !visible.includes(active) ? [...visible, active] : visible;
+  }
+
+  private isEditorVisible(editor: TextEditor): boolean {
+    return this.visibleEditors().includes(editor);
   }
 
   private clearCacheEntries(key: string): void {
@@ -253,25 +272,49 @@ export class BlameProvider implements Disposable {
         );
       }
       this.repoHooks.set(repo, hooks);
-      // No explicit editor on these renders: @throttle keeps the FIRST
-      // queued call's args, so pinning an editor here can repaint a stale/
-      // hidden editor when several repos' renders queue behind a slow one.
-      // Passing no arg resolves window.activeTextEditor at execution time.
+      // Resolve the active editor at execution time after status lands.
       if (typeof repo.statusReady?.then === "function") {
         void repo.statusReady.then(() => {
-          if (this.repoHooks.has(repo) && window.activeTextEditor) {
-            void this.updateDecorations();
+          if (!this.repoHooks.has(repo)) {
+            return;
+          }
+          const editors = this.visibleEditors().filter(
+            editor => this.repoFor(editor.document.uri) === repo
+          );
+          for (const editor of editors) {
+            // The pre-status render may have cached identity line mapping
+            // while the resource index was empty.
+            this.clearCache(editor.document.uri);
+            this.clearDecorations(editor);
+          }
+          if (editors.length > 0) {
+            void (async () => {
+              for (const editor of editors) {
+                await this.renderDecorations(editor);
+              }
+            })();
           }
         });
       }
-      // Paint the active file immediately if this newly-opened repo owns it.
-      // Repos are discovered asynchronously AFTER activate(), so without this
-      // the initially-open file would stay blank until statusReady resolves
-      // (the multi-second initial crawl) - the old per-repo provider painted
-      // it at repo-open because it was constructed there.
-      const active = window.activeTextEditor;
-      if (active && this.repoFor(active.document.uri) === repo) {
-        void this.updateDecorations();
+      // Repositories are discovered asynchronously. Reconcile every visible
+      // editor now owned by this repo, including inactive split editors that
+      // may still carry a parent repo's token/messages.
+      const editors = this.visibleEditors().filter(editor => {
+        const uri = editor.document.uri;
+        return (
+          this.repoFor(uri) === repo &&
+          this.uriOwners.get(uri.toString())?.repository !== repo
+        );
+      });
+      for (const editor of editors) {
+        this.clearDecorations(editor);
+      }
+      if (editors.length > 0) {
+        void (async () => {
+          for (const editor of editors) {
+            await this.renderDecorations(editor);
+          }
+        })();
       }
     };
     (this.sourceControlManager.repositories ?? []).forEach(hookRepository);
@@ -303,6 +346,10 @@ export class BlameProvider implements Disposable {
    */
   @throttleLatest
   public async updateDecorations(editor?: TextEditor): Promise<void> {
+    await this.renderDecorations(editor);
+  }
+
+  private async renderDecorations(editor?: TextEditor): Promise<void> {
     const target = editor || window.activeTextEditor;
 
     if (!target) {
@@ -419,7 +466,7 @@ export class BlameProvider implements Disposable {
         version: target.document.version,
         addRevision: this.addRevisionCache.get(uriKey),
         cursorLine: blameConfiguration.isInlineCurrentLineOnly()
-          ? this.currentLineNumber
+          ? target.selection.active.line
           : undefined
       };
       const cachedRender = this.renderCache.get(uriKey);
@@ -551,7 +598,7 @@ export class BlameProvider implements Disposable {
     const key = uri.toString();
     const token = this.uriOwners.get(key);
     if (token) {
-      this.inFlightMessageFetches.delete(token.generation);
+      this.clearMessageFlights(token.generation);
       this.uriOwners.delete(key);
     }
     this.clearCacheEntries(key);
@@ -657,65 +704,49 @@ export class BlameProvider implements Disposable {
       return;
     }
     const documentVersion = editor.document.version;
+    const flightKey = `${token.generation}:${documentVersion}`;
 
-    // Check if already fetching messages for this file
-    const existingFetch = this.inFlightMessageFetches.get(token.generation);
-    if (existingFetch) {
-      return existingFetch; // Reuse existing fetch
-    }
-
-    // Use pre-computed unique revisions or extract them
-    const uniqueRevisions =
-      precomputedUniqueRevisions ||
-      ([
-        ...new Set(blameData.map(b => b.revision).filter(Boolean))
-      ] as string[]);
-
-    if (uniqueRevisions.length === 0 || uniqueRevisions.length > 100) {
-      return; // Skip if no revisions or too many
-    }
-
-    // Create fetch promise
-    const fetchPromise = (async () => {
-      try {
-        // Fetch all messages
-        await this.prefetchMessages(uniqueRevisions, uri, token);
-
-        // Check if the owner, state, and active editor are still current
-        if (
-          !this.isCurrentOwner(token) ||
-          editor.document.version !== documentVersion
-        ) {
-          return;
-        }
-        if (!blameStateManager.isBlameEnabled(uri)) {
-          // Blame was disabled, clear decorations
-          if (window.activeTextEditor?.document.uri.toString() === token.key) {
-            this.clearDecorations(editor);
-          }
-          return;
-        }
-
-        if (window.activeTextEditor?.document.uri.toString() !== token.key) {
-          return; // User navigated away, don't update
-        }
-
-        // Re-create inline decorations with messages
-        this.updateInlineDecorationsWithMessages(
-          blameData,
-          editor,
-          lineMapping,
-          token
-        );
-      } finally {
-        this.inFlightMessageFetches.delete(token.generation);
+    // Deduplicate only the network fetch. Every caller keeps its own
+    // post-fetch apply so split editors and statusReady remaps cannot inherit
+    // another render's editor or line mapping.
+    let fetchPromise = this.inFlightMessageFetches.get(flightKey);
+    if (!fetchPromise) {
+      const uniqueRevisions =
+        precomputedUniqueRevisions ||
+        ([
+          ...new Set(blameData.map(b => b.revision).filter(Boolean))
+        ] as string[]);
+      if (uniqueRevisions.length === 0 || uniqueRevisions.length > 100) {
+        return;
       }
-    })();
+      fetchPromise = this.prefetchMessages(uniqueRevisions, uri, token).finally(
+        () => this.inFlightMessageFetches.delete(flightKey)
+      );
+      this.inFlightMessageFetches.set(flightKey, fetchPromise);
+    }
+    await fetchPromise;
 
-    // Track this fetch
-    this.inFlightMessageFetches.set(token.generation, fetchPromise);
-
-    return fetchPromise;
+    if (
+      !this.isCurrentOwner(token) ||
+      editor.document.version !== documentVersion
+    ) {
+      return;
+    }
+    if (!blameStateManager.isBlameEnabled(uri)) {
+      if (this.isEditorVisible(editor)) {
+        this.clearDecorations(editor);
+      }
+      return;
+    }
+    if (!this.isEditorVisible(editor)) {
+      return;
+    }
+    this.updateInlineDecorationsWithMessages(
+      blameData,
+      editor,
+      lineMapping,
+      token
+    );
   }
 
   /**
@@ -1054,7 +1085,7 @@ export class BlameProvider implements Disposable {
     this.revisionColors.clear();
     this.svgCache.clear();
     this.messageCache.clear();
-    this.inFlightMessageFetches.clear(); // Cancel all in-flight fetches
+    this.inFlightMessageFetches.clear(); // Owner guards suppress late applies
     this.uriOwners.clear();
     this.disposables.forEach(d => d.dispose());
     this.disposables = [];
@@ -1074,22 +1105,18 @@ export class BlameProvider implements Disposable {
 
     // Update current line number for new editor
     this.currentLineNumber = editor.selection.active.line;
-    // No explicit editor: @throttle isn't keep-last, so a queued render
-    // would otherwise repaint whichever editor was active when the FIRST
-    // queued call fired. Resolving window.activeTextEditor at execution
-    // time keeps rapid tab-switching from leaving the visible editor blank.
+    // Resolve the live active editor inside the throttled execution.
     await this.updateDecorations();
   }
 
   @debounce(500)
   private onDocumentChange(event: { document: { uri: Uri } }): void {
     // Clear decorations on text change (debounced to wait for typing to stop)
-    const editor = window.activeTextEditor;
-    if (
-      editor &&
-      editor.document.uri.toString() === event.document.uri.toString()
-    ) {
-      this.clearDecorations(editor);
+    const key = event.document.uri.toString();
+    for (const editor of this.visibleEditors()) {
+      if (editor.document.uri.toString() === key) {
+        this.clearDecorations(editor);
+      }
     }
   }
 
@@ -1129,41 +1156,56 @@ export class BlameProvider implements Disposable {
   /**
    * Drop the version-keyed provider cache after operations that change
    * BASE content (commit/update/revert/... plus switch/merge), then
-   * refresh the active editor so decorations reflect the new BASE.
+   * refresh every affected visible editor so decorations reflect the new BASE.
    */
   private onRepositoryOperation(operation: Operation, repo: Repository): void {
     if (!BLAME_INVALIDATING_OPERATIONS.has(operation)) {
       return;
     }
 
-    // Shared provider: a mutation in repo A must only drop repo A's files'
-    // entries. Use PRECISE ownership (the deepest repo that owns each file),
-    // not a lexical descendant test - else a parent-repo commit would also
-    // clear a nested repo's still-valid caches.
-    this.clearRepoScope(repo, key => {
-      const token = this.uriOwners.get(key);
-      return token ? token.repository === repo : this.repoForKey(key) === repo;
-    });
-
+    const invalidated = new Set<Repository>([repo]);
     if (DESCENDANT_BLAME_INVALIDATING_OPERATIONS.has(operation)) {
       for (const child of this.sourceControlManager.repositories ?? []) {
         if (
           child !== repo &&
           isDescendant(repo.workspaceRoot, child.workspaceRoot)
         ) {
-          child.repository.clearBlameCache();
-          this.clearRepoScope(child, key => {
-            const token = this.uriOwners.get(key);
-            return token
-              ? token.repository === child
-              : this.repoForKey(key) === child;
-          });
+          invalidated.add(child);
         }
       }
     }
+    const editors = this.visibleEditors().filter(editor => {
+      const token = this.uriOwners.get(editor.document.uri.toString());
+      const owner = this.repoFor(editor.document.uri);
+      return (
+        (owner !== undefined && invalidated.has(owner)) ||
+        (token !== undefined && invalidated.has(token.repository))
+      );
+    });
 
-    if (window.activeTextEditor) {
-      void this.updateDecorations();
+    // Shared provider: a mutation in repo A must only drop repo A's files'
+    // entries. Use PRECISE ownership (the deepest repo that owns each file),
+    // not a lexical descendant test - else a parent-repo commit would also
+    // clear a nested repo's still-valid caches.
+    this.clearRepoScope(repo, key => this.cacheKeyBelongsToRepo(key, repo));
+
+    for (const child of invalidated) {
+      if (child === repo) {
+        continue;
+      }
+      child.repository.clearBlameCache();
+      this.clearRepoScope(child, key => this.cacheKeyBelongsToRepo(key, child));
+    }
+
+    for (const editor of editors) {
+      this.clearDecorations(editor);
+    }
+    if (editors.length > 0) {
+      void (async () => {
+        for (const editor of editors) {
+          await this.renderDecorations(editor);
+        }
+      })();
     }
   }
 
@@ -1175,6 +1217,13 @@ export class BlameProvider implements Disposable {
     } catch {
       return undefined;
     }
+  }
+
+  private cacheKeyBelongsToRepo(key: string, repo: Repository): boolean {
+    return (
+      this.uriOwners.get(key)?.repository === repo ||
+      this.repoForKey(key) === repo
+    );
   }
 
   /**
@@ -1253,7 +1302,7 @@ export class BlameProvider implements Disposable {
         return false;
       }
     };
-    const visibleOwnership = (window.visibleTextEditors ?? []).map(editor => ({
+    const visibleOwnership = this.visibleEditors().map(editor => ({
       editor,
       owned: owned(editor.document.uri)
     }));
@@ -1278,7 +1327,7 @@ export class BlameProvider implements Disposable {
     if (rerender.length > 0) {
       void (async () => {
         for (const editor of rerender) {
-          await this.updateDecorations(editor);
+          await this.renderDecorations(editor);
         }
       })();
     }

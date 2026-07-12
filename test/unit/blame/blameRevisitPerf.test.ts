@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { Uri } from "vscode";
 import { Repository } from "../../../src/svnRepository";
 import { BlameProvider } from "../../../src/blame/blameProvider";
+import { blameConfiguration } from "../../../src/blame/blameConfiguration";
 import { ISvnInfo } from "../../../src/common/types";
 
 /**
@@ -77,6 +78,7 @@ describe("decoration render cache", () => {
     const uri = Uri.file("/ws/a.R");
     const editor = {
       document: { uri, lineCount: 10, version: 7, getText: () => "" },
+      selection: { active: { line: 1 } },
       setDecorations: vi.fn()
     };
     const blameData = [
@@ -107,11 +109,16 @@ describe("decoration render cache", () => {
       getRevisionRange: vi.fn(() => ({ oldest: 42, newest: 42 })),
       applyIconDecorations: vi.fn(),
       prefetchMessagesProgressively: vi.fn(async () => {}),
+      prefetchPeekData: vi.fn(async () => {}),
       claimOwner: () => ({ repository: mockThis.repository }),
       isCurrentOwner: () => true
     };
     (mockThis as unknown as { repoFor: unknown }).repoFor = () =>
       mockThis.repository;
+    (mockThis as unknown as { renderDecorations: unknown }).renderDecorations =
+      (
+        BlameProvider.prototype as unknown as Record<string, unknown>
+      ).renderDecorations;
     const updateDecorations = (
       BlameProvider.prototype as unknown as Record<string, unknown>
     ).updateDecorations as (this: unknown, editor?: unknown) => Promise<void>;
@@ -127,5 +134,23 @@ describe("decoration render cache", () => {
     expect(mockThis.createAllDecorations).toHaveBeenCalledTimes(1);
     // decorations still applied on the cached revisit
     expect(editor.setDecorations.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keys current-line renders by each split editor's selection", async () => {
+    const { mockThis, editor, updateDecorations } = harness();
+    const currentLineOnly = vi
+      .spyOn(blameConfiguration, "isInlineCurrentLineOnly")
+      .mockReturnValue(true);
+    const secondEditor = {
+      ...editor,
+      selection: { active: { line: 7 } },
+      setDecorations: vi.fn()
+    };
+
+    await updateDecorations.call(mockThis, editor);
+    await updateDecorations.call(mockThis, secondEditor);
+
+    expect(mockThis.createAllDecorations).toHaveBeenCalledTimes(2);
+    currentLineOnly.mockRestore();
   });
 });
