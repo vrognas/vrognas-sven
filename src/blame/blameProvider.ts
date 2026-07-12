@@ -336,8 +336,8 @@ export class BlameProvider implements Disposable {
       // are independent - fetch them concurrently instead of paying a
       // serial subprocess spawn before the first paint
       const [blameData, lineMapping] = await Promise.all([
-        this.getBlameData(target.document.uri, target),
-        this.getLineMapping(target.document.uri, target)
+        this.getBlameData(target.document.uri, target, repository),
+        this.getLineMapping(target.document.uri, target, repository)
       ]);
 
       if (!blameData) {
@@ -839,7 +839,8 @@ export class BlameProvider implements Disposable {
     }
 
     // Skip files outside any open working copy.
-    if (!this.repoFor(editor.document.uri)) {
+    const repository = this.repoFor(editor.document.uri);
+    if (!repository) {
       return;
     }
 
@@ -860,13 +861,21 @@ export class BlameProvider implements Disposable {
     }
 
     // Get cached blame data (don't re-fetch)
-    const blameData = await this.getBlameData(editor.document.uri, editor);
+    const blameData = await this.getBlameData(
+      editor.document.uri,
+      editor,
+      repository
+    );
     if (!blameData) {
       return;
     }
 
     // Get line mapping for modified files
-    const lineMapping = await this.getLineMapping(editor.document.uri, editor);
+    const lineMapping = await this.getLineMapping(
+      editor.document.uri,
+      editor,
+      repository
+    );
 
     const currentLine = editor.selection.active.line;
     const inlineDecorations: DecorationOptions[] = [];
@@ -1175,7 +1184,8 @@ export class BlameProvider implements Disposable {
    */
   private async getBlameData(
     uri: Uri,
-    editor: TextEditor
+    editor: TextEditor,
+    owner?: Repository
   ): Promise<ISvnBlameLine[] | undefined> {
     const key = uri.toString();
 
@@ -1193,7 +1203,9 @@ export class BlameProvider implements Disposable {
       return cached.data;
     }
 
-    const repository = this.repoFor(uri);
+    // Reuse the caller's already-resolved repo when given (the cache-hit path
+    // above never resolves), else resolve it now.
+    const repository = owner ?? this.repoFor(uri);
     if (!repository) {
       return undefined;
     }
@@ -1277,7 +1289,8 @@ export class BlameProvider implements Disposable {
    */
   private async getLineMapping(
     uri: Uri,
-    editor: TextEditor
+    editor: TextEditor,
+    owner?: Repository
   ): Promise<LineMapping | undefined> {
     const key = uri.toString();
     const currentVersion = editor.document.version;
@@ -1288,8 +1301,8 @@ export class BlameProvider implements Disposable {
       return cached.mapping;
     }
 
-    // Check if file is modified
-    const repository = this.repoFor(uri);
+    // Check if file is modified (reuse the caller's resolved repo if given)
+    const repository = owner ?? this.repoFor(uri);
     const resource = repository?.getResourceFromFile(uri);
     if (!repository || !resource || resource.type !== Status.MODIFIED) {
       // File not modified (or no repo) - no mapping needed (identity mapping)
