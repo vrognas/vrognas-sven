@@ -78,7 +78,7 @@ export function computeLineMapping(
   // line apart from a deletion once its neighbours are no longer in view.
   const midMapping =
     baseMid.length * workMid.length > MAX_LCS_PRODUCT
-      ? positionalMiddleMapping(baseMid, workMid)
+      ? unmappedCore(baseMid)
       : computeCoreMapping(baseMid, workMid, prefix > 0, suffix > 0);
 
   // Re-offset the core mapping by the stripped prefix length.
@@ -155,17 +155,15 @@ function computeCoreMapping(
 }
 
 /**
- * Fallback for an oversized differing core: map each base line to the
- * working line at the same offset (undefined past the working end). Rough,
- * but bounded - only reached when the core exceeds MAX_LCS_PRODUCT.
+ * Fallback for an oversized differing core (exceeds MAX_LCS_PRODUCT): leave
+ * every base line unmapped. An offset-based guess would attribute blame to
+ * the wrong lines in a heavily-rewritten region; showing NO blame there is
+ * honest (those lines changed) and still avoids the OOM full DP matrix.
  */
-function positionalMiddleMapping(
-  baseLines: string[],
-  workingLines: string[]
-): LineMapping {
+function unmappedCore(baseLines: string[]): LineMapping {
   const mapping: LineMapping = new Map();
   for (let i = 0; i < baseLines.length; i++) {
-    mapping.set(i + 1, i < workingLines.length ? i + 1 : undefined);
+    mapping.set(i + 1, undefined);
   }
   return mapping;
 }

@@ -2,18 +2,19 @@ import { describe, it, expect } from "vitest";
 import { computeLineMapping } from "../../../src/util/lineMapper";
 
 describe("computeLineMapping — large inputs", () => {
-  it("degrades to a positional mapping on oversized diffs (no OOM)", () => {
-    // 2100x2100 fully-distinct lines → product > MAX_LCS_PRODUCT (4M).
-    // Without the gate this fills a full DP matrix and the precise result
-    // leaves unmatched base lines undefined; the gate maps them positionally.
+  it("shows no blame on an oversized diff core (no OOM, no misattribution)", () => {
+    // 2100x2100 fully-distinct lines → product > MAX_LCS_PRODUCT (4M). The
+    // gate must avoid both the OOM full DP matrix AND offset-based positional
+    // mapping (which would attribute blame to the wrong lines): every base
+    // line in the over-cap core is left unmapped (no blame) instead.
     const N = 2100;
     const base = Array.from({ length: N }, (_, i) => `b${i}`);
     const working = Array.from({ length: N }, (_, i) => `w${i}`);
 
     const mapping = computeLineMapping(base, working);
 
-    expect(mapping.get(1)).toBe(1);
-    expect(mapping.get(N)).toBe(N);
+    expect(mapping.get(1)).toBeUndefined();
+    expect(mapping.get(N)).toBeUndefined();
   });
 
   it("keeps precise mapping for a large mostly-unchanged file", () => {
