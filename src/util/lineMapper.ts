@@ -21,8 +21,6 @@ const MAX_LINEAR_LCS_ROW_LENGTH = 100_000;
 const MAX_ADAPTIVE_EDIT_WORK = 20_000_000;
 /** Maximum direction cells retained by the exact low-edit fallback. */
 const MAX_BANDED_TRACE_CELLS = 4_000_000;
-/** Caps exact sparse LCS match pairs before conservative fallback. */
-const MAX_SPARSE_LCS_MATCH_PAIRS = 100_000;
 /** Caps persistent sparse-LCS trace storage. */
 const MAX_SPARSE_LCS_TRACE_NODES = 2_000_000;
 /** Caps sparse-LCS tree query/update work. */
@@ -222,6 +220,7 @@ interface SparseGap {
   workingEnd: number;
   bracketBefore: boolean;
   bracketAfter: boolean;
+  exactSparseContext: boolean;
   denseCells: number;
   anchorAfter?: LCSMatch;
   mapping?: LineMapping;
@@ -576,9 +575,9 @@ function computeSparseCoreMapping(
     );
   }
 
-  const anchors =
-    computeMatchSparseLCS(baseLines, workingLines) ??
-    findSafeUniqueAnchors(baseLines, workingLines);
+  const sparseLcs = computeMatchSparseLCS(baseLines, workingLines);
+  const exactSparseContext = sparseLcs !== undefined;
+  const anchors = sparseLcs ?? findSafeUniqueAnchors(baseLines, workingLines);
   const gaps: SparseGap[] = [];
   let baseStart = 0;
   let workingStart = 0;
@@ -592,6 +591,7 @@ function computeSparseCoreMapping(
       workingEnd: anchor.workingIdx,
       bracketBefore: hasMatchBefore,
       bracketAfter: true,
+      exactSparseContext,
       denseCells: denseCellCount(
         anchor.baseIdx - baseStart,
         anchor.workingIdx - workingStart
@@ -610,6 +610,7 @@ function computeSparseCoreMapping(
     workingEnd: workingLines.length,
     bracketBefore: hasMatchBefore,
     bracketAfter,
+    exactSparseContext,
     denseCells: denseCellCount(
       baseLines.length - baseStart,
       workingLines.length - workingStart
@@ -660,6 +661,9 @@ function appendSparseGap(
   const workingLength = gap.workingEnd - gap.workingStart;
   const balancedContext =
     baseLength === workingLength && (gap.bracketBefore || gap.bracketAfter);
+  const contextualRewrite =
+    balancedContext ||
+    (gap.exactSparseContext && gap.bracketBefore && gap.bracketAfter);
 
   for (let baseIdx = gap.baseStart; baseIdx < gap.baseEnd; baseIdx++) {
     const localBaseLine = baseIdx - gap.baseStart + 1;
@@ -678,7 +682,7 @@ function appendSparseGap(
     if (
       baseLine === workingLine ||
       isSimilarLine(baseLine, workingLine) ||
-      balancedContext
+      contextualRewrite
     ) {
       target.set(baseIdx + 1, workingIdx + 1);
     } else {
@@ -822,9 +826,13 @@ function computeMatchSparseLCS(
   }
 
   let matchPairs = 0;
+  const maxMatchPairs = Math.min(
+    Math.floor((MAX_SPARSE_LCS_TRACE_NODES - 1) / nodesPerUpdate),
+    Math.floor((MAX_SPARSE_LCS_WORK - traceWork) / (3 * nodesPerUpdate))
+  );
   for (const line of baseLines) {
     matchPairs += workingPositions.get(line)?.length ?? 0;
-    if (matchPairs > MAX_SPARSE_LCS_MATCH_PAIRS) return undefined;
+    if (matchPairs > maxMatchPairs) return undefined;
   }
   if (matchPairs === 0) return undefined;
 

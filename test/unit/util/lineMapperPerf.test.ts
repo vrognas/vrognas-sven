@@ -192,6 +192,57 @@ describe("computeLineMapping — large inputs", () => {
     }
   });
 
+  it("uses remaining sparse budgets above 100k match pairs", () => {
+    const lineCount = 4472;
+    const movedCount = 655;
+    const repeatedCount = 310;
+    const header = [
+      ...Array<string>(repeatedCount).fill("repeat"),
+      ...Array.from(
+        { length: movedCount - repeatedCount },
+        (_, i) => `header ${i}`
+      )
+    ];
+    const body = Array.from(
+      { length: lineCount - movedCount },
+      (_, i) => `body ${i}`
+    );
+
+    const mapping = computeLineMapping(
+      [...header, ...body],
+      [...body, ...header]
+    );
+
+    expect(mapping.get(movedCount + 1)).toBe(1);
+    expect(mapping.get(lineCount)).toBe(body.length);
+    expect(
+      [...mapping.values()].filter(value => value !== undefined)
+    ).toHaveLength(body.length);
+  });
+
+  it("keeps contextual rewrites from an exact sparse LCS", () => {
+    const header = Array.from({ length: 655 }, (_, i) => `header ${i}`);
+    const before = Array.from({ length: 1858 }, (_, i) => `before ${i}`);
+    const baseChanges = Array.from({ length: 100 }, (_, i) => `old ${i}`);
+    const workChanges = Array.from({ length: 101 }, (_, i) => `new ${i}`);
+    const after = Array.from({ length: 1859 }, (_, i) => `after ${i}`);
+
+    const mapping = computeLineMapping(
+      [...header, ...before, ...baseChanges, ...after],
+      [...before, ...workChanges, ...after, ...header]
+    );
+    const firstChange = header.length + before.length + 1;
+    const firstAfter = firstChange + baseChanges.length;
+
+    expect(mapping.get(firstChange)).toBe(before.length + 1);
+    expect(mapping.get(firstChange + baseChanges.length - 1)).toBe(
+      before.length + baseChanges.length
+    );
+    expect(mapping.get(firstAfter)).toBe(
+      before.length + workChanges.length + 1
+    );
+  });
+
   it("keeps dense duplicate attribution in a sparse LCS", () => {
     const lineCount = 4472;
     const movedCount = 655;
