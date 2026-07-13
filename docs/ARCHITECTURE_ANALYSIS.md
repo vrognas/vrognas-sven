@@ -1,7 +1,7 @@
 # SVN Extension Architecture
 
-**Version**: 0.2.103
-**Updated**: 2026-07-13
+**Version**: 0.2.104
+**Updated**: 2026-07-14
 
 ---
 
@@ -13,7 +13,7 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 
 - ~34,300 source lines (non-test src/\*_/_.ts)
 - 104 contributed commands, 80 settings
-- 2082 tests
+- 2172 tests
 - Targets: vscode ^1.109.0, positron ^2026.04.0
 
 ---
@@ -42,14 +42,14 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 
 ### Key Files
 
-| Layer    | Files                                                             |
-| -------- | ----------------------------------------------------------------- |
-| Entry    | extension.ts, source_control_manager.ts                           |
-| Core     | repository.ts, svnRepository.ts, svn.ts                           |
-| Services | StatusService.ts, ResourceGroupManager.ts, RemoteChangeService.ts |
-| Commands | command.ts (base), commands/\*.ts (73 files)                      |
-| Parsing  | statusParser.ts, logParser.ts, infoParser.ts, blameParser.ts      |
-| Blame    | blameConfiguration.ts, blameStateManager.ts, blameProvider.ts     |
+| Layer    | Files                                                                                 |
+| -------- | ------------------------------------------------------------------------------------- |
+| Entry    | extension.ts, source_control_manager.ts                                               |
+| Core     | repository.ts, svnRepository.ts, svn.ts                                               |
+| Services | StatusService.ts, ResourceGroupManager.ts, RemoteChangeService.ts, credentialStore.ts |
+| Commands | command.ts (base), commands/\*.ts (73 files)                                          |
+| Parsing  | statusParser.ts, logParser.ts, infoParser.ts, blameParser.ts                          |
+| Blame    | blameConfiguration.ts, blameStateManager.ts, blameProvider.ts                         |
 
 ---
 
@@ -96,10 +96,13 @@ Per-file blame tracking with:
   retain attribution without quadratic gaps. Dense storage counts its boundary
   row/column; linear-space work counts only real line pairs. Hirschberg stores
   the shorter-axis row and mirrors dense tie policy when axes transpose.
-- Status-bar teardown fences deferred repository readiness and cancels pending
-  debounce work before disposing UI resources; async results revalidate the
-  newest generation, active editor, and line. Blame uses descendant ownership
-  so status exclusions cannot hide svn:externals
+- Status-bar teardown releases per-repo operation hooks, fences deferred
+  repository readiness, and cancels pending debounce work before disposing UI
+  resources; async results revalidate the newest generation, active editor,
+  and line. Every blame UI entry uses descendant ownership so status
+  exclusions cannot hide svn:externals; missing direct resources check ignored
+  and unversioned ancestor state through an O(path-depth) index before enabling
+  blame
 - autoBlame-gated auto-fetch; CSV/large-file gates on all fetch paths
   (render, cursor, status bar)
 
@@ -135,6 +138,34 @@ Per-file blame tracking with:
 | RemoteChangeService  | Background polling timers                  | ~107  |
 | CommitFlowService    | Staging & commit orchestration             | ~300  |
 | SvnAuthCache         | Credential storage (keyring/SecretStorage) | ~200  |
+| CredentialStore      | Shared key-scoped SecretStorage access     | ~135  |
+
+### Lifecycle and Ownership
+
+- `IOpenRepository.dispose()` is the sole repository close path. It is
+  idempotent and owns manager removal, excluded-path cleanup, repository
+  disposal, and the close event. Workspace-folder removal closes every opened
+  repository beneath the removed root using path-aware descendant checks.
+  Removed handles close before replacement roots are evaluated. Async discovery
+  checks manager liveness and workspace topology after each await; late opened
+  base repositories clear their caches instead of registering. Debounced scans
+  carry their enqueue topology generation and revalidate before dispatch.
+- Activation registers `Svn`, output commands/channels, and configuration
+  listeners with the extension context immediately after creation.
+- `Svn.executeProcess()` owns process listeners, timeout, and cancellation as
+  one scope and releases them in `finally` on success, failure, timeout, or
+  cancellation. Buffered success stays binary; only failure construction
+  decodes stdout, and repository `cat` delegates to that single error policy.
+- Extension-stored credentials use one `CredentialStore` per `SecretStorage`;
+  reads deduplicate and writes serialize by server key across repositories.
+- The flat repository-history view selects the active editor's owner, falls
+  back to the first opened repository, keys caches by local repository identity,
+  and retains every interactive or synthetic item's provenance in a `WeakMap`.
+  Cache reuse also requires the current remote target URL, commit IDs include
+  local owner identity, and async navigation revalidates the displayed owner.
+  Owner changes invalidate the root; same-owner tab switches do not. Hidden
+  repository changes refresh on reveal without fetching until `getChildren()`
+  runs.
 
 ---
 
@@ -193,7 +224,7 @@ External: vscode, @posit-dev/positron
 1. Clean separation of concerns (services extracted)
 2. Type-safe (strict TypeScript, minimal `any`)
 3. Performance optimized (all P0/P1 fixed)
-4. Comprehensive testing (930+ tests)
+4. Comprehensive testing (2172 tests)
 5. Security hardened (sanitization, stdin passwords)
 6. Multi-repo support (independent operation queues)
 
@@ -223,7 +254,7 @@ External: vscode, @posit-dev/positron
 
 ## Technical Debt
 
-- Repository.ts still ~2980 lines (auth + property-cache blocks extractable)
+- Repository.ts still ~3500 lines (auth + property-cache blocks extractable)
 - 73 command files in src/commands/ (incl. base) after consolidation (reveal, ignore, patch, commit merged)
 - ~248 `any` types remaining across 25 files (mostly test files; production ~5 files)
 - fs/ wrappers use `promisify(original-fs)` — could use `original-fs.promises`

@@ -1,7 +1,87 @@
 # Lessons Learned
 
-**Version**: 0.2.103
-**Updated**: 2026-07-13
+**Version**: 0.2.104
+**Updated**: 2026-07-14
+
+---
+
+### 104. Stable Owner Identity Does Not Make Its Target Immutable
+
+**Lesson**: Keying history by local repository identity separated same-URL working copies, but `branchRoot` can change on `svn switch`. A lower BASE revision made the old branch look current, so trunk entries survived under the new branch target and later pagination could mix histories. Revision-only tree IDs and async reveal also crossed owners in the shared view.
+
+**Fix**: Require both local owner identity and current target URL before preserving a cache. Scope commit IDs by owner, invalidate only when the selected owner changes, refresh the root after paging, and revalidate owner/cache identity after async navigation.
+
+**Rule**: Cache-key ownership and value-namespace validity are separate invariants. Recheck mutable targets and UI ownership at reuse, paging, identity, and post-await publication boundaries.
+
+---
+
+### 103. Derived Indexes Must Hash Every Semantic Field
+
+**Lesson**: Blame icon correctness added a synchronous ancestry query, but the shared helper linearly scanned every unversioned and ignored resource. A derived index keyed only by path/status would also stay stale when the same path changed from a file to a directory.
+
+**Fix**: Atomically rebuild exact-resource and folder-ancestry maps, walk only parent paths at lookup, preserve unversioned precedence, and include resource `kind` in the change hash.
+
+**Rule**: Move repeated membership queries into an index whose rebuild key includes every field affecting lookup semantics. Build replacement state completely, then swap it as one synchronous publication.
+
+---
+
+### 102. Async Discovery Must Revalidate Topology
+
+**Lesson**: Repository discovery could finish after its workspace was removed and register a stale repository. A parent-to-child workspace replacement also filtered the child while the parent was still open, then closed the parent and left no owner. A debounced watcher scan captured only a path, so it could start after removal under the new generation and reopen the stale working copy.
+
+**Fix**: Close removed repository handles before evaluating additions. Snapshot manager/topology state, carry it through queued debounce work, and revalidate before dispatch and after every discovery await; clear caches on a late opened base repository that no longer belongs.
+
+**Rule**: Async or delayed discovery is valid only for the lifecycle and topology that requested it. Carry generation across queues, reconcile removals before additions, and dispose late results before publication.
+
+---
+
+### 101. Buffer APIs Must Stay Binary on Success
+
+**Lesson**: `execBuffer()` converted successful stdout to a string only to reuse failure handling. Large binary reads duplicated memory and could exceed Node's maximum string length despite a successful SVN exit.
+
+**Fix**: Test the exit code first, decode stdout only while constructing a nonzero-exit error, and remove the repository-level duplicate branch so every buffered command shares that policy.
+
+**Rule**: A buffer-returning API must preserve bytes end to end on success. Keep expensive or lossy decoding on the error path that needs text.
+
+---
+
+### 100. Flat Multi-Repo Views Need Selection and Item Provenance
+
+**Lesson**: Repository history cached every open repository but displayed the first `Map` entry. URL-keyed caches also merged two local working copies of the same branch. After selecting by active editor, controls and synthetic reveal items could still execute against a newly focused repository; hidden changes stayed stale on reveal.
+
+**Fix**: Key caches by local repository identity, select by descendant owner, and bind commits, controls, and synthetic items to their cache with a `WeakMap`. Reject replaced-cache bindings, invalidate on editor change, and remember hidden changes for reveal-time metadata refresh.
+
+**Rule**: A flat multi-owner view needs owner-identity cache keys, deterministic selection, durable provenance on every actionable item, and focus/visibility invalidation. Remote URLs and mutable focus are not local ownership.
+
+---
+
+### 99. A Shared Storage Key Requires a Shared Lock
+
+**Lesson**: Credentials are stored per SVN server, but each `Repository` had its own save lock and cache. Two repositories on the same server could concurrently read the same old array, append different accounts, and overwrite one another.
+
+**Fix**: One `CredentialStore` per VS Code `SecretStorage`, with read deduplication, a short cache, and write queues keyed by server credential key. Every save rereads inside the key queue before merging.
+
+**Rule**: Serialization scope follows the mutated key, not the caller instance. If multiple objects share storage, their locks and caches must be shared at the storage-key boundary.
+
+---
+
+### 98. Cleanup Handles Are Behavioral Contracts
+
+**Lesson**: Workspace removal called the inner repository's `dispose()` instead of the manager's `IOpenRepository.dispose()` handle. The repository stopped, but manager registration, excluded-path cache, close events, and dependent hooks survived. Raw `startsWith` also treated sibling roots as descendants and only one nested repository was selected for closure.
+
+**Fix**: Make the complete close handle idempotent and use it for removal, shutdown, and explicit close. Select every opened repository beneath removed roots with path-aware descendant checks, excluding repositories still covered by remaining workspace roots. Register activation and repository-owned disposables immediately.
+
+**Rule**: A wrapper cleanup handle is not interchangeable with disposal of its inner object. Route every teardown trigger through the one handle that owns the full lifecycle transition.
+
+---
+
+### 97. `Promise.race` Losers Still Need Cleanup
+
+**Lesson**: SVN process listeners were removed only after a successful race. Timeout, cancellation, and spawn errors left listeners and cancellation subscriptions attached; `execBuffer()` also returned nonzero exits as ordinary results while `exec()` threw.
+
+**Fix**: Own process listeners, timeout, and cancellation in one disposable scope released by `finally`. Route text and buffered results through one nonzero-exit error builder.
+
+**Rule**: Every resource registered before a `Promise.race` belongs in its `finally`; success-only cleanup leaks on every alternate winner. Parallel APIs over one process primitive must share failure semantics.
 
 ---
 

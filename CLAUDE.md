@@ -49,3 +49,7 @@
 - Cross-WC invalidation carries traversal/target scope, unions bounded best-effort pre/post topology, and follows exact external-root to WC-root edges; failed scans parse partial XML, mark exhausted probes incomplete, and conservatively cover only opened repos beneath the parent root or targets. Keep discovery separate from UI status.
 - After an irreversible mutation succeeds, disposal during follow-up refresh must not reject the command; preserve ordinary live refresh failures.
 - Deferred UI continuations must check disposal and current generation/editor/line/owner; teardown cancels pending debounce timers before disposing UI resources.
+- Async repository discovery revalidates lifecycle/topology after every await; debounced work carries enqueue generation, removals close before additions, and late results dispose before registration.
+- Multi-owner caches use local owner identity, not shared remote URLs; reuse also verifies mutable targets, actionable/synthetic items retain provenance, IDs include owner scope, and async UI publication revalidates focus.
+- Buffer-returning APIs keep successful output binary; decode only failure paths that require text.
+- Derived indexes hash every field affecting lookup semantics, including file/directory kind; build replacements fully before synchronous swap.

@@ -7,6 +7,24 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.104] - 2026-07-14
+
+Fix shared-state ownership and teardown regressions.
+
+### Fixed
+
+- **Repository close uses one complete path.** Workspace removal closes every nested repository, respects path boundaries, clears manager state, emits close, and cancels owned listeners/timers.
+- **Shared credential writes cannot overwrite accounts.** Same-server reads and writes now share one key-scoped store across repositories.
+- **SVN processes always release resources.** Timeout, cancellation, and spawn-error paths remove listeners/subscriptions; one buffered error path rejects nonzero exits without decoding successful binary output.
+- **Blame keeps external ownership.** Commands and icon state include svn:externals, ignored ancestry stays untracked, and status-bar repository hooks release on close.
+- **History stays repo-correct and lazy.** Local identity separates same-URL caches, current target URLs fence branch switches, actionable items and tree IDs retain ownership, and hidden changes refresh on reveal.
+- **Workspace discovery follows current topology.** Removed repositories close before replacement roots scan; lifecycle/topology fences cover awaited and debounced discovery.
+- **Ignored ancestry lookup is bounded.** Atomic exact/folder indexes replace repeated resource-array scans and rebuild when path kind changes.
+
+### Changed
+
+- Removed dead repository/status configuration reads.
+
 ## [0.2.103] - 2026-07-13
 
 Fix skinny large-file blame mapping.
