@@ -845,7 +845,8 @@ function computeMatchSparseLCS(
     matchPairs += workingPositions.get(line)?.length ?? 0;
     if (matchPairs > maxMatchPairs) return undefined;
   }
-  if (matchPairs === 0) return undefined;
+  // No shared lines is an exact empty LCS, not resource exhaustion.
+  if (matchPairs === 0) return [];
 
   const nodeCapacity = matchPairs * nodesPerUpdate + 1;
   const estimatedWork = 3 * nodesPerUpdate * matchPairs + traceWork;

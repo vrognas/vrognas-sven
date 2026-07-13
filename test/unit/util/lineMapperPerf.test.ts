@@ -16,6 +16,28 @@ describe("computeLineMapping — large inputs", () => {
     expect(mapping.get(N)).toBeUndefined();
   });
 
+  it("keeps a fully rewritten over-cap core when context brackets it", () => {
+    const N = 4472;
+    const base = [
+      "HEAD",
+      ...Array.from({ length: N }, (_, i) => `old ${i}`),
+      "TAIL"
+    ];
+    const working = [
+      "HEAD",
+      ...Array.from({ length: N }, (_, i) => `new ${i}`),
+      "TAIL"
+    ];
+
+    const mapping = computeLineMapping(base, working);
+
+    expect(mapping.get(2)).toBe(2);
+    expect(mapping.get(N + 1)).toBe(N + 1);
+    expect(
+      [...mapping.values()].filter(line => line !== undefined)
+    ).toHaveLength(N + 2);
+  });
+
   it("keeps precise mapping for a large mostly-unchanged file", () => {
     // 3000 identical lines with a single modified line in the middle.
     // Prefix/suffix stripping shrinks the LCS work to the 1-line core.
