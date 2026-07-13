@@ -7,6 +7,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.101] - 2026-07-13
+
+Fix incomplete external invalidation and post-commit teardown.
+
+### Fixed
+
+- **Failed topology scans cannot hide mutated externals.** Partial status XML is retained, exhausted probes propagate uncertainty, and conservative fallback stays within the parent root or explicit targets.
+- **Cleanup reports external traversal.** Include-externals cleanup invalidates affected nested working copies without flushing unrelated workspace caches.
+- **Completed commits survive repository teardown.** Disposal during the post-commit info refresh no longer reports the successful commit as failed; live refresh errors still propagate.
+
 ## [0.2.100] - 2026-07-13
 
 Fix external-operation topology and in-flight BASE cache coherence.

@@ -85,7 +85,8 @@ Per-file blame tracking with:
   edges; file batches skip topology probes and large target sets use one
   recursive read, then complete 16-path recovery batches if needed; failed
   batches isolate targets, await siblings, and preserve partial roots across
-  one lock retry, independently of normal UI status
+  one lock retry; failed scans parse usable stdout and propagate incomplete
+  topology so fallback invalidation stays within the parent root or targets
 - Scoped message LRU invalidates only render entries that depend on the changed
   repo+revision; in-flight add-revision and message fetches are deduplicated
 - Line mapping strips equal edges, then uses bounded dense LCS, dense-compatible
@@ -153,7 +154,7 @@ Caching strategy:
   guarded by mutation state; info, persistent-key namespace, BASE-key,
   negative-cache, and blame writes share generation fences that start before
   async key resolution; repository disposal aborts reads, status retries, and
-  post-operation topology
+  post-operation topology without reclassifying a completed commit
 - Immutable data (SVN logs) = infinite TTL
 - Remote-check result cached with poll-frequency TTL for pre-commit reuse
 

@@ -44,5 +44,6 @@
 - Oversized quadratic diffs: dense LCS, dense-compatible linear-space LCS, bounded exact low-edit band, resource-budgeted exact match-sparse LCS, then non-crossing anchors; exact sparse context maps internal rewrites, while one-sided edges stay conservative.
 - Exact diff traceback may checkpoint/recompute within the work budget; never drop a known exact alignment only because full trace retention exceeds memory.
 - Exact algorithm result `[]` means computed empty; reserve `undefined` for resource exhaustion.
-- Cross-WC invalidation carries traversal/target scope, unions bounded best-effort pre/post topology, and follows exact external-root to WC-root edges; failed full scans batch every target, isolate failures, await siblings, and union partial roots across retries. Keep discovery separate from UI status and never infer impact from lexical nesting.
+- Cross-WC invalidation carries traversal/target scope, unions bounded best-effort pre/post topology, and follows exact external-root to WC-root edges; failed scans parse partial XML, mark exhausted probes incomplete, and conservatively cover only opened repos beneath the parent root or targets. Keep discovery separate from UI status.
+- After an irreversible mutation succeeds, disposal during follow-up refresh must not reject the command; preserve ordinary live refresh failures.
 - Deferred UI continuations must check disposal and current generation/editor/line/owner; teardown cancels pending debounce timers before disposing UI resources.

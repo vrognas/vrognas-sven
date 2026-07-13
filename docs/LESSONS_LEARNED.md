@@ -1,7 +1,27 @@
 # Lessons Learned
 
-**Version**: 0.2.100
+**Version**: 0.2.101
 **Updated**: 2026-07-13
+
+---
+
+### 94. Post-Success Housekeeping Must Not Reclassify a Mutation
+
+**Lesson**: A commit could finish on the server, then reject because closing the repository made its follow-up `updateInfo(true)` throw. The command reported failure after the irreversible work had already succeeded, making a duplicate retry plausible.
+
+**Fix**: Keep live refresh failures visible, but suppress the info-refresh rejection when repository disposal is already confirmed. History refresh failures remain independent and still propagate while the repository is live.
+
+**Rule**: Establish the mutation success boundary explicitly. Teardown during optional post-success housekeeping must not turn a completed mutation into a reported failure; never use that rule to hide ordinary live-state errors.
+
+---
+
+### 93. Incomplete Topology Is Data, Not an Empty Graph
+
+**Lesson**: Best-effort external discovery discarded parseable stdout from failed recursive status calls and treated generic scoped-probe failures as successful empty topology. A shared deepest-owner cache could therefore survive a partially completed external update. The first conservative fix cleared every workspace, violating multi-root cache isolation.
+
+**Fix**: Parse partial status XML carried by SVN errors, retain its external roots across pre/post snapshots, and mark any exhausted probe as incomplete. On that exceptional signal, invalidate opened repositories only beneath the parent root or normalized operation targets. Cleanup variants now declare whether they traverse externals.
+
+**Rule**: A failed dependency scan is never equivalent to “no dependencies.” Preserve partial evidence, propagate uncertainty, and contain conservative invalidation to the operation's possible reach.
 
 ---
 
