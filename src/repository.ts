@@ -61,6 +61,7 @@ function shouldUseExtensionStorage(): boolean {
 import { StatusService } from "./services/StatusService";
 import { ResourceGroupManager } from "./services/ResourceGroupManager";
 import { RemoteChangeService } from "./services/RemoteChangeService";
+import { CredentialStore } from "./services/credentialStore";
 import { STAGING_CHANGELIST } from "./services/stagingService";
 import { SvnFileDecorationProvider } from "./fileDecorationProvider";
 import {
@@ -461,7 +462,7 @@ export class Repository implements IRemoteRepository {
   private credentialLock: Promise<void> = Promise.resolve(); // Mutex for credential assignment
   private promptAuthCooldown: boolean = false;
   private promptAuthCooldownTimer?: ReturnType<typeof setTimeout>;
-  private storedAuthsCache?: { accounts: IStoredAuth[]; expiry: number };
+  private readonly credentialStore: CredentialStore;
 
   // Needs-lock cache: set of relative paths with svn:needs-lock property
   // Populated in batch by refreshAllPropertyCaches() for efficient decoration
@@ -645,8 +646,9 @@ export class Repository implements IRemoteRepository {
 
   constructor(
     public repository: BaseRepository,
-    private secrets: SecretStorage
+    secrets: SecretStorage
   ) {
+    this.credentialStore = CredentialStore.for(secrets);
     this.statusService = new StatusService(
       repository,
       repository.workspaceRoot,
@@ -799,7 +801,7 @@ export class Repository implements IRemoteRepository {
           this.username = undefined;
           this.password = undefined;
           this.canSaveAuth = false;
-          this.storedAuthsCache = undefined;
+          this.credentialStore.invalidate(this.getCredentialServiceName());
         });
       }
     });
@@ -2439,43 +2441,11 @@ export class Repository implements IRemoteRepository {
       return [];
     }
 
-    // Return cached if valid (60s TTL)
-    const now = Date.now();
-    if (this.storedAuthsCache && now < this.storedAuthsCache.expiry) {
-      return this.storedAuthsCache.accounts;
-    }
-
     // Prevent multiple prompts for auth
     if (this.lastPromptAuth) {
       await this.lastPromptAuth;
     }
-
-    try {
-      const secret = await this.secrets.get(this.getCredentialServiceName());
-
-      if (secret === undefined) {
-        this.storedAuthsCache = { accounts: [], expiry: now + 60000 };
-        return [];
-      }
-
-      // Safe JSON.parse with runtime type validation
-      const parsed = JSON.parse(secret);
-      if (!Array.isArray(parsed)) {
-        this.storedAuthsCache = { accounts: [], expiry: now + 60000 };
-        return [];
-      }
-      // Filter to only valid credential entries
-      const accounts = parsed.filter(
-        (c): c is IStoredAuth =>
-          c && typeof c.account === "string" && typeof c.password === "string"
-      );
-      this.storedAuthsCache = { accounts, expiry: now + 60000 };
-      return accounts;
-    } catch (error) {
-      // SecretStorage can fail if keyring is locked/unavailable
-      logError("Failed to load stored credentials", error);
-      return [];
-    }
+    return this.credentialStore.load(this.getCredentialServiceName());
   }
 
   public async saveAuth(): Promise<void> {
@@ -2495,42 +2465,10 @@ export class Repository implements IRemoteRepository {
 
     this.saveAuthLock = this.saveAuthLock.then(async () => {
       try {
-        const secret = await this.secrets.get(this.getCredentialServiceName());
-        let credentials: Array<IStoredAuth> = [];
-
-        if (typeof secret === "string") {
-          try {
-            const parsed = JSON.parse(secret);
-            if (Array.isArray(parsed)) {
-              credentials = parsed.filter(
-                (c): c is IStoredAuth =>
-                  c &&
-                  typeof c.account === "string" &&
-                  typeof c.password === "string"
-              );
-            }
-          } catch (error) {
-            logError("Failed to parse stored credentials", error);
-            credentials = [];
-          }
-        }
-
-        // Deduplicate: update existing entry or add new
-        const existingIndex = credentials.findIndex(
-          c => c.account === username
-        );
-        if (existingIndex >= 0) {
-          credentials[existingIndex]!.password = password;
-        } else {
-          credentials.push({ account: username, password });
-        }
-
-        await this.secrets.store(
+        await this.credentialStore.saveAccount(
           this.getCredentialServiceName(),
-          JSON.stringify(credentials)
+          { account: username, password }
         );
-        // Invalidate cache after save
-        this.storedAuthsCache = undefined;
       } catch (error) {
         // SecretStorage can fail if keyring is locked/unavailable
         // Reset canSaveAuth so user can retry on next successful operation
@@ -2548,7 +2486,7 @@ export class Repository implements IRemoteRepository {
    */
   public async clearCredentials(): Promise<void> {
     // Clear SecretStorage
-    await this.secrets.delete(this.getCredentialServiceName());
+    await this.credentialStore.delete(this.getCredentialServiceName());
 
     // Clear runtime credentials
     this.username = undefined;
