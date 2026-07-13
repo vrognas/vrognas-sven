@@ -197,6 +197,52 @@ suite("Blame cache invalidation on mutating operations", () => {
     ]);
   });
 
+  test("Repository.run preserves partial roots from failed full topology scans", async () => {
+    const { Repository } = await import("../../../repository");
+    const workspaceRoot = process.cwd();
+    const details: any[] = [];
+    let operationRan = false;
+    const statusXml = (externalPath: string) =>
+      `<?xml version="1.0"?><status><target path="."><entry path="${externalPath}"><wc-status item="external" props="none"/></entry></target></status>`;
+    const mockThis: any = {
+      state: RepositoryState.Idle,
+      workspaceRoot,
+      externalWorkingCopyRoots: [],
+      repository: {
+        clearBlameCache: () => {},
+        getStatus: async () => {
+          throw Object.assign(new Error("broken sibling external"), {
+            stdout: statusXml(operationRan ? "new-external" : "old-external")
+          });
+        }
+      },
+      _operations: { start: () => {}, end: () => {} },
+      _onRunOperation: { fire: () => {} },
+      _onDidRunOperation: { fire: () => {} },
+      _onDidRunOperationDetail: { fire: (detail: any) => details.push(detail) },
+      retryRun: async (fn: () => Promise<unknown>) => fn(),
+      updateModelState: async () => {},
+      lastForceRefresh: 0,
+      _changesGeneration: 0
+    };
+
+    await (Repository.prototype as any).run.call(
+      mockThis,
+      Operation.SwitchBranch,
+      async () => {
+        operationRan = true;
+        return "ok";
+      },
+      { externalImpact: { traverseExternals: true } }
+    );
+
+    assert.deepStrictEqual(details[0]?.affectedExternalRoots.sort(), [
+      path.join(workspaceRoot, "new-external"),
+      path.join(workspaceRoot, "old-external")
+    ]);
+    assert.strictEqual(details[0]?.externalTopologyIncomplete, true);
+  });
+
   test("Repository.run keeps successful scoped topology reads", async () => {
     const { Repository } = await import("../../../repository");
     const details: any[] = [];
@@ -275,6 +321,46 @@ suite("Blame cache invalidation on mutating operations", () => {
     ]);
     assert.deepStrictEqual(refreshArgs, [[false, true, false]]);
     assert.deepStrictEqual(details[0]?.affectedExternalRoots, [nestedRoot]);
+  });
+
+  test("Repository.run marks failed targeted topology incomplete", async () => {
+    const { Repository } = await import("../../../repository");
+    const details: any[] = [];
+    const workspaceRoot = process.cwd();
+    const target = path.join(workspaceRoot, "vendor");
+    const mockThis: any = {
+      state: RepositoryState.Idle,
+      workspaceRoot,
+      externalWorkingCopyRoots: [],
+      repository: {
+        clearBlameCache: () => {},
+        getScopedStatus: async () => {
+          throw new Error("broken nested external");
+        }
+      },
+      _operations: { start: () => {}, end: () => {} },
+      _onRunOperation: { fire: () => {} },
+      _onDidRunOperation: { fire: () => {} },
+      _onDidRunOperationDetail: { fire: (detail: any) => details.push(detail) },
+      retryRun: async (fn: () => Promise<unknown>) => fn(),
+      updateModelState: async () => {},
+      lastForceRefresh: 0,
+      _changesGeneration: 0
+    };
+
+    await (Repository.prototype as any).run.call(
+      mockThis,
+      Operation.Update,
+      async () => "ok",
+      {
+        externalImpact: {
+          traverseExternals: true,
+          targets: [target]
+        }
+      }
+    );
+
+    assert.strictEqual(details[0]?.externalTopologyIncomplete, true);
   });
 
   test("Repository.run deduplicates Windows case-alias targets", async () => {
@@ -785,6 +871,39 @@ suite("Blame cache invalidation on mutating operations", () => {
       { traverseExternals: true, targets: ["src/file.ts"] },
       { traverseExternals: true, targets: ["src/file.ts"] },
       { traverseExternals: true, targets: ["vendor"] }
+    ]);
+  });
+
+  test("cleanup variants report external traversal scope", async () => {
+    const { Repository } = await import("../../../repository");
+    const impacts: any[] = [];
+    const mockThis: any = {
+      run: async (
+        _op: Operation,
+        fn: () => Promise<unknown>,
+        options?: any
+      ) => {
+        impacts.push(options?.externalImpact);
+        return fn();
+      },
+      repository: {
+        cleanupWithExternals: async () => "ok",
+        cleanupAdvanced: async () => "ok"
+      }
+    };
+
+    await (Repository.prototype as any).cleanupWithExternals.call(mockThis);
+    await (Repository.prototype as any).cleanupAdvanced.call(mockThis, {
+      includeExternals: true
+    });
+    await (Repository.prototype as any).cleanupAdvanced.call(mockThis, {
+      removeIgnored: true
+    });
+
+    assert.deepStrictEqual(impacts, [
+      { traverseExternals: true },
+      { traverseExternals: true },
+      { traverseExternals: false }
     ]);
   });
 

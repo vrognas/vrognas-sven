@@ -166,6 +166,117 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
     assert.ok(clearNested.calledOnce, "nested lower cache cleared");
   });
 
+  test("an incomplete full traversal preserves unrelated workspaces", () => {
+    const parent = { workspaceRoot: "/wc", root: "/wc" };
+    const clearNested = sandbox.stub();
+    const clearOther = sandbox.stub();
+    const nested = {
+      workspaceRoot: "/wc/external",
+      root: "/wc/external",
+      repository: { clearBlameCache: clearNested }
+    };
+    const other = {
+      workspaceRoot: "/other",
+      root: "/other",
+      repository: { clearBlameCache: clearOther }
+    };
+    const nestedUri = Uri.file("/wc/external/file.ts");
+    const otherUri = Uri.file("/other/file.ts");
+    const scm = {
+      repositories: [parent, nested, other],
+      getRepositoryFromUri: (uri: Uri) =>
+        uri.path.startsWith("/wc/external")
+          ? nested
+          : uri.path.startsWith("/wc")
+            ? parent
+            : uri.path.startsWith("/other")
+              ? other
+              : null
+    };
+    provider = new BlameProvider(scm as never);
+
+    const p = provider as any;
+    p.blameCache.set(nestedUri.toString(), { data: [], version: 1 });
+    p.blameCache.set(otherUri.toString(), { data: [], version: 1 });
+    sandbox.stub(window, "activeTextEditor").value(undefined);
+
+    p.onRepositoryOperation(
+      Operation.Update,
+      parent,
+      [],
+      { traverseExternals: true },
+      true
+    );
+
+    assert.ok(!p.blameCache.has(nestedUri.toString()));
+    assert.ok(p.blameCache.has(otherUri.toString()));
+    assert.ok(clearNested.calledOnce);
+    assert.ok(clearOther.notCalled);
+  });
+
+  test("an incomplete targeted traversal invalidates only its subtree", () => {
+    const parent = { workspaceRoot: "/wc", root: "/wc" };
+    const clearNested = sandbox.stub();
+    const clearSibling = sandbox.stub();
+    const clearOther = sandbox.stub();
+    const nested = {
+      workspaceRoot: "/wc/vendor/lib",
+      root: "/wc/vendor/lib",
+      repository: { clearBlameCache: clearNested }
+    };
+    const sibling = {
+      workspaceRoot: "/wc/sibling",
+      root: "/wc/sibling",
+      repository: { clearBlameCache: clearSibling }
+    };
+    const other = {
+      workspaceRoot: "/other",
+      root: "/other",
+      repository: { clearBlameCache: clearOther }
+    };
+    const nestedUri = Uri.file("/wc/vendor/lib/file.ts");
+    const siblingUri = Uri.file("/wc/sibling/file.ts");
+    const otherUri = Uri.file("/other/file.ts");
+    const scm = {
+      repositories: [parent, nested, sibling, other],
+      getRepositoryFromUri: (uri: Uri) =>
+        uri.path.startsWith("/wc/vendor/lib")
+          ? nested
+          : uri.path.startsWith("/wc/sibling")
+            ? sibling
+            : uri.path.startsWith("/wc")
+              ? parent
+              : uri.path.startsWith("/other")
+                ? other
+                : null
+    };
+    provider = new BlameProvider(scm as never);
+
+    const p = provider as any;
+    for (const uri of [nestedUri, siblingUri, otherUri]) {
+      p.blameCache.set(uri.toString(), { data: [], version: 1 });
+    }
+    sandbox.stub(window, "activeTextEditor").value(undefined);
+
+    p.onRepositoryOperation(
+      Operation.Update,
+      parent,
+      [],
+      {
+        traverseExternals: true,
+        targets: [Uri.file("/wc/vendor").fsPath]
+      },
+      true
+    );
+
+    assert.ok(!p.blameCache.has(nestedUri.toString()));
+    assert.ok(p.blameCache.has(siblingUri.toString()));
+    assert.ok(p.blameCache.has(otherUri.toString()));
+    assert.ok(clearNested.calledOnce);
+    assert.ok(clearSibling.notCalled);
+    assert.ok(clearOther.notCalled);
+  });
+
   test("an explicit external target invalidates its owning repository", () => {
     const parent = { workspaceRoot: "/wc", root: "/wc" };
     const clearNested = sandbox.stub();

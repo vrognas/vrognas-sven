@@ -90,6 +90,7 @@ import { exists, rename as fsRename, stat } from "./fs";
 import { configuration } from "./helpers/configuration";
 import OperationsImpl from "./operationsImpl";
 import { PathNormalizer } from "./pathNormalizer";
+import { parseStatusXml } from "./parser/statusParser";
 import { IRemoteRepository } from "./remoteRepository";
 import { Resource } from "./resource";
 import { StatusBarCommands } from "./statusbar/statusBarCommands";
@@ -157,6 +158,8 @@ export type RepositoryOperationDetail = {
   readonly affectedExternalRoots: readonly string[];
   /** Absolute targets after normalization by Repository.run(). */
   readonly externalImpact?: ExternalOperationImpact;
+  /** Traversal discovery failed before its complete external graph was known. */
+  readonly externalTopologyIncomplete?: true;
 };
 
 type RunOptions = {
@@ -276,6 +279,18 @@ function getRecursiveStatus(
   });
 }
 
+async function parseTopologyErrorStatuses(
+  error: unknown
+): Promise<IFileStatus[]> {
+  const stdout = (error as { stdout?: unknown } | undefined)?.stdout;
+  if (typeof stdout !== "string" || !stdout.trim()) return [];
+  try {
+    return await parseStatusXml(stdout);
+  } catch {
+    return [];
+  }
+}
+
 async function getScopedTopologyStatuses(
   repository: BaseRepository,
   targets: string[]
@@ -309,9 +324,12 @@ async function getScopedTopologyStatuses(
       if (result.status === "fulfilled") {
         statuses.push(...result.value);
       } else if (
-        retryError === undefined &&
-        isRetryableTopologyError(result.reason)
+        retryError === undefined ||
+        (!isRetryableTopologyError(retryError) &&
+          isRetryableTopologyError(result.reason))
       ) {
+        // Any exhausted target means topology is incomplete. Prefer a
+        // retryable failure when present so retryRun can recover the batch.
         retryError = result.reason;
       }
     }
@@ -349,14 +367,17 @@ async function discoverExternalRoots(
     if (outermostTargets.length > MAX_SCOPED_TOPOLOGY_TARGETS) {
       try {
         statuses = await getRecursiveStatus(repository);
-      } catch {
+      } catch (error) {
         // A broken unrelated external can fail the full scan. Preserve
         // target coverage with bounded multi-path commands.
         const scoped = await getScopedTopologyStatuses(
           repository,
           outermostTargets
         );
-        statuses = scoped.statuses;
+        statuses = [
+          ...(await parseTopologyErrorStatuses(error)),
+          ...scoped.statuses
+        ];
         retryError = scoped.retryError;
       }
     } else {
@@ -368,7 +389,12 @@ async function discoverExternalRoots(
       retryError = scoped.retryError;
     }
   } else {
-    statuses = await getRecursiveStatus(repository);
+    try {
+      statuses = await getRecursiveStatus(repository);
+    } catch (error) {
+      retryError = error;
+      statuses = await parseTopologyErrorStatuses(error);
+    }
   }
 
   const roots = uniqueOperationPaths(
@@ -2034,7 +2060,11 @@ export class Repository implements IRemoteRepository {
 
     // Refresh repo info + fetch history views in parallel
     await Promise.all([
-      this.repository.updateInfo(true),
+      this.repository.updateInfo(true).catch(error => {
+        if (!this.repository.isDisposed) {
+          throw error;
+        }
+      }),
       commands.executeCommand("sven.repolog.fetch"),
       commands.executeCommand("sven.itemlog.refresh")
     ]);
@@ -2157,14 +2187,22 @@ export class Repository implements IRemoteRepository {
   }
 
   public async cleanupWithExternals() {
-    return this.run(Operation.CleanUp, () =>
-      this.repository.cleanupWithExternals()
+    return this.run(
+      Operation.CleanUp,
+      () => this.repository.cleanupWithExternals(),
+      { externalImpact: { traverseExternals: true } }
     );
   }
 
   public async cleanupAdvanced(options: ICleanupOptions) {
-    return this.run(Operation.CleanUp, () =>
-      this.repository.cleanupAdvanced(options)
+    return this.run(
+      Operation.CleanUp,
+      () => this.repository.cleanupAdvanced(options),
+      {
+        externalImpact: {
+          traverseExternals: options.includeExternals === true
+        }
+      }
     );
   }
 
@@ -2597,6 +2635,7 @@ export class Repository implements IRemoteRepository {
       const affectedRoots = new Set(
         affectedExternalRoots(this.externalWorkingCopyRoots, externalImpact)
       );
+      let externalTopologyIncomplete = false;
       this._operations.start(operation);
       this._onRunOperation.fire(operation);
 
@@ -2648,6 +2687,7 @@ export class Repository implements IRemoteRepository {
           if (error instanceof TopologyDiscoveryError) {
             error.partialRoots.forEach(root => discoveredRoots.add(root));
           }
+          externalTopologyIncomplete = true;
           // Topology is advisory for cross-repository invalidation. Never
           // replace the mutation result because an external is unavailable.
         }
@@ -2750,7 +2790,10 @@ export class Repository implements IRemoteRepository {
         this._onDidRunOperationDetail?.fire({
           operation,
           affectedExternalRoots: [...affectedRoots],
-          externalImpact
+          externalImpact,
+          ...(externalTopologyIncomplete
+            ? { externalTopologyIncomplete: true as const }
+            : {})
         });
         this._onDidRunOperation.fire(operation);
       }

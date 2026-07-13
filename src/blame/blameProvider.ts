@@ -364,7 +364,8 @@ export class BlameProvider implements Disposable {
               detail.operation,
               repo,
               detail.affectedExternalRoots,
-              detail.externalImpact
+              detail.externalImpact,
+              detail.externalTopologyIncomplete === true
             )
           )
         );
@@ -1529,7 +1530,8 @@ export class BlameProvider implements Disposable {
     operation: Operation,
     repo: Repository,
     affectedExternalRoots: readonly string[] = [],
-    externalImpact?: ExternalOperationImpact
+    externalImpact?: ExternalOperationImpact,
+    externalTopologyIncomplete = false
   ): void {
     if (!BLAME_INVALIDATING_OPERATIONS.has(operation)) {
       return;
@@ -1542,6 +1544,33 @@ export class BlameProvider implements Disposable {
         externalImpact
       )
     ]);
+    // An exhausted topology scan cannot prove which nested WC changed.
+    // Conservatively cover only the operation's lexical scope; unrelated
+    // workspace roots keep their hot caches.
+    if (externalTopologyIncomplete) {
+      const scopes = externalImpact?.targets?.length
+        ? externalImpact.targets
+        : [repo.workspaceRoot];
+      for (const candidate of this.sourceControlManager.repositories ?? []) {
+        let candidateRoot: string;
+        try {
+          candidateRoot = candidate.workspaceRoot;
+        } catch {
+          continue;
+        }
+        if (
+          scopes.some(
+            scope =>
+              pathEquals(
+                path.normalize(scope),
+                path.normalize(candidateRoot)
+              ) || isDescendant(scope, candidateRoot)
+          )
+        ) {
+          directlyInvalidated.add(candidate);
+        }
+      }
+    }
     const invalidated = new Set<Repository>();
     for (const affected of directlyInvalidated) {
       for (const peer of this.repositoriesSharingWorkingCopy(affected)) {
