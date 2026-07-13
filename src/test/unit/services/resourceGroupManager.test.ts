@@ -15,12 +15,23 @@ suite("ResourceGroupManager Tests", () => {
   let mockGroups: Map<string, MockResourceGroup>;
   let disposables: Disposable[];
 
-  const createMockResource = (path: string, status: Status): Resource => {
+  const createMockResource = (
+    path: string,
+    status: Status,
+    kind?: "file" | "dir"
+  ): Resource => {
     return new Resource(
       { fsPath: `/workspace/${path}`, path } as any,
       status,
       undefined,
-      Status.NONE
+      Status.NONE,
+      false,
+      false,
+      undefined,
+      false,
+      undefined,
+      undefined,
+      kind
     );
   };
 
@@ -404,5 +415,140 @@ suite("ResourceGroupManager Tests", () => {
 
     // Assert - changelist resource findable (proves rebuild happened)
     assert.ok(resource, "file2.txt from changelist found in index");
+  });
+
+  test("Ignored ancestry preserves precedence and exact/folder semantics", () => {
+    const manager = new ResourceGroupManager(
+      mockSourceControl as SourceControl,
+      disposables
+    );
+    const result: StatusResult = {
+      changes: [],
+      conflicts: [],
+      unversioned: [createMockResource("shared", Status.UNVERSIONED, "dir")],
+      changelists: new Map(),
+      remoteChanges: [],
+      statusExternal: [],
+      externalWorkingCopyPaths: [],
+      ignored: [
+        createMockResource("shared", Status.IGNORED, "dir"),
+        createMockResource("vendor", Status.IGNORED, "dir"),
+        createMockResource("ignored.txt", Status.IGNORED, "file")
+      ],
+      isIncomplete: false,
+      needCleanUp: false,
+      lockStatuses: new Map()
+    };
+
+    manager.updateGroups({
+      result,
+      config: {
+        ignoreOnStatusCountList: [],
+        countUnversioned: false,
+        hideUnversioned: false,
+        ignoreList: [],
+        workspaceRoot: "/workspace"
+      }
+    });
+
+    assert.strictEqual(
+      manager.isInsideUnversionedOrIgnored("/workspace/shared/child.txt"),
+      Status.UNVERSIONED
+    );
+    assert.strictEqual(
+      manager.isInsideUnversionedOrIgnored("/workspace/ignored.txt"),
+      Status.IGNORED
+    );
+    assert.strictEqual(
+      manager.isInsideUnversionedOrIgnored("/workspace/vendor/lib/file.txt"),
+      Status.IGNORED
+    );
+    assert.strictEqual(
+      manager.isInsideUnversionedOrIgnored("/workspace/ignored.txt/child"),
+      undefined
+    );
+    assert.strictEqual(
+      manager.isInsideUnversionedOrIgnored("/workspace/vendor-other/file.txt"),
+      undefined
+    );
+  });
+
+  test("Ignored ancestry index rebuilds without scanning resource arrays", () => {
+    const manager = new ResourceGroupManager(
+      mockSourceControl as SourceControl,
+      disposables
+    );
+    const config = {
+      ignoreOnStatusCountList: [],
+      countUnversioned: false,
+      hideUnversioned: false,
+      ignoreList: [],
+      workspaceRoot: "/workspace"
+    };
+    const baseResult: StatusResult = {
+      changes: [],
+      conflicts: [],
+      unversioned: [
+        createMockResource("generated", Status.UNVERSIONED, "file")
+      ],
+      changelists: new Map(),
+      remoteChanges: [],
+      statusExternal: [],
+      externalWorkingCopyPaths: [],
+      ignored: [],
+      isIncomplete: false,
+      needCleanUp: false,
+      lockStatuses: new Map()
+    };
+
+    manager.updateGroups({ result: baseResult, config });
+    assert.strictEqual(
+      manager.isInsideUnversionedOrIgnored("/workspace/generated/child.txt"),
+      undefined
+    );
+
+    manager.updateGroups({
+      result: {
+        ...baseResult,
+        unversioned: [
+          createMockResource("generated", Status.UNVERSIONED, "dir")
+        ],
+        ignored: [createMockResource("vendor", Status.IGNORED, "dir")]
+      },
+      config
+    });
+
+    const forbidIteration = <T>(values: T[]): T[] =>
+      new Proxy(values, {
+        get(target, property, receiver) {
+          if (property === Symbol.iterator) {
+            throw new Error("resource array scanned during lookup");
+          }
+          return Reflect.get(target, property, receiver);
+        }
+      });
+    const internals = manager as unknown as {
+      _allUnversioned: Resource[];
+      _ignored: MockResourceGroup;
+    };
+    internals._allUnversioned = forbidIteration(internals._allUnversioned);
+    internals._ignored.resourceStates = forbidIteration(
+      internals._ignored.resourceStates
+    );
+
+    assert.strictEqual(
+      manager.isInsideUnversionedOrIgnored("/workspace/generated/child.txt"),
+      Status.UNVERSIONED
+    );
+    assert.strictEqual(
+      manager.isInsideUnversionedOrIgnored("/workspace/vendor/child.txt"),
+      Status.IGNORED
+    );
+
+    manager.dispose();
+    assert.strictEqual(
+      manager.isInsideUnversionedOrIgnored("/workspace/generated/child.txt"),
+      undefined
+    );
   });
 });

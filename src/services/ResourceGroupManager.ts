@@ -11,22 +11,16 @@ import { normalizePath, toDisposable } from "../util";
 import { matchAll } from "../util/globMatch";
 import * as path from "path";
 
-/**
- * True when target matches resource path exactly, or resource is a directory
- * and target is inside it (path-prefix match).
- */
-function matchesPathOrFolder(
-  resource: Resource,
-  normalizedTarget: string
-): boolean {
-  const normalizedRes = normalizePath(resource.resourceUri.fsPath);
-  if (normalizedRes === normalizedTarget) {
-    return true;
-  }
-  return (
-    resource.kind === "dir" &&
-    normalizedTarget.startsWith(normalizedRes + path.sep)
-  );
+type UnversionedIgnoredIndex = {
+  readonly exact: Map<string, Status>;
+  readonly folders: Map<string, Status>;
+};
+
+function createUnversionedIgnoredIndex(): UnversionedIgnoredIndex {
+  return {
+    exact: new Map(),
+    folders: new Map()
+  };
 }
 
 /**
@@ -131,6 +125,7 @@ export class ResourceGroupManager implements IResourceGroupManager {
   private _disposables: Disposable[] = [];
   private _prevChangelistsSize = 0;
   private _resourceIndex = new Map<string, Resource>(); // Phase 8.1 perf fix - O(1) lookup
+  private _unversionedIgnoredIndex = createUnversionedIgnoredIndex();
   private _resourceHash = ""; // Phase 16 perf fix - conditional rebuild
   private _staging: StagingService;
   private _stagedDirectories = new Set<string>(); // Track staged dirs (changelists can't hold them)
@@ -446,13 +441,15 @@ export class ResourceGroupManager implements IResourceGroupManager {
   }
 
   /**
-   * Hash resources including path, type, and lock status for change detection.
-   * Includes type/lockStatus so index is rebuilt when properties change.
+   * Hash resources including path, type, kind, and lock status.
+   * Kind changes rebuild the ancestry index when a file becomes a directory.
    */
   private hashPaths(resources: Resource[]): string {
-    // Include path, type, and lockStatus to detect property changes
     const hashes = resources
-      .map(r => `${r.resourceUri.fsPath}:${r.type}:${r.lockStatus ?? ""}`)
+      .map(
+        r =>
+          `${r.resourceUri.fsPath}:${r.type}:${r.kind ?? ""}:${r.lockStatus ?? ""}`
+      )
       .sort();
     return hashes.join(";");
   }
@@ -465,6 +462,7 @@ export class ResourceGroupManager implements IResourceGroupManager {
   private rebuildResourceIndex(): void {
     // Build new index first (atomic - no race window)
     const newIndex = new Map<string, Resource>();
+    const newAncestryIndex = createUnversionedIgnoredIndex();
 
     // Add local resources first (these have lock status and real file status)
     // Use _allUnversioned for index (includes hidden unversioned files)
@@ -502,8 +500,29 @@ export class ResourceGroupManager implements IResourceGroupManager {
       }
     }
 
-    // Atomic swap - eliminates race window where old index is cleared but new not ready
+    const indexAncestry = (
+      resources: readonly Resource[],
+      status: Status
+    ): void => {
+      for (const resource of resources) {
+        if (!(resource instanceof Resource)) {
+          continue;
+        }
+        const normalizedPath = normalizePath(resource.resourceUri.fsPath);
+        newAncestryIndex.exact.set(normalizedPath, status);
+        if (resource.kind === "dir") {
+          newAncestryIndex.folders.set(normalizedPath, status);
+        }
+      }
+    };
+
+    // Add ignored first so unversioned wins same-path collisions.
+    indexAncestry(this._ignored.resourceStates, Status.IGNORED);
+    indexAncestry(this._allUnversioned, Status.UNVERSIONED);
+
+    // Atomic swaps eliminate partially rebuilt lookup state.
     this._resourceIndex = newIndex;
+    this._unversionedIgnoredIndex = newAncestryIndex;
   }
 
   /**
@@ -522,28 +541,38 @@ export class ResourceGroupManager implements IResourceGroupManager {
   /**
    * Check if a file path is unversioned/ignored (directly or inside a folder).
    * Used when getResourceFromFile() returns undefined.
-   * Uses _allUnversioned (not UI-filtered) to correctly detect hidden files/folders.
+   * Uses an ancestry index built from all resources, including hidden entries.
    * Unversioned takes precedence over ignored.
    */
   isInsideUnversionedOrIgnored(filePath: string): Status | undefined {
     const normalizedPath = normalizePath(filePath);
+    const exactStatus = this._unversionedIgnoredIndex.exact.get(normalizedPath);
+    if (exactStatus === Status.UNVERSIONED) {
+      return Status.UNVERSIONED;
+    }
 
-    for (const resource of this._allUnversioned) {
-      if (matchesPathOrFolder(resource, normalizedPath)) {
+    let ignoredMatch = exactStatus === Status.IGNORED;
+    let ancestor = normalizedPath;
+    const rootLength = path.parse(ancestor).root.length;
+    while (ancestor.length > rootLength && ancestor.endsWith(path.sep)) {
+      ancestor = ancestor.slice(0, -1);
+    }
+
+    while (true) {
+      const folderStatus = this._unversionedIgnoredIndex.folders.get(ancestor);
+      if (folderStatus === Status.UNVERSIONED) {
         return Status.UNVERSIONED;
       }
-    }
+      ignoredMatch ||= folderStatus === Status.IGNORED;
 
-    for (const resource of this._ignored.resourceStates) {
-      if (
-        resource instanceof Resource &&
-        matchesPathOrFolder(resource, normalizedPath)
-      ) {
-        return Status.IGNORED;
+      const parent = path.dirname(ancestor);
+      if (parent === ancestor) {
+        break;
       }
+      ancestor = parent;
     }
 
-    return undefined;
+    return ignoredMatch ? Status.IGNORED : undefined;
   }
 
   /**
@@ -777,15 +806,22 @@ export class ResourceGroupManager implements IResourceGroupManager {
     this._staged.resourceStates = [];
     this._changes.resourceStates = [];
     this._unversioned.resourceStates = [];
+    this._ignored.resourceStates = [];
     this._conflicts.resourceStates = [];
     this._changelists.forEach((group, _changelist) => {
       group.resourceStates = [];
     });
     this._remoteChanges?.dispose();
     this._remoteChanges = undefined;
-    this._resourceIndex.clear();
-    this._resourceHash = "";
+    this.clearIndexes();
     this._stagedDirectories.clear();
+  }
+
+  private clearIndexes(): void {
+    this._resourceIndex.clear();
+    this._unversionedIgnoredIndex = createUnversionedIgnoredIndex();
+    this._allUnversioned = [];
+    this._resourceHash = "";
   }
 
   /**
@@ -795,5 +831,6 @@ export class ResourceGroupManager implements IResourceGroupManager {
     this._disposables.forEach(d => d.dispose());
     this._disposables = [];
     this._changelists.clear();
+    this.clearIndexes();
   }
 }
