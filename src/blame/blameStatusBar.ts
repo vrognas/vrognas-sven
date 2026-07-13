@@ -332,7 +332,7 @@ export class BlameStatusBar implements Disposable {
    * `SvnRepository._blameCache` (5min TTL) is the single source of truth.
    */
   private async getBlameData(uri: Uri): Promise<ISvnBlameLine[] | undefined> {
-    const repository = this.sourceControlManager.getRepository(uri);
+    const repository = this.sourceControlManager.getRepositoryFromUri(uri);
     if (!repository) {
       return undefined;
     }

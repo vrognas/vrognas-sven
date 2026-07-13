@@ -67,7 +67,7 @@ suite("Blame size gates", () => {
     const mockRepo = makeMockRepo(sandbox);
     const scm = sandbox.createStubInstance(SourceControlManager);
     (scm as any).openRepositories = [];
-    scm.getRepository.returns(mockRepo as any);
+    scm.getRepositoryFromUri.returns(mockRepo as any);
 
     statusBar = new BlameStatusBar(scm as any);
     const mockEditor = makeMockEditor(testUri, 1000); // > 500 default limit
@@ -88,7 +88,7 @@ suite("Blame size gates", () => {
     const mockRepo = makeMockRepo(sandbox);
     const scm = sandbox.createStubInstance(SourceControlManager);
     (scm as any).openRepositories = [];
-    scm.getRepository.returns(mockRepo as any);
+    scm.getRepositoryFromUri.returns(mockRepo as any);
 
     statusBar = new BlameStatusBar(scm as any);
     const mockEditor = makeMockEditor(testUri, 5000); // > 3000 default limit
@@ -109,7 +109,7 @@ suite("Blame size gates", () => {
     const mockRepo = makeMockRepo(sandbox);
     const scm = sandbox.createStubInstance(SourceControlManager);
     (scm as any).openRepositories = [];
-    scm.getRepository.returns(mockRepo as any);
+    scm.getRepositoryFromUri.returns(mockRepo as any);
 
     statusBar = new BlameStatusBar(scm as any);
     const mockEditor = makeMockEditor(testUri, 10);
@@ -136,7 +136,7 @@ suite("Blame size gates", () => {
     const mockRepo = makeMockRepo(sandbox);
     const scm = sandbox.createStubInstance(SourceControlManager);
     (scm as any).openRepositories = [];
-    scm.getRepository.returns(mockRepo as any);
+    scm.getRepositoryFromUri.returns(mockRepo as any);
 
     statusBar = new BlameStatusBar(scm as any);
     const mockEditor = makeMockEditor(testUri, 1000); // > 500 default limit

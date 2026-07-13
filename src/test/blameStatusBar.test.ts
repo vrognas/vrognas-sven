@@ -48,7 +48,7 @@ suite("BlameStatusBar E2E Tests", () => {
       isInsideUnversionedOrIgnored: sandbox.stub().returns(undefined)
     };
 
-    mockSourceControlManager.getRepository.returns(mockRepo as any);
+    mockSourceControlManager.getRepositoryFromUri.returns(mockRepo as any);
 
     // Enable blame
     blameStateManager.setBlameEnabled(testUri, true);
@@ -125,7 +125,7 @@ suite("BlameStatusBar E2E Tests", () => {
       isInsideUnversionedOrIgnored: sandbox.stub().returns(undefined)
     };
 
-    mockSourceControlManager.getRepository.returns(mockRepo as any);
+    mockSourceControlManager.getRepositoryFromUri.returns(mockRepo as any);
 
     blameStateManager.setBlameEnabled(testUri, true);
     sandbox.stub(blameConfiguration, "isStatusBarEnabled").returns(true);

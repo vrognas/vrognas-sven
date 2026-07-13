@@ -33,7 +33,7 @@ suite("BlameStatusBar - initial status crawl", () => {
     };
     const scm = sandbox.createStubInstance(SourceControlManager);
     (scm as any).openRepositories = [];
-    scm.getRepository.returns(repo as any);
+    scm.getRepositoryFromUri.returns(repo as any);
 
     statusBar = new BlameStatusBar(scm as any);
 
@@ -48,6 +48,30 @@ suite("BlameStatusBar - initial status crawl", () => {
       "getBlameData must not await the initial status crawl"
     );
     assert.ok(repo.blame.called, "blame is attempted immediately");
+  });
+
+  test("keeps blaming an svn:external after status crawl", async () => {
+    const uri = Uri.file("/test/vendor/file.ts");
+    const blame: ISvnBlameLine[] = [
+      { lineNumber: 1, revision: "42", author: "a", date: "2026-01-01" }
+    ];
+    const repo = {
+      getResourceFromFile: sandbox.stub().returns(undefined),
+      isInsideUnversionedOrIgnored: sandbox.stub().returns(undefined),
+      blame: sandbox.stub().resolves(blame)
+    };
+    const scm = sandbox.createStubInstance(SourceControlManager);
+    (scm as any).openRepositories = [];
+    scm.getRepository.returns(null);
+    scm.getRepositoryFromUri.returns(repo as any);
+
+    statusBar = new BlameStatusBar(scm as any);
+
+    const result = await (statusBar as any).getBlameData(uri);
+
+    assert.deepStrictEqual(result, blame);
+    assert.ok(scm.getRepositoryFromUri.calledOnceWith(uri));
+    assert.ok(scm.getRepository.notCalled);
   });
 
   test("ignores status completion after disposal", async () => {

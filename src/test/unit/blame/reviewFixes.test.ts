@@ -130,7 +130,7 @@ suite("Blame review fixes", () => {
     };
     const scm = sandbox.createStubInstance(SourceControlManager);
     (scm as any).openRepositories = [];
-    scm.getRepository.returns(mockRepo as any);
+    scm.getRepositoryFromUri.returns(mockRepo as any);
 
     const statusBar = new BlameStatusBar(scm as any);
     try {
@@ -171,7 +171,7 @@ suite("Blame review fixes", () => {
       onDidRunOperation: opEmitter.event
     };
     const scm: any = {
-      getRepository: () => mockRepo,
+      getRepositoryFromUri: () => mockRepo,
       repositories: [mockRepo],
       onDidOpenRepository: new EventEmitter<unknown>().event
     };
