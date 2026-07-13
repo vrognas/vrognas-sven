@@ -7,6 +7,14 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.103] - 2026-07-13
+
+Fix skinny large-file blame mapping.
+
+### Fixed
+
+- **Linear LCS uses the shorter row axis.** In-budget diffs with more than 100,000 working lines no longer fall into sparse fallback and lose valid blame; transposed matching preserves dense tie attribution.
+
 ## [0.2.102] - 2026-07-13
 
 Fix repeated-block blame mapping at the linear-work boundary.

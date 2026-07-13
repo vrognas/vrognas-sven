@@ -1,6 +1,6 @@
 # SVN Extension Architecture
 
-**Version**: 0.2.102
+**Version**: 0.2.103
 **Updated**: 2026-07-13
 
 ---
@@ -94,7 +94,8 @@ Per-file blame tracking with:
   budget-derived exact match-sparse LCS, and non-crossing anchors for ambiguous
   cores; an empty exact sparse LCS remains proof, so bracketed total rewrites
   retain attribution without quadratic gaps. Dense storage counts its boundary
-  row/column; linear-space work counts only real line pairs.
+  row/column; linear-space work counts only real line pairs. Hirschberg stores
+  the shorter-axis row and mirrors dense tie policy when axes transpose.
 - Status-bar teardown fences deferred repository readiness and cancels pending
   debounce work before disposing UI resources; async results revalidate the
   newest generation, active editor, and line. Blame uses descendant ownership

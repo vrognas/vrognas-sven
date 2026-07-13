@@ -1,7 +1,17 @@
 # Lessons Learned
 
-**Version**: 0.2.102
+**Version**: 0.2.103
 **Updated**: 2026-07-13
+
+---
+
+### 96. Symmetric Work Does Not Mean Symmetric Attribution
+
+**Lesson**: Hirschberg always stored working-axis rows, so a 199-by-100,001 diff was rejected by the row cap despite fitting the 20M pair-work budget. Simply transposing the inputs fixes memory but changes dense backtracking because original left-on-tie becomes up-on-tie after the axes swap.
+
+**Fix**: Roll rows over the shorter input. When working is longer, transpose the axes, mirror the mismatch tie direction, and swap emitted coordinates back. Pin the one-line row-cap boundary and retain dense-compatible tie tests.
+
+**Rule**: When transposing a dynamic program, transform coordinate-sensitive tie policy as well as data. Gate memory on the axis actually stored.
 
 ---
 
