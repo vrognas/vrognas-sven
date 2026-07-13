@@ -165,4 +165,26 @@ suite("SourceControlManager workspace lifecycle", () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("removed workspace drops a queued repository scan", async () => {
+    const clock = sandbox.useFakeTimers();
+    const rootUri = Uri.file("/workspace/queued");
+    let folders: WorkspaceFolder[] = [folder(rootUri, "queued")];
+    sandbox.stub(workspace, "workspaceFolders").get(() => folders);
+    const manager = new SourceControlManager({} as never, {} as never);
+    managers.push(manager);
+    const tryOpen = sandbox
+      .stub(manager, "tryOpenRepository")
+      .resolves(undefined);
+
+    (manager as any).eventuallyScanPossibleSvnRepository(rootUri.fsPath);
+    folders = [];
+    (manager as any).onDidChangeWorkspaceFolders({
+      added: [],
+      removed: [folder(rootUri, "queued")]
+    });
+    await clock.tickAsync(500);
+
+    assert.strictEqual(tryOpen.callCount, 0);
+  });
 });

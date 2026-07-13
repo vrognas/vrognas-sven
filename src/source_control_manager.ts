@@ -61,7 +61,7 @@ export class SourceControlManager implements IDisposable {
 
   public openRepositories: IOpenRepository[] = [];
   private disposables: Disposable[] = [];
-  private possibleSvnRepositoryPaths = new Set<string>();
+  private possibleSvnRepositoryPaths = new Map<string, number>();
   private pendingOpenPaths = new Set<string>();
   private disposed = false;
   private topologyGeneration = 0;
@@ -204,14 +204,16 @@ export class SourceControlManager implements IDisposable {
   }
 
   private eventuallyScanPossibleSvnRepository(path: string) {
-    this.possibleSvnRepositoryPaths.add(path);
+    this.possibleSvnRepositoryPaths.set(path, this.topologyGeneration);
     this.eventuallyScanPossibleSvnRepositories();
   }
 
   @debounce(500)
   private eventuallyScanPossibleSvnRepositories(): void {
-    for (const path of this.possibleSvnRepositoryPaths) {
-      void this.tryOpenRepository(path, 1);
+    for (const [path, generation] of this.possibleSvnRepositoryPaths) {
+      if (this.isDiscoveryCurrent(generation, path)) {
+        void this.tryOpenRepository(path, 1);
+      }
     }
 
     this.possibleSvnRepositoryPaths.clear();
