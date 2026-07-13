@@ -15,6 +15,7 @@ import { IStoredAuth } from "../../../common/types";
  */
 
 interface MockThis {
+  repository: { isDisposed: boolean };
   username?: string;
   password?: string;
   credentialLock: Promise<void>;
@@ -25,6 +26,7 @@ interface MockThis {
 
 function makeMockThis(overrides: Partial<MockThis> = {}): MockThis {
   return {
+    repository: { isDisposed: false },
     username: undefined,
     password: undefined,
     credentialLock: Promise.resolve(),
@@ -132,6 +134,34 @@ suite("Repository retryRun (real implementation)", () => {
     assert.strictEqual(attempts, 2);
     // quadratic backoff: attempt 1 waits 1^2 * 50 = 50ms
     assert.ok(Date.now() - started >= 45, "should back off before retrying");
+  });
+
+  test("does not retry after disposal during backoff", async () => {
+    const retryRun = await getRetryRun();
+    const mockThis = makeMockThis();
+    let markFirstAttempt!: () => void;
+    const firstAttempt = new Promise<void>(
+      resolve => (markFirstAttempt = resolve)
+    );
+    let attempts = 0;
+
+    const pending = retryRun.call(mockThis, async () => {
+      attempts++;
+      if (attempts === 1) {
+        markFirstAttempt();
+        throw new SvnError({
+          message: "Failed to execute svn",
+          svnErrorCode: svnErrorCodes.RepositoryIsLocked
+        });
+      }
+      return "must not run";
+    });
+    await firstAttempt;
+    await new Promise(resolve => setTimeout(resolve, 10));
+    mockThis.repository.isDisposed = true;
+
+    await assert.rejects(pending, /disposed/i);
+    assert.strictEqual(attempts, 1);
   });
 
   test("propagates auth failure when no accounts and prompt is declined", async () => {

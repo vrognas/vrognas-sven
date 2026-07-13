@@ -205,6 +205,7 @@ suite("Blame cache invalidation on mutating operations", () => {
     const target = path.join(workspaceRoot, "vendor");
     const nestedRoot = path.join(target, "nested");
     const topologyReads: string[] = [];
+    let batchReads = 0;
     let operationRan = false;
     const mockThis: any = {
       state: RepositoryState.Idle,
@@ -215,10 +216,21 @@ suite("Blame cache invalidation on mutating operations", () => {
         getStatus: async () => {
           throw new Error("must not scan the whole working copy");
         },
-        getScopedStatus: async (actualTarget: string, depth: string) => {
+        getScopedStatus: async (
+          actualTarget: string | readonly string[],
+          depth: string
+        ) => {
           assert.strictEqual(depth, "infinity");
-          topologyReads.push(actualTarget);
-          if (actualTarget.endsWith("broken")) {
+          const actualTargets =
+            typeof actualTarget === "string"
+              ? [actualTarget]
+              : [...actualTarget];
+          if (actualTargets.length > 1) {
+            batchReads++;
+          } else {
+            topologyReads.push(actualTargets[0]!);
+          }
+          if (actualTargets.some(value => value.endsWith("broken"))) {
             throw new Error("unrelated broken external");
           }
           return [{ status: "external", path: "vendor/nested" }];
@@ -254,6 +266,7 @@ suite("Blame cache invalidation on mutating operations", () => {
 
     assert.strictEqual(result, "ok");
     assert.strictEqual(operationRan, true);
+    assert.strictEqual(batchReads, 2);
     assert.deepStrictEqual(topologyReads.sort(), [
       path.join(workspaceRoot, "broken"),
       path.join(workspaceRoot, "broken"),
@@ -314,6 +327,7 @@ suite("Blame cache invalidation on mutating operations", () => {
   test("Repository.run bounds topology reads for large target sets", async () => {
     const { Repository } = await import("../../../repository");
     const workspaceRoot = process.cwd();
+    const details: any[] = [];
     const targets = Array.from(
       { length: 20 },
       (_, index) => `missing-topology-target-${index}`
@@ -328,7 +342,7 @@ suite("Blame cache invalidation on mutating operations", () => {
         clearBlameCache: () => {},
         getStatus: async () => {
           rootReads++;
-          return [];
+          return [{ status: "external", path: "unrelated-external" }];
         },
         getScopedStatus: async () => {
           scopedReads++;
@@ -338,7 +352,7 @@ suite("Blame cache invalidation on mutating operations", () => {
       _operations: { start: () => {}, end: () => {} },
       _onRunOperation: { fire: () => {} },
       _onDidRunOperation: { fire: () => {} },
-      _onDidRunOperationDetail: { fire: () => {} },
+      _onDidRunOperationDetail: { fire: (detail: any) => details.push(detail) },
       retryRun: async (fn: () => Promise<unknown>) => fn(),
       updateModelState: async () => {},
       lastForceRefresh: 0,
@@ -354,6 +368,374 @@ suite("Blame cache invalidation on mutating operations", () => {
 
     assert.strictEqual(rootReads, 2, "one bounded read before and after");
     assert.strictEqual(scopedReads, 0);
+    assert.deepStrictEqual(
+      details[0]?.affectedExternalRoots,
+      [],
+      "fallback discovery must not widen targeted invalidation"
+    );
+  });
+
+  test("Repository.run falls back to bounded scopes after root scan failure", async () => {
+    const { Repository } = await import("../../../repository");
+    const workspaceRoot = process.cwd();
+    const details: any[] = [];
+    const targets = Array.from(
+      { length: 20 },
+      (_, index) => `missing-fallback-target-${index}`
+    );
+    let rootReads = 0;
+    let scopedReads = 0;
+    const scopedTargets: string[] = [];
+    const mockThis: any = {
+      state: RepositoryState.Idle,
+      workspaceRoot,
+      externalWorkingCopyRoots: [],
+      repository: {
+        clearBlameCache: () => {},
+        getStatus: async () => {
+          rootReads++;
+          throw new Error("unrelated broken external");
+        },
+        getScopedStatus: async (target: string | readonly string[]) => {
+          scopedReads++;
+          const batch = typeof target === "string" ? [target] : [...target];
+          scopedTargets.push(...batch);
+          return batch.some(value => value.endsWith("-19"))
+            ? [
+                {
+                  status: "external",
+                  path: "missing-fallback-target-19/nested"
+                }
+              ]
+            : [];
+        }
+      },
+      _operations: { start: () => {}, end: () => {} },
+      _onRunOperation: { fire: () => {} },
+      _onDidRunOperation: { fire: () => {} },
+      _onDidRunOperationDetail: { fire: (detail: any) => details.push(detail) },
+      retryRun: async (fn: () => Promise<unknown>) => fn(),
+      updateModelState: async () => {},
+      lastForceRefresh: 0,
+      _changesGeneration: 0
+    };
+
+    await (Repository.prototype as any).run.call(
+      mockThis,
+      Operation.Update,
+      async () => "ok",
+      { externalImpact: { traverseExternals: true, targets } }
+    );
+
+    assert.strictEqual(rootReads, 2);
+    assert.strictEqual(
+      scopedReads,
+      4,
+      "twenty targets should use two bounded batches per snapshot"
+    );
+    assert.strictEqual(
+      scopedTargets.filter(value => value.endsWith("-19")).length,
+      2,
+      "late targets must be covered before and after mutation"
+    );
+    assert.deepStrictEqual(details[0]?.affectedExternalRoots, [
+      path.join(workspaceRoot, "missing-fallback-target-19", "nested")
+    ]);
+  });
+
+  test("Repository.run retries transient topology reads", async () => {
+    const { Repository } = await import("../../../repository");
+    const workspaceRoot = process.cwd();
+    const details: any[] = [];
+    const targets = Array.from(
+      { length: 20 },
+      (_, index) => `missing-retry-target-${index}`
+    );
+    const externalPath = "missing-retry-target-0/nested";
+    let operationRan = false;
+    let rootReads = 0;
+    let topologyRetries = 0;
+    const locked = Object.assign(new Error("working copy locked"), {
+      svnErrorCode: "E155004"
+    });
+    const mockThis: any = {
+      state: RepositoryState.Idle,
+      workspaceRoot,
+      externalWorkingCopyRoots: [],
+      repository: {
+        clearBlameCache: () => {},
+        getStatus: async () => {
+          rootReads++;
+          if (operationRan) return [];
+          if (rootReads === 1) throw locked;
+          return [{ status: "external", path: externalPath }];
+        },
+        getScopedStatus: async () => {
+          throw locked;
+        }
+      },
+      _operations: { start: () => {}, end: () => {} },
+      _onRunOperation: { fire: () => {} },
+      _onDidRunOperation: { fire: () => {} },
+      _onDidRunOperationDetail: { fire: (detail: any) => details.push(detail) },
+      retryRun: async (fn: () => Promise<unknown>) => {
+        try {
+          return await fn();
+        } catch {
+          topologyRetries++;
+          return fn();
+        }
+      },
+      updateModelState: async () => {},
+      lastForceRefresh: 0,
+      _changesGeneration: 0
+    };
+
+    await (Repository.prototype as any).run.call(
+      mockThis,
+      Operation.Update,
+      async () => {
+        operationRan = true;
+        return "ok";
+      },
+      { externalImpact: { traverseExternals: true, targets } }
+    );
+
+    assert.strictEqual(topologyRetries, 1);
+    assert.strictEqual(rootReads, 3);
+    assert.deepStrictEqual(details[0]?.affectedExternalRoots, [
+      path.join(workspaceRoot, externalPath)
+    ]);
+  });
+
+  test("Repository.run unions partial roots across topology retries", async () => {
+    const { Repository } = await import("../../../repository");
+    const workspaceRoot = process.cwd();
+    const details: any[] = [];
+    const targets = Array.from(
+      { length: 20 },
+      (_, index) => `missing-partial-target-${index}`
+    );
+    const externalPath = "missing-partial-target-0/nested";
+    let operationRan = false;
+    let attempt = 0;
+    const locked = Object.assign(new Error("working copy locked"), {
+      svnErrorCode: "E155004"
+    });
+    const mockThis: any = {
+      state: RepositoryState.Idle,
+      workspaceRoot,
+      externalWorkingCopyRoots: [],
+      repository: {
+        clearBlameCache: () => {},
+        getStatus: async () => {
+          if (operationRan) return [];
+          throw new Error("unrelated broken external");
+        },
+        getScopedStatus: async (target: string | readonly string[]) => {
+          const batch = typeof target === "string" ? [target] : [...target];
+          if (attempt === 1 && batch.some(value => value.endsWith("-0"))) {
+            return [{ status: "external", path: externalPath }];
+          }
+          throw locked;
+        }
+      },
+      _operations: { start: () => {}, end: () => {} },
+      _onRunOperation: { fire: () => {} },
+      _onDidRunOperation: { fire: () => {} },
+      _onDidRunOperationDetail: { fire: (detail: any) => details.push(detail) },
+      retryRun: async (fn: () => Promise<unknown>) => {
+        attempt = 1;
+        try {
+          return await fn();
+        } catch {
+          attempt = 2;
+          return fn();
+        }
+      },
+      updateModelState: async () => {},
+      lastForceRefresh: 0,
+      _changesGeneration: 0
+    };
+
+    await (Repository.prototype as any).run.call(
+      mockThis,
+      Operation.Update,
+      async () => {
+        operationRan = true;
+        return "ok";
+      },
+      { externalImpact: { traverseExternals: true, targets } }
+    );
+
+    assert.deepStrictEqual(details[0]?.affectedExternalRoots, [
+      path.join(workspaceRoot, externalPath)
+    ]);
+  });
+
+  test("Repository.run awaits a failed topology batch before retry", async () => {
+    const { Repository } = await import("../../../repository");
+    const workspaceRoot = process.cwd();
+    const targets = Array.from(
+      { length: 20 },
+      (_, index) => `missing-overlap-target-${index}`
+    );
+    let operationRan = false;
+    let topologyRetries = 0;
+    let active = 0;
+    let maxActive = 0;
+    let releaseSlow!: () => void;
+    const slow = new Promise<void>(resolve => (releaseSlow = resolve));
+    let markFirstBatchStarted!: () => void;
+    const firstBatchStarted = new Promise<void>(
+      resolve => (markFirstBatchStarted = resolve)
+    );
+    const locked = Object.assign(new Error("working copy locked"), {
+      svnErrorCode: "E155004"
+    });
+    const mockThis: any = {
+      state: RepositoryState.Idle,
+      workspaceRoot,
+      externalWorkingCopyRoots: [],
+      repository: {
+        clearBlameCache: () => {},
+        getStatus: async () => {
+          if (operationRan) return [];
+          throw new Error("unrelated broken external");
+        },
+        getScopedStatus: async (target: string | readonly string[]) => {
+          if (typeof target !== "string") throw locked;
+          active++;
+          maxActive = Math.max(maxActive, active);
+          const index = Number(target.match(/(\d+)$/)?.[1]);
+          if (index % 16 === 0) {
+            active--;
+            throw locked;
+          }
+          if (active === 15) markFirstBatchStarted();
+          try {
+            await slow;
+          } finally {
+            active--;
+          }
+          throw locked;
+        }
+      },
+      _operations: { start: () => {}, end: () => {} },
+      _onRunOperation: { fire: () => {} },
+      _onDidRunOperation: { fire: () => {} },
+      _onDidRunOperationDetail: { fire: () => {} },
+      retryRun: async (fn: () => Promise<unknown>) => {
+        try {
+          return await fn();
+        } catch {
+          topologyRetries++;
+          return fn();
+        }
+      },
+      updateModelState: async () => {},
+      lastForceRefresh: 0,
+      _changesGeneration: 0
+    };
+
+    const pending = (Repository.prototype as any).run.call(
+      mockThis,
+      Operation.Update,
+      async () => {
+        operationRan = true;
+        return "ok";
+      },
+      { externalImpact: { traverseExternals: true, targets } }
+    );
+
+    await firstBatchStarted;
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const retriesBeforeRelease = topologyRetries;
+    releaseSlow();
+    await pending;
+
+    assert.strictEqual(
+      retriesBeforeRelease,
+      0,
+      "retry must wait for every sibling probe to settle"
+    );
+    assert.ok(
+      maxActive <= 16,
+      `active scoped reads exceeded cap: ${maxActive}`
+    );
+  });
+
+  test("Repository.run skips post-operation topology after disposal", async () => {
+    const { Repository } = await import("../../../repository");
+    let topologyReads = 0;
+    const baseRepository: any = {
+      isDisposed: false,
+      clearBlameCache: () => {},
+      getStatus: async () => {
+        topologyReads++;
+        return [];
+      }
+    };
+    const mockThis: any = {
+      state: RepositoryState.Idle,
+      workspaceRoot: process.cwd(),
+      externalWorkingCopyRoots: [],
+      repository: baseRepository,
+      _operations: { start: () => {}, end: () => {} },
+      _onRunOperation: { fire: () => {} },
+      _onDidRunOperation: { fire: () => {} },
+      _onDidRunOperationDetail: { fire: () => {} },
+      retryRun: async (fn: () => Promise<unknown>) => fn(),
+      updateModelState: async () => {},
+      lastForceRefresh: 0,
+      _changesGeneration: 0
+    };
+
+    await (Repository.prototype as any).run.call(
+      mockThis,
+      Operation.Update,
+      async () => {
+        baseRepository.isDisposed = true;
+        return "ok";
+      },
+      { externalImpact: { traverseExternals: true } }
+    );
+
+    assert.strictEqual(topologyReads, 1);
+  });
+
+  test("updateModelState stops when status fails during disposal", async () => {
+    const { Repository } = await import("../../../repository");
+    let statusReads = 0;
+    const baseRepository: any = {
+      isDisposed: false
+    };
+    const mockThis: any = {
+      repository: baseRepository,
+      sparseDownloadInProgress: false,
+      lastModelUpdate: 0,
+      MODEL_CACHE_MS: 0,
+      statusService: {
+        updateStatus: async () => {
+          statusReads++;
+          baseRepository.isDisposed = true;
+          throw Object.assign(new Error("working copy locked"), {
+            svnErrorCode: "E155004"
+          });
+        }
+      },
+      retryRun: async (fn: () => Promise<unknown>) => fn()
+    };
+
+    await assert.doesNotReject(() =>
+      (Repository.prototype as any).updateModelState.call(
+        mockThis,
+        false,
+        false,
+        false
+      )
+    );
+    assert.strictEqual(statusReads, 1);
   });
 
   test("update variants report their exact external traversal scope", async () => {

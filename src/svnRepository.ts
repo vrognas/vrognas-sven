@@ -73,6 +73,11 @@ export class Repository {
   // Bumped whenever info entries are invalidated so an older in-flight
   // `svn info` cannot repopulate the cache after a working-copy mutation.
   private _infoGeneration = 0;
+  // Generation of the root info value itself. `_info` remains available to
+  // legacy synchronous readers after invalidation, but stale values must not
+  // namespace persistent blame entries.
+  private _infoValueGeneration = 0;
+  private _cacheDisposed = false;
   private _blameCache = new LRUCache<ISvnBlameLine[]>(100, 5 * 60 * 1000);
   // In-flight dedup for concurrent blame calls (BlameProvider and
   // BlameStatusBar race on the same file at every editor switch).
@@ -154,9 +159,20 @@ export class Repository {
   ) {
     if (prefetchedInfo) {
       this._info = prefetchedInfo;
+      this._infoValueGeneration = this._infoGeneration;
       this._infoCache.set("", prefetchedInfo);
       this.lastInfoUpdate = Date.now();
     }
+  }
+
+  private assertCacheActive(): void {
+    if (this._cacheDisposed) {
+      throw new Error("Repository disposed");
+    }
+  }
+
+  public get isDisposed(): boolean {
+    return this._cacheDisposed;
   }
 
   /**
@@ -181,35 +197,66 @@ export class Repository {
   public async updateInfo(forceRefresh: boolean = false) {
     // Check cache first (skip if forced)
     const now = Date.now();
+    this.assertCacheActive();
     if (!forceRefresh && now - this.lastInfoUpdate < this.INFO_CACHE_MS) {
       return;
     }
-    this.lastInfoUpdate = now;
 
-    const result = await this.exec([
-      "info",
-      "--xml",
-      fixPegRevision(this.workspaceRoot ? this.workspaceRoot : this.root)
-    ]);
+    while (true) {
+      this.lastInfoUpdate = Date.now();
+      const generation = this._infoGeneration;
 
-    try {
+      let result: IExecutionResult;
+      try {
+        result = await this.exec([
+          "info",
+          "--xml",
+          fixPegRevision(this.workspaceRoot ? this.workspaceRoot : this.root)
+        ]);
+      } catch (err) {
+        this.assertCacheActive();
+        if (generation !== this._infoGeneration) {
+          this.lastInfoUpdate = 0;
+          continue;
+        }
+        throw err;
+      }
+
+      let info: ISvnInfo;
+      try {
+        info = await parseInfoXml(result.stdout);
+      } catch (err) {
+        this.assertCacheActive();
+        if (generation !== this._infoGeneration) {
+          this.lastInfoUpdate = 0;
+          continue;
+        }
+        logError(
+          `Failed to parse repository info for ${this.workspaceRoot}`,
+          err
+        );
+        throw new Error(`Repository info unavailable: ${getErrorMessage(err)}`);
+      }
+
+      this.assertCacheActive();
+      if (generation !== this._infoGeneration) {
+        this.lastInfoUpdate = 0;
+        continue;
+      }
+
       const prevRevision = this._info?.revision;
-      this._info = await parseInfoXml(result.stdout);
-      // Seed getInfo() cache so getCurrentBranch() doesn't re-query
-      this._infoCache.set("", this._info);
       // Revision moved WITHOUT a mutating operation through the
       // extension (svn update/commit in a terminal): blame keys and
       // content must re-resolve - this event replaces the staleness
       // bound the 2-min info TTL used to provide
-      if (prevRevision !== undefined && this._info.revision !== prevRevision) {
+      if (prevRevision !== undefined && info.revision !== prevRevision) {
         this.clearBlameCache();
       }
-    } catch (err) {
-      logError(
-        `Failed to parse repository info for ${this.workspaceRoot}`,
-        err
-      );
-      throw new Error(`Repository info unavailable: ${getErrorMessage(err)}`);
+      this._info = info;
+      this._infoValueGeneration = this._infoGeneration;
+      // Seed getInfo() cache so getCurrentBranch() doesn't re-query
+      this._infoCache.set("", info);
+      return;
     }
   }
 
@@ -617,17 +664,22 @@ export class Repository {
    * Use this instead of getStatus() when you only need status for a subset of the repo.
    * Avoids parsing massive XML for large repositories.
    *
-   * @param targetPath Path to get status for (relative or absolute)
+   * @param targetPath Path(s) to get status for (relative or absolute)
    * @param depth SVN depth: empty, files, immediates, infinity
    * @returns File statuses for the specified path and depth
    */
   public async getScopedStatus(
-    targetPath: string,
+    targetPath: string | readonly string[],
     depth: keyof typeof SvnDepth
   ): Promise<IFileStatus[]> {
-    const relativePath = this.removeAbsolutePath(targetPath);
+    const targetPaths =
+      typeof targetPath === "string" ? [targetPath] : [...targetPath];
+    if (targetPaths.length === 0) return [];
+    const relativePaths = targetPaths.map(value =>
+      this.removeAbsolutePath(value)
+    );
 
-    const args = ["stat", "--xml", "--depth", depth, relativePath];
+    const args = ["stat", "--xml", "--depth", depth, ...relativePaths];
 
     const result = await this.exec(args);
 
@@ -635,7 +687,10 @@ export class Repository {
     try {
       status = await parseStatusXml(result.stdout);
     } catch (err) {
-      logError(`Failed to parse scoped status XML for ${relativePath}`, err);
+      logError(
+        "Failed to parse scoped status XML for " + relativePaths.join(", "),
+        err
+      );
       throw new Error(`Scoped status failed: ${getErrorMessage(err)}`);
     }
 
@@ -699,6 +754,7 @@ export class Repository {
     skipCache: boolean = false,
     isUrl: boolean = false
   ): Promise<ISvnInfo> {
+    this.assertCacheActive();
     // Fast-path cache check OUTSIDE @sequentialize so concurrent callers for
     // a path that's already cached don't queue behind an unrelated in-flight
     // info fetch. Cache miss falls through to the sequentialized fetch.
@@ -750,20 +806,6 @@ export class Repository {
     isUrl: boolean,
     cacheKey: string
   ): Promise<ISvnInfo> {
-    // Re-check cache in case a previous queued fetch populated it while we
-    // were waiting for the sequentialize lock.
-    if (this._infoCache.has(cacheKey)) {
-      const cached = this._infoCache.get(cacheKey);
-      if (cached === null) {
-        throw new Error(`File not under version control: ${file}`);
-      }
-      if (cached !== undefined) {
-        return cached;
-      }
-    }
-
-    const generation = this._infoGeneration;
-
     const args = ["info", "--xml"];
 
     if (revision) {
@@ -778,39 +820,56 @@ export class Repository {
       args.push(this.buildPegPath(targetFile, revision));
     }
 
-    let result;
-    try {
-      result = await this.exec(args);
-    } catch (err) {
-      // Negative cache for unversioned files (W155010/E200009)
-      if (
-        err &&
-        typeof err === "object" &&
-        "stderr" in err &&
-        typeof err.stderr === "string" &&
-        (err.stderr.includes("W155010") || err.stderr.includes("E200009"))
-      ) {
-        if (generation === this._infoGeneration) {
-          this._infoCache.set(cacheKey, null);
+    while (true) {
+      this.assertCacheActive();
+      // Re-check cache in case a queued/current fetch populated it.
+      if (this._infoCache.has(cacheKey)) {
+        const cached = this._infoCache.get(cacheKey);
+        if (cached === null) {
+          throw new Error(`File not under version control: ${file}`);
+        }
+        if (cached !== undefined) {
+          return cached;
         }
       }
-      throw err;
-    }
 
-    let info: ISvnInfo;
-    try {
-      info = await parseInfoXml(result.stdout);
-    } catch (err) {
-      logError(`Failed to parse info XML for ${file}`, err);
-      throw new Error(
-        `File info unavailable for ${file}: ${getErrorMessage(err)}`
-      );
-    }
+      const generation = this._infoGeneration;
+      let result: IExecutionResult;
+      try {
+        result = await this.exec(args);
+      } catch (err) {
+        this.assertCacheActive();
+        if (generation !== this._infoGeneration) continue;
+        // Negative cache for unversioned files (W155010/E200009)
+        if (
+          err &&
+          typeof err === "object" &&
+          "stderr" in err &&
+          typeof err.stderr === "string" &&
+          (err.stderr.includes("W155010") || err.stderr.includes("E200009"))
+        ) {
+          this._infoCache.set(cacheKey, null);
+        }
+        throw err;
+      }
 
-    if (generation === this._infoGeneration) {
+      let info: ISvnInfo;
+      try {
+        info = await parseInfoXml(result.stdout);
+      } catch (err) {
+        this.assertCacheActive();
+        if (generation !== this._infoGeneration) continue;
+        logError(`Failed to parse info XML for ${file}`, err);
+        throw new Error(
+          `File info unavailable for ${file}: ${getErrorMessage(err)}`
+        );
+      }
+
+      this.assertCacheActive();
+      if (generation !== this._infoGeneration) continue;
       this._infoCache.set(cacheKey, info);
+      return info;
     }
-    return info;
   }
 
   /**
@@ -831,6 +890,7 @@ export class Repository {
     skipCache: boolean = false,
     pegRevision?: string
   ): Promise<ISvnBlameLine[]> {
+    this.assertCacheActive();
     // Unescaped: _doBlameFetch escapes/pegs the target exactly once
     const relativePath = this.relativize(file);
     const generation = this._blameGeneration;
@@ -852,6 +912,7 @@ export class Repository {
             keyRevision = info.revision;
           }
         } catch {
+          this.assertCacheActive();
           // keep the literal BASE key
         }
       }
@@ -980,6 +1041,7 @@ export class Repository {
     pegRevision: string | undefined,
     generation: number
   ): Promise<ISvnBlameLine[]> {
+    this.assertCacheActive();
     // Re-check cache in case a queued fetch populated it while waiting
     // (skipCache callers demanded a fresh exec - don't hand them a cache hit)
     if (!skipCache) {
@@ -1112,7 +1174,10 @@ export class Repository {
     if (!/@\d+$/.test(cacheKey)) {
       return undefined;
     }
-    const url = this._info?.url;
+    const url =
+      this._infoValueGeneration === this._infoGeneration
+        ? this._info?.url
+        : undefined;
     return url ? `${url}|${cacheKey.replace(/\\/g, "/")}` : undefined;
   }
 
@@ -2904,6 +2969,7 @@ export class Repository {
 
   /** Clear all caches (call on repository disposal). */
   public clearInfoCacheTimers(): void {
+    this._cacheDisposed = true;
     this._infoCache.clear();
     // Delegate so the generation bump also blocks in-flight write-backs
     this.clearBlameCache();

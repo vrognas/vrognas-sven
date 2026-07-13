@@ -58,6 +58,8 @@ export async function makeFakeSvnRepo(): Promise<FakeSvnRepo> {
   };
   repo._infoCache = new LRUCache(500, 2 * 60 * 1000);
   repo._infoGeneration = 0;
+  repo._infoValueGeneration = 0;
+  repo._cacheDisposed = false;
   repo._logCache = new LRUCache(50, 60 * 1000);
   repo._listCache = new LRUCache(200, 30 * 1000);
   repo._catCache = new LRUCache(50, 30 * 1000);

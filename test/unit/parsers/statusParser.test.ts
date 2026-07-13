@@ -2,6 +2,29 @@ import { describe, it, expect } from "vitest";
 import { parseStatusXml } from "../../../src/parser/statusParser";
 
 describe("StatusParser - Rename Detection", () => {
+  it("parses every target from a multi-path status", async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<status>
+  <target path="vendor-a">
+    <entry path="vendor-a/nested">
+      <wc-status item="external" props="none"/>
+    </entry>
+  </target>
+  <target path="vendor-b">
+    <entry path="vendor-b/file.txt">
+      <wc-status item="modified" props="none"/>
+    </entry>
+  </target>
+</status>`;
+
+    const result = await parseStatusXml(xml);
+
+    expect(result.map(status => [status.path, status.status])).toEqual([
+      ["vendor-a/nested", "external"],
+      ["vendor-b/file.txt", "modified"]
+    ]);
+  });
+
   it("detects rename when status is added with moved-from", async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <status>

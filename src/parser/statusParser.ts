@@ -136,9 +136,12 @@ function processEntry(
 function xmlToStatus(xml: Record<string, unknown>) {
   const statusList: IFileStatus[] = [];
   if (xml.target && typeof xml.target === "object") {
-    const target = xml.target as Record<string, unknown>;
-    if (target.entry) {
-      statusList.push(...processEntry(target.entry as IEntry | IEntry[]));
+    const targets = Array.isArray(xml.target) ? xml.target : [xml.target];
+    for (const value of targets) {
+      if (value && typeof value === "object" && "entry" in value) {
+        const target = value as { entry: IEntry | IEntry[] };
+        statusList.push(...processEntry(target.entry));
+      }
     }
   }
 

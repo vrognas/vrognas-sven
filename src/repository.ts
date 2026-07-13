@@ -163,6 +163,11 @@ type RunOptions = {
   readonly externalImpact?: ExternalOperationImpact;
 };
 
+type RetryRunOptions = {
+  readonly maxRepositoryLockRetries?: number;
+  readonly retryAuthorization?: boolean;
+};
+
 function absoluteOperationPath(workspaceRoot: string, value: string): string {
   return path.normalize(
     path.isAbsolute(value) ? value : path.join(workspaceRoot, value)
@@ -233,6 +238,32 @@ function outermostOperationPaths(values: Iterable<string>): string[] {
 
 const MAX_SCOPED_TOPOLOGY_TARGETS = 16;
 
+type ScopedTopologyResult = {
+  readonly statuses: IFileStatus[];
+  readonly retryError?: unknown;
+};
+
+class TopologyDiscoveryError extends Error {
+  public readonly svnErrorCode?: string;
+
+  constructor(
+    error: unknown,
+    public readonly partialRoots: readonly string[]
+  ) {
+    super(error instanceof Error ? error.message : "Topology discovery failed");
+    this.name = "TopologyDiscoveryError";
+    this.svnErrorCode = (error as ISvnErrorData | undefined)?.svnErrorCode;
+  }
+}
+
+function isRetryableTopologyError(error: unknown): boolean {
+  const code = (error as ISvnErrorData | undefined)?.svnErrorCode;
+  return (
+    code === svnErrorCodes.RepositoryIsLocked ||
+    code === svnErrorCodes.AuthorizationFailed
+  );
+}
+
 function getRecursiveStatus(
   repository: BaseRepository
 ): Promise<IFileStatus[]> {
@@ -245,12 +276,57 @@ function getRecursiveStatus(
   });
 }
 
+async function getScopedTopologyStatuses(
+  repository: BaseRepository,
+  targets: string[]
+): Promise<ScopedTopologyResult> {
+  const statuses: IFileStatus[] = [];
+  let retryError: unknown;
+
+  for (
+    let offset = 0;
+    offset < targets.length;
+    offset += MAX_SCOPED_TOPOLOGY_TARGETS
+  ) {
+    const batch = targets.slice(offset, offset + MAX_SCOPED_TOPOLOGY_TARGETS);
+    try {
+      statuses.push(
+        ...(await repository.getScopedStatus(
+          batch.length === 1 ? batch[0]! : batch,
+          "infinity"
+        ))
+      );
+      continue;
+    } catch {
+      // One bad target can fail a multi-target status. Retry the bounded
+      // batch individually and wait for every sibling before propagating.
+    }
+
+    const settled = await Promise.allSettled(
+      batch.map(target => repository.getScopedStatus(target, "infinity"))
+    );
+    for (const result of settled) {
+      if (result.status === "fulfilled") {
+        statuses.push(...result.value);
+      } else if (
+        retryError === undefined &&
+        isRetryableTopologyError(result.reason)
+      ) {
+        retryError = result.reason;
+      }
+    }
+  }
+
+  return { statuses, retryError };
+}
+
 async function discoverExternalRoots(
   repository: BaseRepository,
   workspaceRoot: string,
   impact: ExternalOperationImpact
 ): Promise<string[]> {
   let statuses: IFileStatus[];
+  let retryError: unknown;
   if (impact.targets?.length) {
     const targets = uniqueOperationPaths(impact.targets);
     const possibleContainers = (
@@ -271,25 +347,39 @@ async function discoverExternalRoots(
 
     if (outermostTargets.length === 0) return [];
     if (outermostTargets.length > MAX_SCOPED_TOPOLOGY_TARGETS) {
-      statuses = await getRecursiveStatus(repository);
+      try {
+        statuses = await getRecursiveStatus(repository);
+      } catch {
+        // A broken unrelated external can fail the full scan. Preserve
+        // target coverage with bounded multi-path commands.
+        const scoped = await getScopedTopologyStatuses(
+          repository,
+          outermostTargets
+        );
+        statuses = scoped.statuses;
+        retryError = scoped.retryError;
+      }
     } else {
-      statuses = (
-        await Promise.allSettled(
-          outermostTargets.map(target =>
-            repository.getScopedStatus(target, "infinity")
-          )
-        )
-      ).flatMap(result => (result.status === "fulfilled" ? result.value : []));
+      const scoped = await getScopedTopologyStatuses(
+        repository,
+        outermostTargets
+      );
+      statuses = scoped.statuses;
+      retryError = scoped.retryError;
     }
   } else {
     statuses = await getRecursiveStatus(repository);
   }
 
-  return uniqueOperationPaths(
+  const roots = uniqueOperationPaths(
     statuses
       .filter(status => status.status === Status.EXTERNAL)
       .map(status => absoluteOperationPath(workspaceRoot, status.path))
-  );
+  ).filter(root => externalRootAffected(root, impact));
+  if (retryError !== undefined) {
+    throw new TopologyDiscoveryError(retryError, roots);
+  }
+  return roots;
 }
 
 export class Repository implements IRemoteRepository {
@@ -1155,6 +1245,7 @@ export class Repository implements IRemoteRepository {
     forceRefresh: boolean = false,
     fetchLockStatus: boolean = false
   ) {
+    if (this.repository.isDisposed) return;
     // Skip status updates during sparse checkout downloads
     // Prevents working copy lock conflicts on Windows
     if (this.sparseDownloadInProgress) {
@@ -1179,16 +1270,34 @@ export class Repository implements IRemoteRepository {
       // refresh sees fresh prop diff output for paths that may have
       // changed during the mutating operation.
       this.repository.clearPropertyChangesCache();
-      await this.repository.updateInfo(true);
+      try {
+        await this.repository.updateInfo(true);
+      } catch (error) {
+        if (this.repository.isDisposed) return;
+        throw error;
+      }
     }
 
+    if (this.repository.isDisposed) return;
+
     // Get categorized status from StatusService
-    const result = await this.retryRun(async () => {
-      return this.statusService.updateStatus({
-        checkRemoteChanges,
-        fetchLockStatus
+    let result;
+    try {
+      result = await this.retryRun(async () => {
+        if (this.repository.isDisposed) {
+          throw new Error("Repository disposed");
+        }
+        return this.statusService.updateStatus({
+          checkRemoteChanges,
+          fetchLockStatus
+        });
       });
-    });
+    } catch (error) {
+      if (this.repository.isDisposed) return;
+      throw error;
+    }
+
+    if (this.repository.isDisposed) return;
 
     // Update metadata
     this.statusExternal = [...result.statusExternal];
@@ -2508,20 +2617,41 @@ export class Repository implements IRemoteRepository {
       };
 
       const tryDiscoverExternalRoots = async (): Promise<string[]> => {
-        if (externalImpact?.traverseExternals !== true) return [];
-        try {
-          return await this.retryRun(() =>
-            discoverExternalRoots(
+        if (
+          this.repository.isDisposed ||
+          externalImpact?.traverseExternals !== true
+        ) {
+          return [];
+        }
+        const discoveredRoots = new Set<string>();
+        const discover = async (): Promise<string[]> => {
+          try {
+            return await discoverExternalRoots(
               this.repository,
               this.workspaceRoot,
               externalImpact
-            )
-          );
-        } catch {
+            );
+          } catch (error) {
+            if (error instanceof TopologyDiscoveryError) {
+              error.partialRoots.forEach(root => discoveredRoots.add(root));
+            }
+            throw error;
+          }
+        };
+        try {
+          const roots = await this.retryRun(discover, {
+            maxRepositoryLockRetries: 1,
+            retryAuthorization: false
+          });
+          roots.forEach(root => discoveredRoots.add(root));
+        } catch (error) {
+          if (error instanceof TopologyDiscoveryError) {
+            error.partialRoots.forEach(root => discoveredRoots.add(root));
+          }
           // Topology is advisory for cross-repository invalidation. Never
           // replace the mutation result because an external is unavailable.
-          return [];
         }
+        return [...discoveredRoots];
       };
 
       for (const root of await tryDiscoverExternalRoots()) {
@@ -2635,9 +2765,12 @@ export class Repository implements IRemoteRepository {
   }
 
   private async retryRun<T>(
-    runOperation: () => Promise<T> = () => Promise.resolve(null as T)
+    runOperation: () => Promise<T> = () => Promise.resolve(null as T),
+    options: RetryRunOptions = {}
   ): Promise<T> {
     let attempt = 0;
+    const maxRepositoryLockRetries = options.maxRepositoryLockRetries ?? 10;
+    const retryAuthorization = options.retryAuthorization ?? true;
     // Phase 8.2 perf fix - pre-load accounts before retry loop to avoid blocking
     const accounts: IStoredAuth[] = await this.loadStoredAuths();
 
@@ -2659,6 +2792,9 @@ export class Repository implements IRemoteRepository {
       }
 
       while (true) {
+        if (this.repository.isDisposed) {
+          throw new Error("Repository disposed");
+        }
         try {
           attempt++;
           const result = await runOperation();
@@ -2667,13 +2803,18 @@ export class Repository implements IRemoteRepository {
         } catch (err) {
           const svnError = err as ISvnErrorData;
 
+          if (this.repository.isDisposed) {
+            throw new Error("Repository disposed");
+          }
+
           if (
             svnError.svnErrorCode === svnErrorCodes.RepositoryIsLocked &&
-            attempt <= 10
+            attempt <= maxRepositoryLockRetries
           ) {
             // quadratic backoff
             await timeout(Math.pow(attempt, 2) * 50);
           } else if (
+            retryAuthorization &&
             svnError.svnErrorCode === svnErrorCodes.AuthorizationFailed &&
             attempt <= accounts.length
           ) {
@@ -2688,6 +2829,7 @@ export class Repository implements IRemoteRepository {
               this.password = account.password;
             }
           } else if (
+            retryAuthorization &&
             svnError.svnErrorCode === svnErrorCodes.AuthorizationFailed &&
             attempt <= 3 + accounts.length
           ) {

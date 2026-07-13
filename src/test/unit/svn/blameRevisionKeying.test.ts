@@ -1,6 +1,9 @@
 import * as assert from "assert";
 import { makeFakeSvnRepo } from "./helpers/fakeSvnRepository";
 
+const infoXml = (revision: string) =>
+  `<?xml version="1.0"?><info><entry revision="${revision}"><url>https://svn.example.com/repo/file.txt</url><relative-url>^/file.txt</relative-url><repository><root>https://svn.example.com/repo</root><uuid>x</uuid></repository><wc-info><wcroot-abspath>/wc</wcroot-abspath></wc-info></entry></info>`;
+
 suite("Blame cache revision keying", () => {
   test("BASE resolves to the file's revision for the cache key", async () => {
     const { repo } = await makeFakeSvnRepo();
@@ -50,9 +53,6 @@ suite("Blame cache revision keying", () => {
       resolve => (markInfoStarted = resolve)
     );
     const blameRevisions: string[] = [];
-    const infoXml = (revision: string) =>
-      `<?xml version="1.0"?><info><entry revision="${revision}"><url>https://svn.example.com/repo/file.txt</url><relative-url>^/file.txt</relative-url><repository><root>https://svn.example.com/repo</root><uuid>x</uuid></repository><wc-info><wcroot-abspath>/wc</wcroot-abspath></wc-info></entry></info>`;
-
     repo.exec = async (args: string[]) => {
       if (args[0] === "info") {
         infoCount++;
@@ -82,6 +82,178 @@ suite("Blame cache revision keying", () => {
     assert.strictEqual(repo._baseKeyCache.get("file.txt"), "11");
     assert.strictEqual(repo._blameCache.get("file.txt@10"), undefined);
     assert.ok(repo._blameCache.get("file.txt@11"));
+  });
+
+  test("direct info retries when invalidated in flight", async () => {
+    const { Repository: SvnRepository } = await import(
+      "../../../svnRepository"
+    );
+    const { repo } = await makeFakeSvnRepo();
+    let infoCount = 0;
+    let releaseFirstInfo!: () => void;
+    let markInfoStarted!: () => void;
+    const infoStarted = new Promise<void>(
+      resolve => (markInfoStarted = resolve)
+    );
+    repo.exec = async () => {
+      infoCount++;
+      if (infoCount === 1) {
+        markInfoStarted();
+        return new Promise(resolve => {
+          releaseFirstInfo = () => resolve({ stdout: infoXml("10") });
+        });
+      }
+      return { stdout: infoXml("11") };
+    };
+
+    const pending = SvnRepository.prototype.getInfo.call(repo, "file.txt");
+    await infoStarted;
+    repo.clearBlameCache();
+    releaseFirstInfo();
+    const info = await pending;
+
+    assert.strictEqual(infoCount, 2);
+    assert.strictEqual(info.revision, "11");
+    assert.strictEqual(repo._infoCache.get("file.txt")?.revision, "11");
+  });
+
+  test("root info refresh retries a result invalidated in flight", async () => {
+    const { repo } = await makeFakeSvnRepo();
+    repo.workspaceRoot = "/wc";
+    repo.root = "/wc";
+    repo.lastInfoUpdate = 0;
+    repo._info = { revision: "9", url: "https://svn.example.com/repo/old" };
+    let releaseInfo!: () => void;
+    let markInfoStarted!: () => void;
+    const infoStarted = new Promise<void>(
+      resolve => (markInfoStarted = resolve)
+    );
+    let infoCount = 0;
+    repo.exec = async () => {
+      infoCount++;
+      if (infoCount === 1) {
+        markInfoStarted();
+        return new Promise(resolve => {
+          releaseInfo = () => resolve({ stdout: infoXml("10") });
+        });
+      }
+      return { stdout: infoXml("11") };
+    };
+
+    const pending = repo.updateInfo(true);
+    await infoStarted;
+    repo.clearBlameCache();
+    releaseInfo();
+    await pending;
+
+    assert.strictEqual(infoCount, 2);
+    assert.strictEqual(repo._info.revision, "11");
+    assert.strictEqual(repo._infoCache.get("")?.revision, "11");
+    assert.ok(repo.lastInfoUpdate > 0);
+  });
+
+  test("direct info aborts instead of retrying after disposal", async () => {
+    const { Repository: SvnRepository } = await import(
+      "../../../svnRepository"
+    );
+    const { repo } = await makeFakeSvnRepo();
+    let infoCount = 0;
+    let releaseInfo!: () => void;
+    let markInfoStarted!: () => void;
+    const infoStarted = new Promise<void>(
+      resolve => (markInfoStarted = resolve)
+    );
+    repo.exec = async () => {
+      infoCount++;
+      if (infoCount === 1) {
+        markInfoStarted();
+        return new Promise(resolve => {
+          releaseInfo = () => resolve({ stdout: infoXml("10") });
+        });
+      }
+      return { stdout: infoXml("11") };
+    };
+
+    const pending = SvnRepository.prototype.getInfo.call(repo, "file.txt");
+    await infoStarted;
+    repo.clearInfoCacheTimers();
+    releaseInfo();
+
+    await assert.rejects(pending, /disposed/i);
+    assert.strictEqual(infoCount, 1);
+    assert.strictEqual(repo._infoCache.get("file.txt"), undefined);
+  });
+
+  test("root info refresh rejects when disposed in flight", async () => {
+    const { repo } = await makeFakeSvnRepo();
+    repo.workspaceRoot = "/wc";
+    repo.root = "/wc";
+    repo.lastInfoUpdate = 0;
+    let releaseInfo!: () => void;
+    let markInfoStarted!: () => void;
+    const infoStarted = new Promise<void>(
+      resolve => (markInfoStarted = resolve)
+    );
+    repo.exec = async () => {
+      markInfoStarted();
+      return new Promise(resolve => {
+        releaseInfo = () => resolve({ stdout: infoXml("10") });
+      });
+    };
+
+    const pending = repo.updateInfo(true);
+    await infoStarted;
+    repo.clearInfoCacheTimers();
+    releaseInfo();
+
+    await assert.rejects(pending, /disposed/i);
+    assert.strictEqual(repo._infoCache.get(""), undefined);
+  });
+
+  test("blame cannot start after disposal during BASE resolution", async () => {
+    const { Repository: SvnRepository } = await import(
+      "../../../svnRepository"
+    );
+    const { BLAME_XML } = await import("./helpers/fakeSvnRepository");
+    const { repo } = await makeFakeSvnRepo();
+    repo.getInfo = (...args: unknown[]) =>
+      (SvnRepository.prototype.getInfo as any).call(repo, ...args);
+    let releaseInfo!: () => void;
+    let markInfoStarted!: () => void;
+    const infoStarted = new Promise<void>(
+      resolve => (markInfoStarted = resolve)
+    );
+    let blameCount = 0;
+    repo.exec = async (args: string[]) => {
+      if (args[0] === "info") {
+        markInfoStarted();
+        return new Promise(resolve => {
+          releaseInfo = () => resolve({ stdout: infoXml("10") });
+        });
+      }
+      blameCount++;
+      return { stdout: BLAME_XML };
+    };
+
+    const pending = repo.blame("file.txt");
+    await infoStarted;
+    repo.clearInfoCacheTimers();
+    releaseInfo();
+
+    await assert.rejects(pending, /disposed/i);
+    await assert.rejects(repo.blame("file.txt", "10"), /disposed/i);
+    assert.strictEqual(blameCount, 0);
+    assert.strictEqual(repo._blameCache.size, 0);
+  });
+
+  test("invalidated root info cannot namespace persistent blame", async () => {
+    const { repo } = await makeFakeSvnRepo();
+    repo._info = { url: "https://svn.example.com/repo/branch-a" };
+
+    assert.ok(repo.persistentBlameKey("file.txt@10"));
+    repo.clearBlameCache();
+
+    assert.strictEqual(repo.persistentBlameKey("file.txt@10"), undefined);
   });
 
   test("resolved revision is pegged into the fetch (key/content coherent)", async () => {
