@@ -125,4 +125,56 @@ suite("BlameStatusBar - initial status crawl", () => {
 
     assert.ok(showUncommitted.notCalled);
   });
+
+  test("does not apply blame for an editor that is no longer active", async () => {
+    const clock = sandbox.useFakeTimers();
+    const b = {
+      document: { uri: Uri.file("/b.ts"), lineCount: 1 },
+      selection: { active: { line: 0 } }
+    } as any;
+    const c = {
+      document: { uri: Uri.file("/c.ts"), lineCount: 1 },
+      selection: { active: { line: 0 } }
+    } as any;
+    let active: any;
+    sandbox.stub(window, "activeTextEditor").get(() => active);
+    statusBar = new BlameStatusBar({ repositories: [] } as any);
+    sandbox.stub(statusBar as any, "shouldShowStatusBar").returns(true);
+    sandbox
+      .stub(statusBar as any, "formatStatusBarText")
+      .callsFake((...args: unknown[]) => (args[0] as ISvnBlameLine).author);
+    let resolveB!: (value: ISvnBlameLine[]) => void;
+    const pendingB = new Promise<ISvnBlameLine[]>(resolve => {
+      resolveB = resolve;
+    });
+    sandbox
+      .stub(statusBar as any, "getBlameData")
+      .callsFake((...args: unknown[]) =>
+        (args[0] as Uri).toString() === b.document.uri.toString()
+          ? pendingB
+          : Promise.resolve([
+              {
+                lineNumber: 1,
+                revision: "2",
+                author: "C",
+                date: "2026-01-01"
+              }
+            ])
+      );
+
+    active = b;
+    void statusBar.updateStatusBar();
+    await clock.tickAsync(150);
+    active = c;
+    void statusBar.updateStatusBar();
+    await clock.tickAsync(150);
+    assert.strictEqual((statusBar as any).statusBarItem.text, "C");
+
+    resolveB([
+      { lineNumber: 1, revision: "1", author: "B", date: "2026-01-01" }
+    ]);
+    await Promise.resolve();
+
+    assert.strictEqual((statusBar as any).statusBarItem.text, "C");
+  });
 });

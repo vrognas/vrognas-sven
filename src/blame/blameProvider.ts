@@ -1419,6 +1419,7 @@ export class BlameProvider implements Disposable {
 
   private onDocumentChange(event: { document: { uri: Uri } }): void {
     const key = event.document.uri.toString();
+    const ownerToken = this.uriOwners.get(key);
     const pending = this.documentChangeTimers.get(key);
     if (pending) {
       clearTimeout(pending);
@@ -1427,7 +1428,7 @@ export class BlameProvider implements Disposable {
       key,
       setTimeout(() => {
         this.documentChangeTimers.delete(key);
-        if (this.isDisposed) {
+        if (this.isDisposed || this.uriOwners.get(key) !== ownerToken) {
           return;
         }
         for (const editor of this.visibleEditors()) {

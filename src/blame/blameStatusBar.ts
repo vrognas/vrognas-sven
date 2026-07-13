@@ -155,10 +155,15 @@ export class BlameStatusBar implements Disposable {
 
     // Get current line number (1-indexed)
     const lineNumber = editor.selection.active.line + 1;
+    const renderKey = this.lineKeyFor(editor);
 
     // Fetch blame data for file (cached)
     const blameData = await this.getBlameData(editor.document.uri);
-    if (this.isDisposed) {
+    if (
+      this.isDisposed ||
+      window.activeTextEditor !== editor ||
+      this.lineKeyFor(editor) !== renderKey
+    ) {
       return;
     }
     if (!blameData) {

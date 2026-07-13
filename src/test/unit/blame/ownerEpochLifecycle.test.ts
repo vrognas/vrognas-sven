@@ -437,6 +437,23 @@ suite("BlameProvider - owner epoch lifecycle", () => {
     assert.ok(clear.calledWith(second));
   });
 
+  test("edit cleanup does not cross repository ownership", async () => {
+    const uri = Uri.file("/wc/nested/file.ts");
+    const editor = editorFor(uri);
+    provider = new BlameProvider({ repositories: [] } as never);
+    const internals = provider as any;
+    internals.claimOwner(uri, { workspaceRoot: "/wc" });
+    (window as any).visibleTextEditors = [editor];
+    const clear = sandbox.stub(provider, "clearDecorations");
+    const clock = sandbox.useFakeTimers();
+
+    internals.onDocumentChange({ document: editor.document });
+    internals.claimOwner(uri, { workspaceRoot: "/wc/nested" });
+    await clock.tickAsync(500);
+
+    assert.ok(clear.notCalled);
+  });
+
   test("save cancels pending edit cleanup for its URI", async () => {
     const editor = editorFor(Uri.file("/a/file.ts"));
     provider = new BlameProvider({ repositories: [] } as never);
