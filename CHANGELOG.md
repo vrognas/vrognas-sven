@@ -7,6 +7,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.100] - 2026-07-13
+
+Fix external-operation topology and in-flight BASE cache coherence.
+
+### Fixed
+
+- **External mutations invalidate removed and added nested working copies.** Best-effort pre/post topology snapshots skip file-only batches, cover every directory target in 16-path commands, isolate failed batches, and retain partial roots across one bounded lock retry without affecting normal UI status.
+- **BASE resolution cannot survive a concurrent mutation or repository close.** Info and blame generations fence pending `svn info`, BASE-key, persistent-key, error, and blame writes; raced live reads retry, while disposal aborts reads, status retries, and post-operation topology.
+
 ## [0.2.99] - 2026-07-13
 
 Fix final blame mapping and nested-repository invalidation cliffs.

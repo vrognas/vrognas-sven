@@ -1,7 +1,27 @@
 # Lessons Learned
 
-**Version**: 0.2.98
+**Version**: 0.2.100
 **Updated**: 2026-07-13
+
+---
+
+### 92. Generation Fences Must Start Before Async Key Resolution
+
+**Lesson**: Fencing only the final `svn blame` write was too late. A BASE blame could await stale `svn info`, survive a cache clear, repopulate the BASE-key memo, then start its fetch under the new generation and cache old revision data indefinitely.
+
+**Fix**: Snapshot the blame generation before BASE resolution, retry when it changes, and independently generation-fence positive and negative info-cache writes. Root-info refreshes retry while live, disposed reads abort, persistent keys reject root info from an older generation, and model/status/topology continuations stop at disposal. Pass the request generation through the blame fetch instead of sampling it after key resolution.
+
+**Rule**: A cache generation covers the entire read pipeline: key resolution, namespace selection, in-flight deduplication, negative caching, and final write-back. Clearing a cache between any two stages must make the old request unable to repopulate it; disposal forbids retry and downstream refresh work.
+
+---
+
+### 91. Dependency Topology Snapshots Are Not UI Status Refreshes
+
+**Lesson**: Reusing the normal post-operation model refresh to discover recursive externals made a targeted update scan the whole working copy, let an unrelated broken external turn success into failure, and still missed a nested external removed before the post scan.
+
+**Fix**: Capture best-effort recursive topology both before and after traversal, union both snapshots with known roots, and keep discovery event-local. Scope directory targets, skip existing file targets, canonicalize Windows aliases, and use one recursive read for large target sets. If it fails, cover every target in 16-path status commands; isolate a failed command with an awaited 16-probe batch, preserve healthy results across one bounded lock retry, and parse every repeated XML target.
+
+**Rule**: Dependency discovery must not mutate UI state or determine operation success. Snapshot destructive topology before mutation, reconcile after it, bound concurrent fan-out without dropping semantic coverage, await siblings before retry, and union partial results across attempts.
 
 ---
 
@@ -9,7 +29,7 @@
 
 **Lesson**: The sparse LCS returned `undefined` when two over-cap cores shared zero lines. That conflated a successfully proven empty LCS with resource exhaustion, disabled exact bracketing context, and made a one-line threshold crossing erase every blame mapping in a fully rewritten core.
 
-**Fix**: Return `[]` for zero matches and reserve `undefined` for exceeded work/storage budgets. The existing bracketed rewrite synthesis can then reproduce dense attribution without allocating a quadratic matrix.
+**Fix**: Return `[]` for zero matches and reserve `undefined` for exceeded work/storage budgets. Probe exact emptiness by indexing the shorter input so the fallback stays memory-bounded. The existing bracketed rewrite synthesis can then reproduce dense attribution without allocating a quadratic matrix.
 
 **Rule**: Result emptiness and computation failure are different states. Preserve that distinction through every fallback and test both sides of algorithm thresholds.
 
@@ -19,7 +39,7 @@
 
 **Lesson**: Treating every lexically nested SVN working copy as affected by a parent Update/Switch/NewBranch cleared independent nested repositories. A bare `Operation.Update` was also too coarse: full, ignored-external, targeted, pull-file, and sparse-depth updates touch different working-copy sets.
 
-**Fix**: Keep unfiltered external-root metadata, carry normalized traversal/target impact in an additive post-operation event, union pre/post roots even on failure, and follow only declared external edges whose path exactly matches an opened WC root. Preserve the legacy operation event for unrelated consumers.
+**Fix**: Carry normalized traversal/target impact in an additive post-operation event, snapshot recursive roots before and after mutation even on failure, and follow only declared external edges whose path exactly matches an opened WC root. Keep dependency discovery separate from UI status and preserve the legacy operation event for unrelated consumers.
 
 **Rule**: Cache invalidation follows actual dependency topology and operation targets, never directory ancestry or an overloaded enum alone.
 

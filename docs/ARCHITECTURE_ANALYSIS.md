@@ -80,9 +80,12 @@ Per-file blame tracking with:
 - Visible split editors reconcile losslessly on repo open/close/status,
   mutations, saves, state changes, and configuration changes; work coalesces
   within a repo while separate repos repaint concurrently
-- Cross-WC invalidation carries pre/post operation targets and traversal scope,
-  then follows exact declared external-root → opened-WC-root edges; independent
-  nested repositories remain isolated
+- Cross-WC invalidation carries targets and traversal scope, unions best-effort
+  pre/post external topology, then follows exact external-root → opened-WC-root
+  edges; file batches skip topology probes and large target sets use one
+  recursive read, then complete 16-path recovery batches if needed; failed
+  batches isolate targets, await siblings, and preserve partial roots across
+  one lock retry, independently of normal UI status
 - Scoped message LRU invalidates only render entries that depend on the changed
   repo+revision; in-flight add-revision and message fetches are deduplicated
 - Line mapping strips equal edges, then uses bounded dense LCS, dense-compatible
@@ -147,8 +150,10 @@ Caching strategy:
 
 - LRU eviction for info, blame, log caches
 - Blame: lock-free warm reads require a resolved numeric BASE key and are
-  guarded by mutation state; in-flight dedup, 30s negative cache, and
-  owner-generation invalidation cover BASE-changing operations
+  guarded by mutation state; info, persistent-key namespace, BASE-key,
+  negative-cache, and blame writes share generation fences that start before
+  async key resolution; repository disposal aborts reads, status retries, and
+  post-operation topology
 - Immutable data (SVN logs) = infinite TTL
 - Remote-check result cached with poll-frequency TTL for pre-commit reuse
 
