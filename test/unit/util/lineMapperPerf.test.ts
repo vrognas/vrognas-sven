@@ -123,6 +123,27 @@ describe("computeLineMapping — large inputs", () => {
     expect(mapping.get(base.length)).toBe(working.length);
   });
 
+  it("keeps repeated block attribution at the linear work boundary", () => {
+    const blockLength = 2236;
+    const base = [
+      ...Array<string>(blockLength).fill("A"),
+      ...Array<string>(blockLength).fill("B")
+    ];
+    const working = [
+      ...Array<string>(blockLength).fill("B"),
+      ...Array<string>(blockLength).fill("A")
+    ];
+
+    const mapping = computeLineMapping(base, working);
+
+    expect(mapping.get(1)).toBeUndefined();
+    expect(mapping.get(blockLength + 1)).toBe(1);
+    expect(mapping.get(blockLength * 2)).toBe(blockLength);
+    expect(
+      [...mapping.values()].filter(value => value !== undefined)
+    ).toHaveLength(blockLength);
+  });
+
   it("keeps a long repeated LCS ahead of a moved unique sparse anchor", () => {
     const repeated = Array<string>(5000).fill("same");
     const base = ["D", ...repeated, "ax"];

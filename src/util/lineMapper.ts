@@ -95,11 +95,14 @@ export function computeLineMapping(
   // line apart from a deletion once its neighbours are no longer in view.
   const bracketBefore = prefix > 0;
   const bracketAfter = suffix > 0;
-  const cells = denseCellCount(baseMid.length, workMid.length);
+  const denseCells = denseCellCount(baseMid.length, workMid.length);
+  // Dense allocation includes its zero row/column; Hirschberg stores rolling
+  // rows and performs work only for real BASE/working line pairs.
+  const linearWork = baseMid.length * workMid.length;
   const midMapping =
-    cells <= MAX_DENSE_LCS_CELLS
+    denseCells <= MAX_DENSE_LCS_CELLS
       ? computeCoreMapping(baseMid, workMid, bracketBefore, bracketAfter)
-      : cells <= MAX_LINEAR_LCS_CELLS &&
+      : linearWork <= MAX_LINEAR_LCS_CELLS &&
           workMid.length <= MAX_LINEAR_LCS_ROW_LENGTH
         ? computeCoreMapping(
             baseMid,
