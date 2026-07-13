@@ -140,7 +140,6 @@ function shouldShowProgress(operation: Operation): boolean {
 type RepositoryConfig = {
   actionForDeletedFiles: string;
   ignoredRulesForDeletedFiles: string[];
-  updateFrequency: number;
   autorefresh: boolean;
   remoteChangesCheckFrequency: number;
   ignoreOnStatusCount: string[];
@@ -779,7 +778,6 @@ export class Repository implements IRemoteRepository {
         if (
           e.affectsConfiguration("sven.delete.actionForDeletedFiles") ||
           e.affectsConfiguration("sven.delete.ignoredRulesForDeletedFiles") ||
-          e.affectsConfiguration("sven.sourceControl.countBadge") ||
           e.affectsConfiguration("sven.autorefresh") ||
           e.affectsConfiguration("sven.remoteChanges.checkFrequency") ||
           e.affectsConfiguration("sven.sourceControl.ignoreOnStatusCount") ||
@@ -882,10 +880,6 @@ export class Repository implements IRemoteRepository {
       ignoredRulesForDeletedFiles: configuration.get<string[]>(
         "delete.ignoredRulesForDeletedFiles",
         []
-      ),
-      updateFrequency: configuration.get<number>(
-        "sourceControl.countBadge",
-        10
       ),
       autorefresh: configuration.get<boolean>("autorefresh"),
       remoteChangesCheckFrequency: configuration.get<number>(

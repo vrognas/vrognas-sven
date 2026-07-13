@@ -60,10 +60,6 @@ export type StatusUpdateOptions = {
  */
 type StatusConfig = {
   readonly combineExternal: boolean;
-  readonly hideUnversioned: boolean;
-  readonly ignoreList: readonly string[];
-  readonly ignoreOnStatusCountList: readonly string[];
-  readonly countUnversioned: boolean;
   readonly filesExclude: Record<string, boolean>;
 };
 
@@ -108,7 +104,9 @@ export class StatusService implements IStatusService {
     // Invalidate cache only for relevant config keys
     this._configChangeDisposable = configuration.onDidChange(e => {
       if (
-        e.affectsConfiguration("sven.sourceControl") ||
+        e.affectsConfiguration(
+          "sven.sourceControl.combineExternalIfSameServer"
+        ) ||
         e.affectsConfiguration("files.exclude")
       ) {
         this._configCache = undefined;
@@ -176,19 +174,6 @@ export class StatusService implements IStatusService {
     this._configCache = {
       combineExternal: configuration.get<boolean>(
         "sourceControl.combineExternalIfSameServer",
-        false
-      ),
-      hideUnversioned: configuration.get<boolean>(
-        "sourceControl.hideUnversioned",
-        false
-      ),
-      ignoreList: configuration.get<string[]>("sourceControl.ignore", []),
-      ignoreOnStatusCountList: configuration.get<string[]>(
-        "sourceControl.ignoreOnStatusCount",
-        []
-      ),
-      countUnversioned: configuration.get<boolean>(
-        "sourceControl.countUnversioned",
         false
       ),
       filesExclude
