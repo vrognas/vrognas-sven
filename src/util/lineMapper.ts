@@ -823,7 +823,10 @@ function computeMatchSparseLCS(
   const nodesPerUpdate = Math.ceil(Math.log2(workingLines.length)) + 1;
   const traceWork =
     4 * nodesPerUpdate * (baseLines.length + workingLines.length);
-  if (traceWork > MAX_SPARSE_LCS_WORK) return undefined;
+  if (traceWork > MAX_SPARSE_LCS_WORK) {
+    const workingSet = new Set(workingLines);
+    return baseLines.some(line => workingSet.has(line)) ? undefined : [];
+  }
 
   const workingPositions = new Map<string, number[]>();
   for (let workingIdx = 0; workingIdx < workingLines.length; workingIdx++) {
