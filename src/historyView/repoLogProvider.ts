@@ -9,6 +9,7 @@ import {
   Event,
   EventEmitter,
   ProgressLocation,
+  TextEditor,
   TreeDataProvider,
   TreeItem,
   TreeItemCollapsibleState,
@@ -52,6 +53,34 @@ import {
 } from "./historyFilter";
 import { showViewFeedback } from "../util/actionFeedback";
 
+const repositoryIds = new WeakMap<IRemoteRepository, number>();
+let nextRepositoryId = 1;
+
+function getRepositoryId(repository: IRemoteRepository): number {
+  let id = repositoryIds.get(repository);
+  if (id === undefined) {
+    id = nextRepositoryId++;
+    repositoryIds.set(repository, id);
+  }
+  return id;
+}
+
+function getSelectedRepository(
+  sourceControlManager: Pick<
+    SourceControlManager,
+    "repositories" | "getRepositoryFromUri"
+  >,
+  uri: Uri | undefined = window.activeTextEditor?.document.uri
+): IRemoteRepository | undefined {
+  const repositories = sourceControlManager.repositories;
+  const resolve = sourceControlManager.getRepositoryFromUri;
+  const activeRepository =
+    uri && typeof resolve === "function"
+      ? resolve.call(sourceControlManager, uri)
+      : undefined;
+  return activeRepository ?? repositories[0];
+}
+
 export class RepoLogProvider
   implements TreeDataProvider<ILogTreeItem>, Disposable
 {
@@ -71,6 +100,7 @@ export class RepoLogProvider
   // Explicit refresh requested while the view was hidden - run on reveal
   private pendingExplicitRefresh = false;
   private pendingRefresh = false;
+  private selectedOwner?: IRemoteRepository;
   private readonly DEBOUNCE_MS = 1000;
 
   // History filtering
@@ -105,14 +135,7 @@ export class RepoLogProvider
       if (maybeItem.parent) return this.getCached(maybeItem.parent);
     }
 
-    const repositories = this.sourceControlManager.repositories;
-    const activeUri = window.activeTextEditor?.document.uri;
-    const resolve = this.sourceControlManager.getRepositoryFromUri;
-    const activeRepository =
-      activeUri && typeof resolve === "function"
-        ? resolve.call(this.sourceControlManager, activeUri)
-        : undefined;
-    const repository = activeRepository ?? repositories[0];
+    const repository = getSelectedRepository(this.sourceControlManager);
     if (!repository) return undefined;
 
     const cached = this.logCache.get(repository);
@@ -223,7 +246,9 @@ export class RepoLogProvider
       this.sourceControlManager.onDidCloseRepository(() => {
         void this.refresh();
       }),
-      window.onDidChangeActiveTextEditor(() => this.onActiveEditorChanged()),
+      window.onDidChangeActiveTextEditor(editor =>
+        this.onActiveEditorChanged(editor)
+      ),
       // Filter commands - unified entry point
       commands.registerCommand(
         "sven.repolog.filterHistory",
@@ -574,7 +599,13 @@ export class RepoLogProvider
     }
   }
 
-  private onActiveEditorChanged(): void {
+  private onActiveEditorChanged(editor?: TextEditor): void {
+    const owner = getSelectedRepository(
+      this.sourceControlManager,
+      editor?.document.uri
+    );
+    if (owner === this.selectedOwner) return;
+    this.selectedOwner = owner;
     this._onDidChangeTreeData.fire(undefined);
   }
 
@@ -1019,6 +1050,12 @@ export class RepoLogProvider
               this.logCache.get(target.repo) === target
           )
       );
+      if (
+        this.logCache.get(target.repo) !== target ||
+        getSelectedRepository(this.sourceControlManager) !== target.repo
+      ) {
+        return;
+      }
       this._onDidChangeTreeData.fire(undefined);
       if (!found) {
         showViewFeedback(
@@ -1092,12 +1129,15 @@ export class RepoLogProvider
         // After commit, BASE is updated to the new revision
         const currentRevision = parseInt(repo.repository.info.revision, 10);
         const prev = prevCache.get(repo);
+        const sameTarget =
+          prev?.svnTarget.toString(true) === remoteRoot.toString(true);
 
         // Detect if working copy revision changed (e.g., after commit/update)
         // If so, cache is stale and should be cleared
         const revisionChanged =
-          prev?.persisted.baseRevision !== undefined &&
-          prev.persisted.baseRevision !== currentRevision;
+          !sameTarget ||
+          (prev?.persisted.baseRevision !== undefined &&
+            prev.persisted.baseRevision !== currentRevision);
 
         // Non-explicit refresh with nothing invalidating the cache:
         // keep the SAME object. Replacing it silently cancelled
@@ -1121,7 +1161,7 @@ export class RepoLogProvider
         // the user pressed Update). Keep the entries; just move the BASE
         // marker. Post-commit the WC revision jumps past the cache, so
         // that path still refetches.
-        const snap = shouldClearCache ? prev : undefined;
+        const snap = shouldClearCache && sameTarget ? prev : undefined;
         const newestCached =
           snap && !snap.isLoading && snap.entries.length
             ? parseInt(snap.entries[0]!.revision, 10)
@@ -1168,7 +1208,7 @@ export class RepoLogProvider
         this.logCache.set(repo, newCached);
       }
     }
-    this._onDidChangeTreeData.fire(element);
+    this._onDidChangeTreeData.fire(fetchMoreClick ? undefined : element);
   }
 
   public getTreeItem(element: ILogTreeItem): TreeItem {
@@ -1182,7 +1222,15 @@ export class RepoLogProvider
       // Stable unique id: reveal() matches by label-derived handles when
       // ids are absent, so duplicate commit messages sent "Show in
       // History" to the WRONG commit
-      ti.id = `commit:${commit.revision}`;
+      const getCached = this.getCached;
+      const cached =
+        typeof getCached === "function"
+          ? getCached.call(this, element)
+          : undefined;
+      const repositoryScope = cached
+        ? `repo:${getRepositoryId(cached.repo)}:`
+        : "";
+      ti.id = `${repositoryScope}commit:${commit.revision}`;
       ti.description = getCommitDescription(commit);
       ti.tooltip = getCommitToolTip(commit);
       ti.iconPath = getCommitIcon(commit.author);
@@ -1265,6 +1313,8 @@ export class RepoLogProvider
     if (element === undefined) {
       // Show commits directly at root level (skip repo folder)
       const cached = this.getCached();
+      this.selectedOwner =
+        cached?.repo ?? getSelectedRepository(this.sourceControlManager);
       // Return empty array if no repositories in cache yet
       if (!cached) {
         return [];

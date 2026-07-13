@@ -130,6 +130,71 @@ suite("RepoLogProvider explicit refresh at-newest skip", () => {
       "hidden history must defer network work until reveal"
     );
   });
+
+  test("normal refresh drops history when the repository URL changes", async () => {
+    const entries = [makeEntry("105")];
+    const { mockThis, logCache, repo } = makeMock("100", {
+      entries,
+      revisionSet: new Set(["105"]),
+      isComplete: true,
+      persisted: { commitFrom: "HEAD", baseRevision: 100 }
+    });
+    const previous = logCache.get(repo);
+    const branchUrl = "http://server/repo/branches/feature";
+    repo.branchRoot = Uri.parse(branchUrl);
+
+    await refresh.call(mockThis);
+
+    const cached = logCache.get(repo)!;
+    assert.notStrictEqual(cached, previous);
+    assert.strictEqual(cached.entries.length, 0);
+    assert.strictEqual(cached.svnTarget.toString(true), branchUrl);
+  });
+
+  test("explicit refresh cannot preserve entries from a previous URL", async () => {
+    const { mockThis, logCache, repo } = makeMock("100", {
+      entries: [makeEntry("105")],
+      revisionSet: new Set(["105"]),
+      isComplete: true,
+      persisted: { commitFrom: "HEAD", baseRevision: 100 }
+    });
+    const branchUrl = "http://server/repo/branches/feature";
+    repo.branchRoot = Uri.parse(branchUrl);
+
+    await refresh.call(mockThis, undefined, false, true);
+
+    const cached = logCache.get(repo)!;
+    assert.strictEqual(cached.entries.length, 0);
+    assert.strictEqual(cached.isComplete, false);
+    assert.strictEqual(cached.svnTarget.toString(true), branchUrl);
+  });
+
+  test("load more invalidates the history root", async () => {
+    const repo: any = {
+      log: vi.fn().mockResolvedValue([makeEntry("99")])
+    };
+    const cached = {
+      entries: [makeEntry("100")],
+      revisionSet: new Set(["100"]),
+      isComplete: false,
+      repo,
+      svnTarget: Uri.parse(REPO_URL),
+      persisted: { commitFrom: "HEAD" }
+    } as ICachedLog;
+    const control = {
+      kind: LogTreeItemKind.TItem,
+      data: {} as any
+    };
+    const fire = vi.fn();
+    const mockThis: any = {
+      getCached: () => cached,
+      _onDidChangeTreeData: { fire }
+    };
+
+    await refresh.call(mockThis, control, true, true);
+
+    assert.deepStrictEqual(fire.mock.calls, [[undefined]]);
+  });
 });
 
 suite("RepoLogProvider multi-root selection", () => {
@@ -385,11 +450,189 @@ suite("RepoLogProvider multi-root selection", () => {
   });
 
   test("active editor changes invalidate the displayed root", () => {
+    const repo = {};
     const fire = vi.fn();
     const handler = (RepoLogProvider.prototype as any).onActiveEditorChanged;
 
     assert.strictEqual(typeof handler, "function");
-    handler.call({ _onDidChangeTreeData: { fire } });
+    handler.call(
+      {
+        sourceControlManager: {
+          repositories: [repo],
+          getRepositoryFromUri: () => repo
+        },
+        selectedOwner: {},
+        _onDidChangeTreeData: { fire }
+      },
+      { document: { uri: Uri.file("/repo/file.ts") } }
+    );
     assert.strictEqual(fire.mock.calls.length, 1);
+  });
+
+  test("same-repository editor changes do not invalidate the root", () => {
+    const repo = {};
+    const fire = vi.fn();
+    const handler = (RepoLogProvider.prototype as any).onActiveEditorChanged;
+    const mockThis: any = {
+      sourceControlManager: {
+        repositories: [repo],
+        getRepositoryFromUri: () => repo
+      },
+      _onDidChangeTreeData: { fire }
+    };
+
+    handler.call(mockThis, {
+      document: { uri: Uri.file("/repo/file-a.ts") }
+    });
+    fire.mockClear();
+    handler.call(mockThis, {
+      document: { uri: Uri.file("/repo/file-b.ts") }
+    });
+
+    assert.strictEqual(fire.mock.calls.length, 0);
+  });
+
+  test("revision lookup does not reveal after the displayed owner changes", async () => {
+    let releasePage!: (entries: ISvnLogEntry[]) => void;
+    let markStarted!: () => void;
+    const page = new Promise<ISvnLogEntry[]>(resolve => {
+      releasePage = resolve;
+    });
+    const started = new Promise<void>(resolve => {
+      markStarted = resolve;
+    });
+    const repoA: any = {
+      branchRoot: Uri.parse("http://server/repo-a/trunk"),
+      log: vi.fn(() => {
+        markStarted();
+        return page;
+      })
+    };
+    const repoB: any = {
+      branchRoot: Uri.parse("http://server/repo-b/trunk")
+    };
+    const cachedA = {
+      entries: [makeEntry("100")],
+      revisionSet: new Set(["100"]),
+      isComplete: false,
+      repo: repoA,
+      svnTarget: repoA.branchRoot,
+      persisted: { commitFrom: "HEAD" }
+    } as ICachedLog;
+    const cachedB = {
+      entries: [makeEntry("60")],
+      revisionSet: new Set(["60"]),
+      isComplete: true,
+      repo: repoB,
+      svnTarget: repoB.branchRoot,
+      persisted: { commitFrom: "HEAD" }
+    } as ICachedLog;
+    const reveal = vi.fn().mockResolvedValue(undefined);
+    const fire = vi.fn();
+    const ownerFor = (uri: Uri) =>
+      uri.fsPath.includes("repo-b") ? repoB : repoA;
+    const mockThis: any = {
+      treeView: { reveal },
+      logCache: new Map([
+        [repoA, cachedA],
+        [repoB, cachedB]
+      ]),
+      itemCaches: new WeakMap(),
+      getCached: (RepoLogProvider.prototype as any).getCached,
+      filterService: { hasActiveFilter: () => false },
+      sourceControlManager: {
+        repositories: [repoA, repoB],
+        getRepositoryFromUri: ownerFor
+      },
+      _onDidChangeTreeData: { fire }
+    };
+    const handler = (RepoLogProvider.prototype as any).onActiveEditorChanged;
+    const previousEditor = window.activeTextEditor;
+    const withProgress = window.withProgress as any;
+    const previousProgress = withProgress.getMockImplementation();
+    withProgress.mockImplementation((_options: any, task: any) =>
+      task(
+        { report: vi.fn() },
+        {
+          isCancellationRequested: false,
+          onCancellationRequested: () => ({ dispose: () => undefined })
+        }
+      )
+    );
+    try {
+      const editorA = {
+        document: { uri: Uri.file("/repo-a/file.ts") }
+      };
+      (window as any).activeTextEditor = editorA;
+      handler.call(mockThis, editorA);
+
+      const navigation = RepoLogProvider.prototype.goToRevision.call(
+        mockThis,
+        50
+      );
+      await started;
+
+      const editorB = {
+        document: { uri: Uri.file("/repo-b/file.ts") }
+      };
+      (window as any).activeTextEditor = editorB;
+      handler.call(mockThis, editorB);
+      releasePage([makeEntry("50")]);
+      await navigation;
+
+      assert.strictEqual(reveal.mock.calls.length, 0);
+    } finally {
+      releasePage([]);
+      withProgress.mockImplementation(previousProgress);
+      (window as any).activeTextEditor = previousEditor;
+    }
+  });
+
+  test("same revision in different repositories has distinct tree ids", () => {
+    const branchRoot = Uri.parse(REPO_URL);
+    const repoA = { branchRoot, workspaceRoot: "/repo-a" };
+    const repoB = { branchRoot, workspaceRoot: "/repo-b" };
+    const cacheFor = (repo: typeof repoA): ICachedLog => ({
+      entries: [makeEntry("101")],
+      revisionSet: new Set(["101"]),
+      isComplete: true,
+      repo: repo as any,
+      svnTarget: branchRoot,
+      persisted: { commitFrom: "HEAD" }
+    });
+    const cachedA = cacheFor(repoA);
+    const cachedB = cacheFor(repoB);
+    const itemA = {
+      kind: LogTreeItemKind.Commit,
+      data: makeEntry("101")
+    } as const;
+    const itemB = {
+      kind: LogTreeItemKind.Commit,
+      data: makeEntry("101")
+    } as const;
+    const itemCaches = new WeakMap();
+    itemCaches.set(itemA, cachedA);
+    itemCaches.set(itemB, cachedB);
+    const mockThis: any = {
+      logCache: new Map([
+        [repoA, cachedA],
+        [repoB, cachedB]
+      ]),
+      itemCaches,
+      getCached: (RepoLogProvider.prototype as any).getCached
+    };
+
+    const treeA = RepoLogProvider.prototype.getTreeItem.call(
+      mockThis,
+      itemA as any
+    );
+    const treeB = RepoLogProvider.prototype.getTreeItem.call(
+      mockThis,
+      itemB as any
+    );
+
+    assert.ok(treeA.id);
+    assert.ok(treeB.id);
+    assert.notStrictEqual(treeA.id, treeB.id);
   });
 });
