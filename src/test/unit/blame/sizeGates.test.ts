@@ -73,7 +73,7 @@ suite("Blame size gates", () => {
     const mockEditor = makeMockEditor(testUri, 1000); // > 500 default limit
     sandbox.stub(window, "activeTextEditor").value(mockEditor);
 
-    await statusBar.updateStatusBar();
+    statusBar.updateStatusBar();
     await new Promise(r => setTimeout(r, 200));
 
     assert.ok(
@@ -94,7 +94,7 @@ suite("Blame size gates", () => {
     const mockEditor = makeMockEditor(testUri, 5000); // > 3000 default limit
     sandbox.stub(window, "activeTextEditor").value(mockEditor);
 
-    await statusBar.updateStatusBar();
+    statusBar.updateStatusBar();
     await new Promise(r => setTimeout(r, 200));
 
     assert.ok(

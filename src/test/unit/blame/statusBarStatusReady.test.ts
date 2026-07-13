@@ -93,7 +93,10 @@ suite("BlameStatusBar - initial status crawl", () => {
     await Promise.resolve();
 
     assert.strictEqual(updateStatusBar.callCount, 1);
-    assert.strictEqual((statusBar as any).$debounce$updateStatusBar, undefined);
+    assert.strictEqual(
+      (statusBar as any).$debounce$applyStatusBarUpdate,
+      undefined
+    );
   });
 
   test("drops an in-flight status update after disposal", async () => {
@@ -176,5 +179,77 @@ suite("BlameStatusBar - initial status crawl", () => {
     await Promise.resolve();
 
     assert.strictEqual((statusBar as any).statusBarItem.text, "C");
+  });
+
+  test("does not apply an older result for the same editor and line", async () => {
+    const clock = sandbox.useFakeTimers();
+    const editor = {
+      document: { uri: Uri.file("/file.ts"), lineCount: 1 },
+      selection: { active: { line: 0 } }
+    } as any;
+    sandbox.stub(window, "activeTextEditor").value(editor);
+    statusBar = new BlameStatusBar({ repositories: [] } as any);
+    sandbox.stub(statusBar as any, "shouldShowStatusBar").returns(true);
+    sandbox
+      .stub(statusBar as any, "formatStatusBarText")
+      .callsFake((...args: unknown[]) => (args[0] as ISvnBlameLine).author);
+    let resolveOld!: (value: ISvnBlameLine[]) => void;
+    let resolveNew!: (value: ISvnBlameLine[]) => void;
+    const oldResult = new Promise<ISvnBlameLine[]>(resolve => {
+      resolveOld = resolve;
+    });
+    const newResult = new Promise<ISvnBlameLine[]>(resolve => {
+      resolveNew = resolve;
+    });
+    const getBlameData = sandbox.stub(statusBar as any, "getBlameData");
+    getBlameData.onFirstCall().returns(oldResult);
+    getBlameData.onSecondCall().returns(newResult);
+
+    void statusBar.updateStatusBar();
+    await clock.tickAsync(150);
+    void statusBar.updateStatusBar();
+    await clock.tickAsync(150);
+    resolveNew([
+      { lineNumber: 1, revision: "2", author: "new", date: "2026-01-02" }
+    ]);
+    await Promise.resolve();
+    assert.strictEqual((statusBar as any).statusBarItem.text, "new");
+
+    resolveOld([
+      { lineNumber: 1, revision: "1", author: "old", date: "2026-01-01" }
+    ]);
+    await Promise.resolve();
+
+    assert.strictEqual((statusBar as any).statusBarItem.text, "new");
+  });
+
+  test("invalidates in-flight blame when a newer refresh is requested", async () => {
+    const clock = sandbox.useFakeTimers();
+    const editor = {
+      document: { uri: Uri.file("/file.ts"), lineCount: 1 },
+      selection: { active: { line: 0 } }
+    } as any;
+    statusBar = new BlameStatusBar({ repositories: [] } as any);
+    sandbox.stub(window, "activeTextEditor").value(editor);
+    sandbox.stub(statusBar as any, "shouldShowStatusBar").returns(true);
+    sandbox
+      .stub(statusBar as any, "formatStatusBarText")
+      .callsFake((...args: unknown[]) => (args[0] as ISvnBlameLine).author);
+    let resolveOld!: (value: ISvnBlameLine[]) => void;
+    const oldResult = new Promise<ISvnBlameLine[]>(resolve => {
+      resolveOld = resolve;
+    });
+    sandbox.stub(statusBar as any, "getBlameData").returns(oldResult);
+    (statusBar as any).statusBarItem.text = "current";
+
+    void statusBar.updateStatusBar();
+    await clock.tickAsync(150);
+    void statusBar.updateStatusBar();
+    resolveOld([
+      { lineNumber: 1, revision: "1", author: "old", date: "2026-01-01" }
+    ]);
+    await Promise.resolve();
+
+    assert.strictEqual((statusBar as any).statusBarItem.text, "current");
   });
 });

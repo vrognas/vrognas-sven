@@ -66,7 +66,7 @@ suite("BlameStatusBar E2E Tests", () => {
     sandbox.stub(window, "activeTextEditor").value(mockEditor);
 
     // Act
-    await statusBar.updateStatusBar();
+    statusBar.updateStatusBar();
     await new Promise(resolve => setTimeout(resolve, 200));
 
     // Assert
@@ -92,7 +92,7 @@ suite("BlameStatusBar E2E Tests", () => {
     sandbox.stub(window, "activeTextEditor").value(mockEditor);
 
     // Act
-    await statusBar.updateStatusBar();
+    statusBar.updateStatusBar();
 
     // Assert - status bar should be hidden (verified via manual testing)
     assert.ok(true, "Status bar hides when blame disabled");
@@ -140,12 +140,12 @@ suite("BlameStatusBar E2E Tests", () => {
     sandbox.stub(window, "activeTextEditor").value(mockEditor);
 
     // Act - Initial position
-    await statusBar.updateStatusBar();
+    statusBar.updateStatusBar();
     await new Promise(resolve => setTimeout(resolve, 200));
 
     // Change cursor position
     mockEditor.selection.active.line = 1;
-    await statusBar.updateStatusBar();
+    statusBar.updateStatusBar();
     await new Promise(resolve => setTimeout(resolve, 200));
 
     // Assert - should fetch blame data (cached, so only once)

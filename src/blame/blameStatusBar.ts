@@ -45,6 +45,7 @@ export class BlameStatusBar implements Disposable {
   // Last `${uri}#${line}` the status bar was updated for; selection events
   // on the same line are skipped before they reach the blame pipeline.
   private lastLineKey?: string;
+  private updateGeneration = 0;
 
   constructor(private sourceControlManager: SourceControlManager) {
     // Create status bar item (right-aligned, priority 100)
@@ -118,11 +119,20 @@ export class BlameStatusBar implements Disposable {
   }
 
   /**
-   * Update status bar for current line (debounced 150ms)
+   * Queue a status update and invalidate any older in-flight apply.
    */
-  @debounce(150)
-  public async updateStatusBar(): Promise<void> {
+  public updateStatusBar(): void {
     if (this.isDisposed) {
+      return;
+    }
+    const updateGeneration = ++this.updateGeneration;
+    void this.applyStatusBarUpdate(updateGeneration);
+  }
+
+  /** Update status bar for the latest requested line (debounced 150ms). */
+  @debounce(150)
+  private async applyStatusBarUpdate(updateGeneration: number): Promise<void> {
+    if (this.isDisposed || updateGeneration !== this.updateGeneration) {
       return;
     }
     const editor = window.activeTextEditor;
@@ -161,6 +171,7 @@ export class BlameStatusBar implements Disposable {
     const blameData = await this.getBlameData(editor.document.uri);
     if (
       this.isDisposed ||
+      updateGeneration !== this.updateGeneration ||
       window.activeTextEditor !== editor ||
       this.lineKeyFor(editor) !== renderKey
     ) {
@@ -250,7 +261,7 @@ export class BlameStatusBar implements Disposable {
       return;
     }
     this.isDisposed = true;
-    cancelDebounce(this, "updateStatusBar");
+    cancelDebounce(this, "applyStatusBarUpdate");
     this.statusBarItem.dispose();
     this.disposables.forEach(d => d.dispose());
     this.disposables = [];
@@ -288,21 +299,19 @@ export class BlameStatusBar implements Disposable {
     void this.updateStatusBar();
   }
 
-  private async onActiveEditorChanged(
-    _editor: TextEditor | undefined
-  ): Promise<void> {
+  private onActiveEditorChanged(_editor: TextEditor | undefined): void {
     this.lastLineKey = undefined;
-    await this.updateStatusBar();
+    this.updateStatusBar();
   }
 
-  private async onConfigurationChanged(): Promise<void> {
+  private onConfigurationChanged(): void {
     this.lastLineKey = undefined;
-    await this.updateStatusBar();
+    this.updateStatusBar();
   }
 
-  private async onBlameStateChanged(): Promise<void> {
+  private onBlameStateChanged(): void {
     this.lastLineKey = undefined;
-    await this.updateStatusBar();
+    this.updateStatusBar();
   }
 
   // ===== Helper Methods =====
