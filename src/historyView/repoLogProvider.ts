@@ -19,6 +19,7 @@ import {
 import { RepositoryChangeEvent, ISvnLogEntry } from "../common/types";
 import { SourceControlManager } from "../source_control_manager";
 import { Repository } from "../repository";
+import { IRemoteRepository } from "../remoteRepository";
 import { dispose } from "../util";
 import {
   checkIfFile,
@@ -59,7 +60,7 @@ export class RepoLogProvider
   public readonly onDidChangeTreeData: Event<ILogTreeItem | undefined> =
     this._onDidChangeTreeData.event;
   // TODO on-disk cache?
-  private readonly logCache: Map<string, ICachedLog> = new Map();
+  private readonly logCache: Map<IRemoteRepository, ICachedLog> = new Map();
   private readonly itemCaches = new WeakMap<ILogTreeItem, ICachedLog>();
   private _dispose: Disposable[] = [];
   private static readonly MAX_LOG_CACHE_SIZE = 50;
@@ -69,6 +70,7 @@ export class RepoLogProvider
   private refreshTimeout?: NodeJS.Timeout;
   // Explicit refresh requested while the view was hidden - run on reveal
   private pendingExplicitRefresh = false;
+  private pendingRefresh = false;
   private readonly DEBOUNCE_MS = 1000;
 
   // History filtering
@@ -77,7 +79,7 @@ export class RepoLogProvider
   private pendingFilterRefresh: Promise<void> | undefined;
 
   private evictOldestLogEntry(): void {
-    let oldestKey: string | null = null;
+    let oldestKey: IRemoteRepository | undefined;
     let oldestTime = Infinity;
     for (const [key, entry] of this.logCache.entries()) {
       const accessTime = entry.lastAccessed ?? 0;
@@ -86,7 +88,7 @@ export class RepoLogProvider
         oldestKey = key;
       }
     }
-    if (oldestKey !== null) {
+    if (oldestKey) {
       this.logCache.delete(oldestKey);
     }
   }
@@ -95,7 +97,7 @@ export class RepoLogProvider
     if (maybeItem) {
       const mapped = this.itemCaches.get(maybeItem);
       if (mapped) {
-        const current = this.logCache.get(mapped.svnTarget.toString(true));
+        const current = this.logCache.get(mapped.repo);
         if (current !== mapped) return undefined;
         mapped.lastAccessed = Date.now();
         return mapped;
@@ -113,7 +115,7 @@ export class RepoLogProvider
     const repository = activeRepository ?? repositories[0];
     if (!repository) return undefined;
 
-    const cached = this.logCache.get(repository.branchRoot.toString(true));
+    const cached = this.logCache.get(repository);
     if (cached) cached.lastAccessed = Date.now();
     return cached;
   }
@@ -198,6 +200,7 @@ export class RepoLogProvider
         (_e: RepositoryChangeEvent) => {
           // Performance: Skip refresh when view is hidden
           if (!this.treeView?.visible) {
+            this.pendingRefresh = true;
             return;
           }
 
@@ -220,6 +223,7 @@ export class RepoLogProvider
       this.sourceControlManager.onDidCloseRepository(() => {
         void this.refresh();
       }),
+      window.onDidChangeActiveTextEditor(() => this.onActiveEditorChanged()),
       // Filter commands - unified entry point
       commands.registerCommand(
         "sven.repolog.filterHistory",
@@ -517,12 +521,11 @@ export class RepoLogProvider
    * Page through the ENTIRE remaining history in large chunks, with
    * progress + cancellation. Streams entries into the tree as chunks land.
    */
-  public async fetchAll() {
-    const cached = this.getCached();
+  public async fetchAll(element?: ILogTreeItem) {
+    const cached = this.getCached(element);
     if (!cached || cached.isLoading || cached.isComplete) {
       return;
     }
-    const repoUrl = cached.svnTarget.toString(true);
     const CHUNK = 500;
 
     cached.isLoading = true;
@@ -537,7 +540,7 @@ export class RepoLogProvider
           while (!cached.isComplete && !token.isCancellationRequested) {
             // Filter change replaces the cache object - stop streaming
             // into an orphaned entry
-            if (this.logCache.get(repoUrl) !== cached) {
+            if (this.logCache.get(cached.repo) !== cached) {
               return;
             }
             await fetchMore(cached, CHUNK);
@@ -560,10 +563,19 @@ export class RepoLogProvider
   }
 
   private onVisibilityChanged(visible: boolean): void {
-    if (visible && this.pendingExplicitRefresh) {
+    if (!visible) return;
+    if (this.pendingExplicitRefresh) {
       this.pendingExplicitRefresh = false;
+      this.pendingRefresh = false;
       void this.refresh(undefined, undefined, true);
+    } else if (this.pendingRefresh) {
+      this.pendingRefresh = false;
+      void this.refresh();
     }
+  }
+
+  private onActiveEditorChanged(): void {
+    this._onDidChangeTreeData.fire(undefined);
   }
 
   // Navigate to the BASE revision in the tree view
@@ -588,6 +600,7 @@ export class RepoLogProvider
           data: entry,
           isBase: true
         };
+        this.itemCaches.set(item, cached);
         await this.treeView.reveal(item, {
           select: true,
           focus: true,
@@ -989,7 +1002,6 @@ export class RepoLogProvider
     // telling the user to click "Load more" repeatedly). Monotonic
     // revisions bound the loop exactly.
     if (!cached.revisionSet.has(String(revision))) {
-      const repoUrl = cached.svnTarget.toString(true);
       const target = cached;
       const found = await window.withProgress(
         {
@@ -1004,7 +1016,7 @@ export class RepoLogProvider
             500,
             () =>
               !token.isCancellationRequested &&
-              this.logCache.get(repoUrl) === target
+              this.logCache.get(target.repo) === target
           )
       );
       this._onDidChangeTreeData.fire(undefined);
@@ -1025,6 +1037,7 @@ export class RepoLogProvider
           data: entry,
           isBase: baseRev === revision
         };
+        this.itemCaches.set(item, cached);
         await this.treeView.reveal(item, {
           select: true,
           focus: true,
@@ -1075,11 +1088,10 @@ export class RepoLogProvider
       // Rebuild cache with preserved or empty entries
       for (const repo of this.sourceControlManager.repositories) {
         const remoteRoot = repo.branchRoot;
-        const repoUrl = remoteRoot.toString(true);
         // Use info.revision (BASE revision) for working copy state
         // After commit, BASE is updated to the new revision
         const currentRevision = parseInt(repo.repository.info.revision, 10);
-        const prev = prevCache.get(repoUrl);
+        const prev = prevCache.get(repo);
 
         // Detect if working copy revision changed (e.g., after commit/update)
         // If so, cache is stale and should be cleared
@@ -1098,7 +1110,7 @@ export class RepoLogProvider
           };
           prev.lastAccessed = Date.now();
           prev.filter = this.filterService.getFilter();
-          this.logCache.set(repoUrl, prev);
+          this.logCache.set(repo, prev);
           continue;
         }
 
@@ -1137,7 +1149,7 @@ export class RepoLogProvider
 
         // LRU eviction before adding (if not updating existing)
         if (
-          !this.logCache.has(repoUrl) &&
+          !this.logCache.has(repo) &&
           this.logCache.size >= RepoLogProvider.MAX_LOG_CACHE_SIZE
         ) {
           this.evictOldestLogEntry();
@@ -1153,7 +1165,7 @@ export class RepoLogProvider
           lastAccessed: Date.now(),
           filter: this.filterService.getFilter()
         };
-        this.logCache.set(repoUrl, newCached);
+        this.logCache.set(repo, newCached);
       }
     }
     this._onDidChangeTreeData.fire(element);
@@ -1285,11 +1297,10 @@ export class RepoLogProvider
         !cached.lastFetchFailed
       ) {
         cached.isLoading = true;
-        const repoUrl = cached.svnTarget.toString(true);
         // Fetch in background, refresh when done
         void fetchMore(cached).finally(() => {
           // Only refresh if this cached object is still current (not replaced by filter change)
-          const currentCached = this.logCache.get(repoUrl);
+          const currentCached = this.logCache.get(cached.repo);
           if (currentCached === cached) {
             cached.isLoading = false;
             this._onDidChangeTreeData.fire(undefined);
@@ -1315,10 +1326,19 @@ export class RepoLogProvider
         // Bulk fetch in flight: append progress instead of paging items
         result.push(createLoadingItem());
       } else if (!cached.isComplete) {
-        result.push(
-          createLoadMoreItem("sven.repolog.fetch", [undefined, true]),
-          createLoadAllItem("sven.repolog.fetchAll")
-        );
+        const loadMore = createLoadMoreItem("sven.repolog.fetch", []);
+        const loadAll = createLoadAllItem("sven.repolog.fetchAll");
+        if (
+          loadMore.kind !== LogTreeItemKind.TItem ||
+          loadAll.kind !== LogTreeItemKind.TItem
+        ) {
+          throw new Error("Invalid history control item");
+        }
+        loadMore.data.command!.arguments = [loadMore, true];
+        loadAll.data.command!.arguments = [loadAll];
+        this.itemCaches.set(loadMore, cached);
+        this.itemCaches.set(loadAll, cached);
+        result.push(loadMore, loadAll);
       }
       return result;
     } else if (element.kind === LogTreeItemKind.Commit) {

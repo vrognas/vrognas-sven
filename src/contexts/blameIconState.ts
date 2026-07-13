@@ -79,6 +79,16 @@ export class BlameIconState implements IDisposable {
 
     // Resource not loaded yet - repository still indexing OR file not tracked
     if (!resource) {
+      const parentStatus = repository.isInsideUnversionedOrIgnored(
+        editor.document.uri.fsPath
+      );
+      if (
+        parentStatus === Status.UNVERSIONED ||
+        parentStatus === Status.IGNORED
+      ) {
+        await this.applyContext(false, true);
+        return;
+      }
       // No resource = clean file (not in change index)
       // Check state manager for actual blame state
       const isEnabled = blameStateManager.isBlameEnabled(editor.document.uri);

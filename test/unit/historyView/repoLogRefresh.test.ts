@@ -39,15 +39,16 @@ function makeCached(partial: Partial<ICachedLog>): ICachedLog {
 }
 
 function makeHarness(prev: ICachedLog | undefined, wcRevision: string) {
-  const logCache = new Map<string, ICachedLog>();
-  if (prev) {
-    logCache.set(REPO_URL, prev);
-  }
   const repo = {
     branchRoot: Uri.parse(REPO_URL),
     repository: { info: { revision: wcRevision } },
     clearLogCache: vi.fn()
   };
+  const logCache = new Map<object, ICachedLog>();
+  if (prev) {
+    prev.repo = repo as never;
+    logCache.set(repo, prev);
+  }
   const mockThis = {
     logCache,
     sourceControlManager: { repositories: [repo] },
@@ -63,7 +64,7 @@ function makeHarness(prev: ICachedLog | undefined, wcRevision: string) {
     fetchMoreClick?: boolean,
     explicitRefresh?: boolean
   ) => Promise<void>;
-  return { mockThis, logCache, refresh };
+  return { mockThis, logCache, refresh, repo };
 }
 
 describe("repoLog refresh cache preservation", () => {
@@ -74,11 +75,11 @@ describe("repoLog refresh cache preservation", () => {
       fullHistory: true,
       persisted: { commitFrom: "HEAD", baseRevision: 3000 }
     });
-    const { mockThis, logCache, refresh } = makeHarness(prev, "3000");
+    const { mockThis, logCache, refresh, repo } = makeHarness(prev, "3000");
 
     await refresh.call(mockThis); // onDidChangeRepository debounce path
 
-    const now = logCache.get(REPO_URL)!;
+    const now = logCache.get(repo)!;
     expect(now.isComplete).toBe(true);
     expect(now.fullHistory).toBe(true);
     // identity guards of in-flight fetchAll/goToRevision compare objects
@@ -93,11 +94,11 @@ describe("repoLog refresh cache preservation", () => {
       isComplete: true,
       persisted: { commitFrom: "HEAD", baseRevision: 2990 }
     });
-    const { mockThis, logCache, refresh } = makeHarness(prev, "3000");
+    const { mockThis, logCache, refresh, repo } = makeHarness(prev, "3000");
 
     await refresh.call(mockThis);
 
-    const now = logCache.get(REPO_URL)!;
+    const now = logCache.get(repo)!;
     expect(now.entries).toHaveLength(0);
     expect(now.persisted.baseRevision).toBe(3000);
     expect(now.isComplete).toBe(false);
@@ -108,11 +109,11 @@ describe("repoLog refresh cache preservation", () => {
       entries: [entry("2990")],
       persisted: { commitFrom: "HEAD", baseRevision: 2990 }
     });
-    const { mockThis, logCache, refresh } = makeHarness(prev, "3000");
+    const { mockThis, logCache, refresh, repo } = makeHarness(prev, "3000");
 
     await refresh.call(mockThis, undefined, false, true);
 
-    const now = logCache.get(REPO_URL)!;
+    const now = logCache.get(repo)!;
     expect(now).not.toBe(prev);
     expect(now.entries).toHaveLength(0); // refetch from server
     expect(now.persisted.baseRevision).toBe(3000);

@@ -28,7 +28,7 @@ function harness(cached: ICachedLog) {
   const mockThis = {
     getCached: () => cached,
     filterService: { getFilter: () => undefined, hasActiveFilter: () => false },
-    logCache: new Map([[REPO_URL, cached]]),
+    logCache: new Map([[cached.repo, cached]]),
     itemCaches: new WeakMap(),
     _onDidChangeTreeData: { fire: vi.fn() }
   };

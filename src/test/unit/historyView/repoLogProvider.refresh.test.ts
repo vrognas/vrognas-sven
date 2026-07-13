@@ -2,7 +2,7 @@ import * as assert from "assert";
 import { vi } from "vitest";
 import { Uri, window } from "vscode";
 import { RepoLogProvider } from "../../../historyView/repoLogProvider";
-import { ICachedLog } from "../../../historyView/common";
+import { ICachedLog, LogTreeItemKind } from "../../../historyView/common";
 import { ISvnLogEntry } from "../../../common/types";
 
 const REPO_URL = "http://server/repo/trunk";
@@ -27,9 +27,9 @@ function makeMock(repoRevision: string, cached?: Partial<ICachedLog>) {
     clearLogCache: vi.fn(),
     log: vi.fn().mockResolvedValue([])
   };
-  const logCache = new Map<string, ICachedLog>();
+  const logCache = new Map<object, ICachedLog>();
   if (cached) {
-    logCache.set(REPO_URL, {
+    logCache.set(repo, {
       entries: [],
       revisionSet: new Set(),
       isComplete: false,
@@ -56,7 +56,7 @@ const refresh = RepoLogProvider.prototype.refresh;
 suite("RepoLogProvider explicit refresh at-newest skip", () => {
   test("entries already covering the WC revision survive explicit refresh", async () => {
     const entries = [makeEntry("105"), makeEntry("100")];
-    const { mockThis, logCache } = makeMock("105", {
+    const { mockThis, logCache, repo } = makeMock("105", {
       entries,
       revisionSet: new Set(["105", "100"]),
       isComplete: true,
@@ -65,7 +65,7 @@ suite("RepoLogProvider explicit refresh at-newest skip", () => {
 
     await refresh.call(mockThis, undefined, false, true);
 
-    const cached = logCache.get(REPO_URL)!;
+    const cached = logCache.get(repo)!;
     assert.strictEqual(
       cached.entries.length,
       2,
@@ -80,7 +80,7 @@ suite("RepoLogProvider explicit refresh at-newest skip", () => {
   });
 
   test("entries behind the WC revision still trigger a refetch", async () => {
-    const { mockThis, logCache } = makeMock("105", {
+    const { mockThis, logCache, repo } = makeMock("105", {
       entries: [makeEntry("100")],
       revisionSet: new Set(["100"]),
       isComplete: true,
@@ -89,7 +89,7 @@ suite("RepoLogProvider explicit refresh at-newest skip", () => {
 
     await refresh.call(mockThis, undefined, false, true);
 
-    const cached = logCache.get(REPO_URL)!;
+    const cached = logCache.get(repo)!;
     assert.strictEqual(
       cached.entries.length,
       0,
@@ -100,7 +100,7 @@ suite("RepoLogProvider explicit refresh at-newest skip", () => {
   });
 
   test("in-flight load disables the skip", async () => {
-    const { mockThis, logCache } = makeMock("105", {
+    const { mockThis, logCache, repo } = makeMock("105", {
       entries: [makeEntry("105")],
       revisionSet: new Set(["105"]),
       isComplete: false,
@@ -110,7 +110,7 @@ suite("RepoLogProvider explicit refresh at-newest skip", () => {
 
     await refresh.call(mockThis, undefined, false, true);
 
-    const cached = logCache.get(REPO_URL)!;
+    const cached = logCache.get(repo)!;
     assert.strictEqual(
       cached.entries.length,
       0,
@@ -133,6 +133,36 @@ suite("RepoLogProvider explicit refresh at-newest skip", () => {
 });
 
 suite("RepoLogProvider multi-root selection", () => {
+  test("same-URL working copies keep independent caches", async () => {
+    const branchRoot = { toString: () => REPO_URL };
+    const makeRepo = (revision: string) => ({
+      branchRoot,
+      repository: { info: { revision } },
+      clearLogCache: vi.fn(),
+      log: vi.fn().mockResolvedValue([])
+    });
+    const repoA = makeRepo("101");
+    const repoB = makeRepo("202");
+    const mockThis: any = {
+      logCache: new Map(),
+      itemCaches: new WeakMap(),
+      filterService: { getFilter: () => undefined },
+      sourceControlManager: {
+        repositories: [repoA, repoB],
+        getRepositoryFromUri: () => repoA
+      },
+      treeView: { visible: true },
+      _onDidChangeTreeData: { fire: vi.fn() },
+      evictOldestLogEntry: () => {}
+    };
+
+    await refresh.call(mockThis);
+
+    assert.strictEqual(mockThis.logCache.size, 2);
+    const cached = (RepoLogProvider.prototype as any).getCached.call(mockThis);
+    assert.strictEqual(cached.repo, repoA);
+  });
+
   test("shows active editor owner, else first open repository", () => {
     const repoA = {
       branchRoot: { toString: () => "http://server/repo-a/trunk" }
@@ -148,9 +178,9 @@ suite("RepoLogProvider multi-root selection", () => {
       svnTarget: repo.branchRoot as any,
       persisted: { commitFrom: "HEAD" }
     });
-    const logCache = new Map<string, ICachedLog>([
-      [repoA.branchRoot.toString(), cacheFor(repoA, "101")],
-      [repoB.branchRoot.toString(), cacheFor(repoB, "202")]
+    const logCache = new Map<object, ICachedLog>([
+      [repoA, cacheFor(repoA, "101")],
+      [repoB, cacheFor(repoB, "202")]
     ]);
     const mockThis: any = {
       logCache,
@@ -211,7 +241,7 @@ suite("RepoLogProvider multi-root selection", () => {
     } as ICachedLog;
     const owner = vi.fn(() => repoA);
     const mockThis: any = {
-      logCache: new Map([[repoA.branchRoot.toString(), cachedA]]),
+      logCache: new Map([[repoA, cachedA]]),
       itemCaches: new WeakMap(),
       getCached: (RepoLogProvider.prototype as any).getCached,
       filterService: {
@@ -234,8 +264,8 @@ suite("RepoLogProvider multi-root selection", () => {
       );
       owner.mockReturnValue(repoB);
       mockThis.logCache = new Map([
-        [repoB.branchRoot.toString(), cachedB],
-        [repoA.branchRoot.toString(), cachedA]
+        [repoB, cachedB],
+        [repoA, cachedA]
       ]);
 
       const cached = (RepoLogProvider.prototype as any).getCached.call(
@@ -246,5 +276,120 @@ suite("RepoLogProvider multi-root selection", () => {
     } finally {
       (window as any).activeTextEditor = previousEditor;
     }
+  });
+
+  test("rendered load controls retain their repository", () => {
+    const repoA = {
+      branchRoot: { toString: () => "http://server/repo-a/trunk" }
+    };
+    const repoB = {
+      branchRoot: { toString: () => "http://server/repo-b/trunk" }
+    };
+    const cacheFor = (repo: typeof repoA, revision: string): ICachedLog => ({
+      entries: [makeEntry(revision)],
+      revisionSet: new Set([revision]),
+      isComplete: false,
+      repo: repo as any,
+      svnTarget: repo.branchRoot as any,
+      persisted: { commitFrom: "HEAD" }
+    });
+    const cachedA = cacheFor(repoA, "101");
+    const cachedB = cacheFor(repoB, "202");
+    const owner = vi.fn(() => repoA);
+    const mockThis: any = {
+      logCache: new Map([
+        [repoA, cachedA],
+        [repoB, cachedB]
+      ]),
+      itemCaches: new WeakMap(),
+      getCached: (RepoLogProvider.prototype as any).getCached,
+      filterService: {
+        getFilter: () => undefined,
+        hasActiveFilter: () => false
+      },
+      sourceControlManager: {
+        repositories: [repoA, repoB],
+        getRepositoryFromUri: owner
+      }
+    };
+
+    const previousEditor = window.activeTextEditor;
+    try {
+      (window as any).activeTextEditor = {
+        document: { uri: Uri.file("/repo-a/file.ts") }
+      };
+      const items = RepoLogProvider.prototype.getChildren.call(
+        mockThis,
+        undefined
+      );
+      const controls = items.filter((item: any) => item.data.command);
+      owner.mockReturnValue(repoB);
+      (window as any).activeTextEditor = {
+        document: { uri: Uri.file("/repo-b/file.ts") }
+      };
+
+      assert.strictEqual(controls.length, 2);
+      for (const control of controls) {
+        if (control.kind !== LogTreeItemKind.TItem) {
+          assert.fail("expected history control");
+        }
+        const args = control.data.command?.arguments;
+        if (!args) assert.fail("expected history command arguments");
+        const commandItem = args[0];
+        assert.strictEqual(commandItem, control);
+        const cached = (RepoLogProvider.prototype as any).getCached.call(
+          mockThis,
+          commandItem
+        );
+        assert.strictEqual(cached.repo, repoA);
+      }
+    } finally {
+      (window as any).activeTextEditor = previousEditor;
+    }
+  });
+
+  test("synthetic BASE item retains its repository", async () => {
+    const cached = {
+      entries: [makeEntry("101")],
+      revisionSet: new Set(["101"]),
+      isComplete: true,
+      repo: {},
+      svnTarget: { toString: () => REPO_URL },
+      persisted: { commitFrom: "HEAD", baseRevision: 101 }
+    } as ICachedLog;
+    const reveal = vi.fn().mockResolvedValue(undefined);
+    const itemCaches = new WeakMap();
+    const mockThis: any = {
+      treeView: { reveal },
+      getCached: () => cached,
+      itemCaches
+    };
+
+    await RepoLogProvider.prototype.goToBase.call(mockThis);
+
+    const item = reveal.mock.calls[0]![0];
+    assert.strictEqual(itemCaches.get(item), cached);
+  });
+
+  test("revealing a hidden stale view refreshes metadata", () => {
+    const refreshView = vi.fn();
+    const mockThis: any = {
+      pendingExplicitRefresh: false,
+      pendingRefresh: true,
+      refresh: refreshView
+    };
+
+    (RepoLogProvider.prototype as any).onVisibilityChanged.call(mockThis, true);
+
+    assert.strictEqual(refreshView.mock.calls.length, 1);
+  });
+
+  test("active editor changes invalidate the displayed root", () => {
+    const fire = vi.fn();
+    const handler = (RepoLogProvider.prototype as any).onActiveEditorChanged;
+
+    assert.strictEqual(typeof handler, "function");
+    handler.call({ _onDidChangeTreeData: { fire } });
+    assert.strictEqual(fire.mock.calls.length, 1);
   });
 });
