@@ -166,6 +166,38 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
     assert.ok(clearNested.calledOnce, "nested lower cache cleared");
   });
 
+  test("an explicit external target invalidates its owning repository", () => {
+    const parent = { workspaceRoot: "/wc", root: "/wc" };
+    const clearNested = sandbox.stub();
+    const nested = {
+      workspaceRoot: "/wc/external/nested",
+      root: "/wc/external/nested",
+      repository: { clearBlameCache: clearNested }
+    };
+    const nestedUri = Uri.file("/wc/external/nested/file.ts");
+    const scm = {
+      repositories: [parent, nested],
+      onDidOpenRepository: () => ({ dispose() {} }),
+      onDidCloseRepository: () => ({ dispose() {} }),
+      getRepositoryFromUri: (uri: Uri) =>
+        uri.path.startsWith("/wc/external/nested") ? nested : parent
+    };
+    provider = new BlameProvider(scm as never);
+    provider.activate();
+
+    const p = provider as any;
+    p.blameCache.set(nestedUri.toString(), { data: [], version: 1 });
+    sandbox.stub(window, "activeTextEditor").value(undefined);
+
+    p.onRepositoryOperation(Operation.Commit, parent, [], {
+      traverseExternals: false,
+      targets: [nestedUri.fsPath]
+    });
+
+    assert.ok(!p.blameCache.has(nestedUri.toString()));
+    assert.ok(clearNested.calledOnce, "target owner's lower cache cleared");
+  });
+
   test("closing a parent preserves a still-open nested repo", () => {
     const parent = { workspaceRoot: "/wc" };
     const nested = { workspaceRoot: "/wc/nested" };

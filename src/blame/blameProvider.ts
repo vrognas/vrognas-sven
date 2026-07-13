@@ -1605,6 +1605,16 @@ export class BlameProvider implements Disposable {
     impact?: ExternalOperationImpact
   ): Set<Repository> {
     const affected = new Set<Repository>();
+    for (const target of impact?.targets ?? []) {
+      try {
+        const owner = this.repoFor(Uri.file(target));
+        if (owner) {
+          affected.add(owner);
+        }
+      } catch {
+        // Ignore malformed operation targets.
+      }
+    }
     const pending = [...roots];
     const seen = new Set<string>();
 

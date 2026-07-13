@@ -53,6 +53,8 @@ export type StatusResult = {
 export type StatusUpdateOptions = {
   readonly checkRemoteChanges: boolean;
   readonly fetchLockStatus?: boolean;
+  /** Traverse externals to retain the full nested WC topology. */
+  readonly includeExternals?: boolean;
 };
 
 /**
@@ -121,6 +123,7 @@ export class StatusService implements IStatusService {
 
     // Fetch statuses from SVN
     const statuses = await this.fetchStatuses(
+      options.includeExternals ?? config.combineExternal,
       config.combineExternal,
       options.checkRemoteChanges,
       options.fetchLockStatus
@@ -201,6 +204,7 @@ export class StatusService implements IStatusService {
    */
   private async fetchStatuses(
     includeExternals: boolean,
+    fetchExternalUuids: boolean,
     checkRemoteChanges: boolean,
     fetchLockStatus?: boolean
   ): Promise<IFileStatus[]> {
@@ -209,9 +213,9 @@ export class StatusService implements IStatusService {
       includeExternals,
       checkRemoteChanges,
       fetchLockStatus,
-      // Only fetch external UUIDs when combineExternal=true (needed to filter by repo)
-      // Skips N sequential svn info calls when combineExternal=false (default)
-      fetchExternalUuids: includeExternals
+      // Recursive topology discovery must not trigger N sequential svn info
+      // calls. UUIDs are needed only for same-repository UI combining.
+      fetchExternalUuids
     });
   }
 

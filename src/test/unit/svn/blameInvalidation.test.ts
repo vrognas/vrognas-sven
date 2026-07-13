@@ -122,6 +122,7 @@ suite("Blame cache invalidation on mutating operations", () => {
   test("Repository.run reports pre/post external roots for a switch", async () => {
     const { Repository } = await import("../../../repository");
     const details: any[] = [];
+    const refreshArgs: unknown[][] = [];
     const mockThis: any = {
       state: RepositoryState.Idle,
       workspaceRoot: process.cwd(),
@@ -132,7 +133,8 @@ suite("Blame cache invalidation on mutating operations", () => {
       _onDidRunOperation: { fire: () => {} },
       _onDidRunOperationDetail: { fire: (detail: any) => details.push(detail) },
       retryRun: async (fn: () => Promise<unknown>) => fn(),
-      updateModelState: async () => {
+      updateModelState: async (...args: unknown[]) => {
+        refreshArgs.push(args);
         mockThis.externalWorkingCopyRoots = ["new-external"];
       },
       lastForceRefresh: 0,
@@ -144,6 +146,48 @@ suite("Blame cache invalidation on mutating operations", () => {
       externalImpact: { traverseExternals: true }
     });
 
+    assert.deepStrictEqual(details[0]?.affectedExternalRoots.sort(), [
+      "new-external",
+      "old-external"
+    ]);
+    assert.deepStrictEqual(refreshArgs, [[false, true, false, true]]);
+  });
+
+  test("Repository.run refreshes recursive external roots after failure", async () => {
+    const { Repository } = await import("../../../repository");
+    const details: any[] = [];
+    const refreshArgs: unknown[][] = [];
+    const mockThis: any = {
+      state: RepositoryState.Idle,
+      workspaceRoot: process.cwd(),
+      externalWorkingCopyRoots: ["old-external"],
+      repository: { clearBlameCache: () => {} },
+      _operations: { start: () => {}, end: () => {} },
+      _onRunOperation: { fire: () => {} },
+      _onDidRunOperation: { fire: () => {} },
+      _onDidRunOperationDetail: { fire: (detail: any) => details.push(detail) },
+      retryRun: async (fn: () => Promise<unknown>) => fn(),
+      updateModelState: async (...args: unknown[]) => {
+        refreshArgs.push(args);
+        mockThis.externalWorkingCopyRoots = ["new-external"];
+      },
+      lastForceRefresh: 0,
+      _changesGeneration: 0
+    };
+
+    const run = (Repository.prototype as any).run;
+    await assert.rejects(
+      run.call(
+        mockThis,
+        Operation.SwitchBranch,
+        async () => {
+          throw new Error("external update failed");
+        },
+        { externalImpact: { traverseExternals: true } }
+      )
+    );
+
+    assert.deepStrictEqual(refreshArgs, [[false, true, false, true]]);
     assert.deepStrictEqual(details[0]?.affectedExternalRoots.sort(), [
       "new-external",
       "old-external"
@@ -195,8 +239,41 @@ suite("Blame cache invalidation on mutating operations", () => {
       { traverseExternals: true },
       { traverseExternals: false },
       { traverseExternals: true, targets: ["src/file.ts"] },
-      { traverseExternals: false, targets: ["src/file.ts"] },
+      { traverseExternals: true, targets: ["src/file.ts"] },
       { traverseExternals: true, targets: ["vendor"] }
+    ]);
+  });
+
+  test("commits report explicit targets for cross-WC invalidation", async () => {
+    const { Repository } = await import("../../../repository");
+    const impacts: any[] = [];
+    const mockThis: any = {
+      needsLockCacheExpiry: Number.POSITIVE_INFINITY,
+      hasNeedsLock: async () => false,
+      run: async (
+        _op: Operation,
+        fn: () => Promise<unknown>,
+        options?: any
+      ) => {
+        impacts.push(options?.externalImpact);
+        return fn();
+      },
+      repository: {
+        commitFiles: async () => "ok",
+        updateInfo: async () => undefined
+      },
+      updateRevision: async () => undefined
+    };
+
+    await (Repository.prototype as any).commitFiles.call(mockThis, "message", [
+      "/wc/external/file.ts"
+    ]);
+
+    assert.deepStrictEqual(impacts, [
+      {
+        traverseExternals: false,
+        targets: ["/wc/external/file.ts"]
+      }
     ]);
   });
 

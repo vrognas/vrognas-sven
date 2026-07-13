@@ -1066,7 +1066,8 @@ export class Repository implements IRemoteRepository {
   public async updateModelState(
     checkRemoteChanges: boolean = false,
     forceRefresh: boolean = false,
-    fetchLockStatus: boolean = false
+    fetchLockStatus: boolean = false,
+    includeExternals?: boolean
   ) {
     // Skip status updates during sparse checkout downloads
     // Prevents working copy lock conflicts on Windows
@@ -1099,7 +1100,8 @@ export class Repository implements IRemoteRepository {
     const result = await this.retryRun(async () => {
       return this.statusService.updateStatus({
         checkRemoteChanges,
-        fetchLockStatus
+        fetchLockStatus,
+        includeExternals
       });
     });
 
@@ -1719,7 +1721,7 @@ export class Repository implements IRemoteRepository {
       },
       {
         externalImpact: {
-          traverseExternals: false,
+          traverseExternals: true,
           targets: [path]
         }
       }
@@ -1778,8 +1780,15 @@ export class Repository implements IRemoteRepository {
       }
     }
 
-    const result = await this.run(Operation.Commit, () =>
-      this.repository.commitFiles(message, files)
+    const result = await this.run(
+      Operation.Commit,
+      () => this.repository.commitFiles(message, files),
+      {
+        externalImpact: {
+          traverseExternals: false,
+          targets: files
+        }
+      }
     );
     // (Log cache is cleared by the explicit `sven.repolog.fetch` invocation
     //  below via explicitRefreshCmd's shouldClearCache=true; no redundant
@@ -2442,12 +2451,15 @@ export class Repository implements IRemoteRepository {
           const forceExternalMetadataRefresh =
             externalImpact?.traverseExternals === true &&
             !externalImpact.targets?.length;
+          const includeExternals =
+            externalImpact?.traverseExternals === true ? true : undefined;
           await this.updateModelState(
             checkRemote,
             forceRefresh ||
               forceExternalMetadataRefresh ||
               operation === Operation.StatusRemote,
-            fetchLockStatus
+            fetchLockStatus,
+            includeExternals
           );
         }
 
@@ -2460,11 +2472,22 @@ export class Repository implements IRemoteRepository {
           clearMutationCaches();
         }
 
-        // Lock/Unlock: refresh status even on error (e.g., "already locked")
-        // to show correct lock state regardless of command success
-        if (operation === Operation.Lock || operation === Operation.Unlock) {
+        // Traversing operations can partially change external topology before
+        // failing. Refresh it before publishing the post-operation detail.
+        const includeExternals =
+          externalImpact?.traverseExternals === true ? true : undefined;
+        if (
+          includeExternals ||
+          operation === Operation.Lock ||
+          operation === Operation.Unlock
+        ) {
           try {
-            await this.updateModelState(false, true, true);
+            await this.updateModelState(
+              false,
+              true,
+              shouldFetchLockStatus(operation),
+              includeExternals
+            );
           } catch {
             // Ignore status errors during error handling
           }
