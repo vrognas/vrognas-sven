@@ -7,6 +7,14 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.96] - 2026-07-13
+
+Preserve blame through the remaining observed large-diff work-cap boundary.
+
+### Fixed
+
+- **Unique block moves keep exact blame beyond the checkpoint work cap.** One-to-one match graphs use an exact sparse LCS before conservative fallback, with dense-compatible tie attribution.
+
 ## [0.2.95] - 2026-07-12
 
 Final blame mapping and lifecycle corrections.

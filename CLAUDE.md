@@ -39,6 +39,6 @@
 - Coalesce active renders per repository; keep repositories concurrent and URI/editor timers lossless.
 - Message-dependent render caches track exact scoped revision dependencies; do not use a global or repo-wide persistent epoch.
 - Lock-free cache peeks must use the fully resolved canonical key; unresolved BASE is a miss.
-- Oversized quadratic diffs: dense LCS, dense-compatible linear-space LCS, bounded exact low-edit band, then non-crossing sparse anchors; never positional-fallback blame.
+- Oversized quadratic diffs: dense LCS, dense-compatible linear-space LCS, bounded exact low-edit band, exact one-to-one sparse LCS, then non-crossing anchors; never positional-fallback blame.
 - Exact diff traceback may checkpoint/recompute within the work budget; never drop a known exact alignment only because full trace retention exceeds memory.
 - Deferred UI continuations must check disposal; teardown cancels pending debounce timers before disposing UI resources.
