@@ -7,10 +7,13 @@ import { Repository } from "../repository";
 import * as testUtil from "./testUtil";
 
 suite("Repository Tests", () => {
+  const remoteFrequencyKey = "remoteChanges.checkFrequency";
   let repoUri: Uri;
   let checkoutDir: Uri;
   let sourceControlManager: SourceControlManager;
   let suiteReady = false;
+  let previousRemoteFrequency: number | undefined;
+  let remotePollingDisabled = false;
   function testIfReady(
     title: string,
     fn: (this: Mocha.Context) => Promise<void> | void
@@ -48,6 +51,12 @@ suite("Repository Tests", () => {
       testUtil.getSvnUrl(repoUri) + "/trunk"
     );
 
+    const remoteConfig = workspace.getConfiguration("sven");
+    previousRemoteFrequency =
+      remoteConfig.inspect<number>(remoteFrequencyKey)?.workspaceValue;
+    await remoteConfig.update(remoteFrequencyKey, 0, false);
+    remotePollingDisabled = true;
+
     sourceControlManager = (await commands.executeCommand(
       "sven.getSourceControlManager",
       checkoutDir
@@ -55,11 +64,17 @@ suite("Repository Tests", () => {
     suiteReady = true;
   });
 
-  suiteTeardown(() => {
+  suiteTeardown(async () => {
     sourceControlManager?.openRepositories.forEach(repository =>
       repository.dispose()
     );
+    await new Promise(resolve => setTimeout(resolve, 750));
     testUtil.destroyAllTempPaths();
+    if (remotePollingDisabled) {
+      await workspace
+        .getConfiguration("sven")
+        .update(remoteFrequencyKey, previousRemoteFrequency, false);
+    }
   });
 
   testIfReady("Empty Open Repository", async function () {
