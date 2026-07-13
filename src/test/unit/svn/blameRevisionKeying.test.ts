@@ -35,6 +35,55 @@ suite("Blame cache revision keying", () => {
     );
   });
 
+  test("invalidation during BASE info resolution retries the new revision", async () => {
+    const { Repository: SvnRepository } = await import(
+      "../../../svnRepository"
+    );
+    const { repo } = await makeFakeSvnRepo();
+    repo.getInfo = (...args: unknown[]) =>
+      (SvnRepository.prototype.getInfo as any).call(repo, ...args);
+
+    let infoCount = 0;
+    let releaseFirstInfo!: () => void;
+    let markInfoStarted!: () => void;
+    const infoStarted = new Promise<void>(
+      resolve => (markInfoStarted = resolve)
+    );
+    const blameRevisions: string[] = [];
+    const infoXml = (revision: string) =>
+      `<?xml version="1.0"?><info><entry revision="${revision}"><url>https://svn.example.com/repo/file.txt</url><relative-url>^/file.txt</relative-url><repository><root>https://svn.example.com/repo</root><uuid>x</uuid></repository><wc-info><wcroot-abspath>/wc</wcroot-abspath></wc-info></entry></info>`;
+
+    repo.exec = async (args: string[]) => {
+      if (args[0] === "info") {
+        infoCount++;
+        if (infoCount === 1) {
+          markInfoStarted();
+          return new Promise(resolve => {
+            releaseFirstInfo = () => resolve({ stdout: infoXml("10") });
+          });
+        }
+        return { stdout: infoXml("11") };
+      }
+
+      const revisionIndex = args.indexOf("-r");
+      blameRevisions.push(args[revisionIndex + 1]!);
+      const { BLAME_XML } = await import("./helpers/fakeSvnRepository");
+      return { stdout: BLAME_XML };
+    };
+
+    const pending = repo.blame("file.txt");
+    await infoStarted;
+    repo.clearBlameCache();
+    releaseFirstInfo();
+    await pending;
+
+    assert.strictEqual(infoCount, 2, "BASE must be resolved again after clear");
+    assert.deepStrictEqual(blameRevisions, ["11"]);
+    assert.strictEqual(repo._baseKeyCache.get("file.txt"), "11");
+    assert.strictEqual(repo._blameCache.get("file.txt@10"), undefined);
+    assert.ok(repo._blameCache.get("file.txt@11"));
+  });
+
   test("resolved revision is pegged into the fetch (key/content coherent)", async () => {
     const { repo } = await makeFakeSvnRepo();
     repo.getInfo = async () => ({ revision: "123" });

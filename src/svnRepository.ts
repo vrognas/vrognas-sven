@@ -70,6 +70,9 @@ import {
 export class Repository {
   // LRU caches with TTL expiration
   private _infoCache = new LRUCache<ISvnInfo | null>(500, 2 * 60 * 1000);
+  // Bumped whenever info entries are invalidated so an older in-flight
+  // `svn info` cannot repopulate the cache after a working-copy mutation.
+  private _infoGeneration = 0;
   private _blameCache = new LRUCache<ISvnBlameLine[]>(100, 5 * 60 * 1000);
   // In-flight dedup for concurrent blame calls (BlameProvider and
   // BlameStatusBar race on the same file at every editor switch).
@@ -644,7 +647,9 @@ export class Repository {
   }
 
   public resetInfoCache(file: string = ""): void {
-    this._infoCache.delete(file);
+    const cacheKey = file ? fixPathSeparator(file).toLowerCase() : "";
+    this._infoCache.delete(cacheKey);
+    this._infoGeneration++;
   }
 
   public resetBlameCache(cacheKey: string): void {
@@ -676,6 +681,7 @@ export class Repository {
     // resetInfoCache() deletes only the repo-root entry - clear the whole
     // info cache so key resolution stays coherent with the mutated WC
     this._infoCache.clear();
+    this._infoGeneration++;
   }
 
   public resetLogCache(cacheKey: string): void {
@@ -756,6 +762,8 @@ export class Repository {
       }
     }
 
+    const generation = this._infoGeneration;
+
     const args = ["info", "--xml"];
 
     if (revision) {
@@ -782,7 +790,9 @@ export class Repository {
         typeof err.stderr === "string" &&
         (err.stderr.includes("W155010") || err.stderr.includes("E200009"))
       ) {
-        this._infoCache.set(cacheKey, null);
+        if (generation === this._infoGeneration) {
+          this._infoCache.set(cacheKey, null);
+        }
       }
       throw err;
     }
@@ -797,7 +807,9 @@ export class Repository {
       );
     }
 
-    this._infoCache.set(cacheKey, info);
+    if (generation === this._infoGeneration) {
+      this._infoCache.set(cacheKey, info);
+    }
     return info;
   }
 
@@ -821,6 +833,7 @@ export class Repository {
   ): Promise<ISvnBlameLine[]> {
     // Unescaped: _doBlameFetch escapes/pegs the target exactly once
     const relativePath = this.relativize(file);
+    const generation = this._blameGeneration;
 
     // Resolve BASE to the file's actual base revision: revision-keyed
     // entries are immutable (long TTL) and mixed-revision working copies
@@ -837,11 +850,17 @@ export class Repository {
           const info = await this.getInfo(file);
           if (/^\d+$/.test(info.revision)) {
             keyRevision = info.revision;
-            this._baseKeyCache.set(relativePath, info.revision);
           }
         } catch {
           // keep the literal BASE key
         }
+      }
+
+      if (generation !== this._blameGeneration) {
+        return this.blame(file, revision, skipCache, pegRevision);
+      }
+      if (keyRevision !== revision) {
+        this._baseKeyCache.set(relativePath, keyRevision);
       }
     }
 
@@ -902,7 +921,8 @@ export class Repository {
       revision,
       cacheKey,
       skipCache,
-      pegRevision
+      pegRevision,
+      generation
     );
 
     if (!skipCache) {
@@ -957,7 +977,8 @@ export class Repository {
     revision: string,
     cacheKey: string,
     skipCache: boolean,
-    pegRevision?: string
+    pegRevision: string | undefined,
+    generation: number
   ): Promise<ISvnBlameLine[]> {
     // Re-check cache in case a queued fetch populated it while waiting
     // (skipCache callers demanded a fresh exec - don't hand them a cache hit)
@@ -967,11 +988,6 @@ export class Repository {
         return cached;
       }
     }
-
-    // Snapshot the generation: if clearBlameCache runs while this fetch is
-    // in flight (commit/update finished), the result is pre-mutation data
-    // and must not be written back.
-    const generation = this._blameGeneration;
 
     // Build SVN blame command
     const args = [

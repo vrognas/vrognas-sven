@@ -53,8 +53,6 @@ export type StatusResult = {
 export type StatusUpdateOptions = {
   readonly checkRemoteChanges: boolean;
   readonly fetchLockStatus?: boolean;
-  /** Traverse externals to retain the full nested WC topology. */
-  readonly includeExternals?: boolean;
 };
 
 /**
@@ -123,7 +121,7 @@ export class StatusService implements IStatusService {
 
     // Fetch statuses from SVN
     const statuses = await this.fetchStatuses(
-      options.includeExternals ?? config.combineExternal,
+      config.combineExternal,
       config.combineExternal,
       options.checkRemoteChanges,
       options.fetchLockStatus

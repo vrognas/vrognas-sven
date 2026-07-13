@@ -106,6 +106,8 @@ import {
   getSvnDir,
   isDescendant,
   isReadOnly,
+  normalizePath,
+  processConcurrently,
   shouldFetchLockStatus,
   timeout
 } from "./util";
@@ -203,6 +205,91 @@ function affectedExternalRoots(
   return (roots ?? [])
     .map(root => path.normalize(root))
     .filter(root => externalRootAffected(root, impact));
+}
+
+function uniqueOperationPaths(values: Iterable<string>): string[] {
+  const pathsByKey = new Map<string, string>();
+  for (const value of values) {
+    const normalized = path.normalize(value);
+    pathsByKey.set(normalizePath(normalized), normalized);
+  }
+  return [...pathsByKey.values()];
+}
+
+function outermostOperationPaths(values: Iterable<string>): string[] {
+  const unique = uniqueOperationPaths(values);
+  const keys = new Set(unique.map(normalizePath));
+  return unique.filter(value => {
+    let ancestor = path.dirname(value);
+    while (ancestor !== value) {
+      if (keys.has(normalizePath(ancestor))) return false;
+      const parent = path.dirname(ancestor);
+      if (parent === ancestor) break;
+      ancestor = parent;
+    }
+    return true;
+  });
+}
+
+const MAX_SCOPED_TOPOLOGY_TARGETS = 16;
+
+function getRecursiveStatus(
+  repository: BaseRepository
+): Promise<IFileStatus[]> {
+  return repository.getStatus({
+    includeIgnored: false,
+    includeExternals: true,
+    checkRemoteChanges: false,
+    fetchLockStatus: false,
+    fetchExternalUuids: false
+  });
+}
+
+async function discoverExternalRoots(
+  repository: BaseRepository,
+  workspaceRoot: string,
+  impact: ExternalOperationImpact
+): Promise<string[]> {
+  let statuses: IFileStatus[];
+  if (impact.targets?.length) {
+    const targets = uniqueOperationPaths(impact.targets);
+    const possibleContainers = (
+      await processConcurrently(
+        targets,
+        async target => {
+          try {
+            return (await stat(target)).isDirectory() ? target : undefined;
+          } catch {
+            // Missing/obstructed targets may become directories after update.
+            return target;
+          }
+        },
+        MAX_SCOPED_TOPOLOGY_TARGETS
+      )
+    ).filter((target): target is string => target !== undefined);
+    const outermostTargets = outermostOperationPaths(possibleContainers);
+
+    if (outermostTargets.length === 0) return [];
+    if (outermostTargets.length > MAX_SCOPED_TOPOLOGY_TARGETS) {
+      statuses = await getRecursiveStatus(repository);
+    } else {
+      statuses = (
+        await Promise.allSettled(
+          outermostTargets.map(target =>
+            repository.getScopedStatus(target, "infinity")
+          )
+        )
+      ).flatMap(result => (result.status === "fulfilled" ? result.value : []));
+    }
+  } else {
+    statuses = await getRecursiveStatus(repository);
+  }
+
+  return uniqueOperationPaths(
+    statuses
+      .filter(status => status.status === Status.EXTERNAL)
+      .map(status => absoluteOperationPath(workspaceRoot, status.path))
+  );
 }
 
 export class Repository implements IRemoteRepository {
@@ -1066,8 +1153,7 @@ export class Repository implements IRemoteRepository {
   public async updateModelState(
     checkRemoteChanges: boolean = false,
     forceRefresh: boolean = false,
-    fetchLockStatus: boolean = false,
-    includeExternals?: boolean
+    fetchLockStatus: boolean = false
   ) {
     // Skip status updates during sparse checkout downloads
     // Prevents working copy lock conflicts on Windows
@@ -1100,8 +1186,7 @@ export class Repository implements IRemoteRepository {
     const result = await this.retryRun(async () => {
       return this.statusService.updateStatus({
         checkRemoteChanges,
-        fetchLockStatus,
-        includeExternals
+        fetchLockStatus
       });
     });
 
@@ -2400,9 +2485,8 @@ export class Repository implements IRemoteRepository {
     );
 
     const run = async () => {
-      const externalRootsBefore = affectedExternalRoots(
-        this.externalWorkingCopyRoots,
-        externalImpact
+      const affectedRoots = new Set(
+        affectedExternalRoots(this.externalWorkingCopyRoots, externalImpact)
       );
       this._operations.start(operation);
       this._onRunOperation.fire(operation);
@@ -2422,6 +2506,27 @@ export class Repository implements IRemoteRepository {
         this._changesCache = undefined;
         this._changesGeneration++;
       };
+
+      const tryDiscoverExternalRoots = async (): Promise<string[]> => {
+        if (externalImpact?.traverseExternals !== true) return [];
+        try {
+          return await this.retryRun(() =>
+            discoverExternalRoots(
+              this.repository,
+              this.workspaceRoot,
+              externalImpact
+            )
+          );
+        } catch {
+          // Topology is advisory for cross-repository invalidation. Never
+          // replace the mutation result because an external is unavailable.
+          return [];
+        }
+      };
+
+      for (const root of await tryDiscoverExternalRoots()) {
+        affectedRoots.add(root);
+      }
 
       try {
         const result = await this.retryRun(runOperation);
@@ -2451,15 +2556,12 @@ export class Repository implements IRemoteRepository {
           const forceExternalMetadataRefresh =
             externalImpact?.traverseExternals === true &&
             !externalImpact.targets?.length;
-          const includeExternals =
-            externalImpact?.traverseExternals === true ? true : undefined;
           await this.updateModelState(
             checkRemote,
             forceRefresh ||
               forceExternalMetadataRefresh ||
               operation === Operation.StatusRemote,
-            fetchLockStatus,
-            includeExternals
+            fetchLockStatus
           );
         }
 
@@ -2472,12 +2574,10 @@ export class Repository implements IRemoteRepository {
           clearMutationCaches();
         }
 
-        // Traversing operations can partially change external topology before
-        // failing. Refresh it before publishing the post-operation detail.
-        const includeExternals =
-          externalImpact?.traverseExternals === true ? true : undefined;
+        // A failed traversal can still partially mutate the working copy.
+        // Refresh normal UI state; topology is captured separately below.
         if (
-          includeExternals ||
+          externalImpact?.traverseExternals === true ||
           operation === Operation.Lock ||
           operation === Operation.Unlock
         ) {
@@ -2485,8 +2585,7 @@ export class Repository implements IRemoteRepository {
             await this.updateModelState(
               false,
               true,
-              shouldFetchLockStatus(operation),
-              includeExternals
+              shouldFetchLockStatus(operation)
             );
           } catch {
             // Ignore status errors during error handling
@@ -2505,14 +2604,19 @@ export class Repository implements IRemoteRepository {
 
         throw err;
       } finally {
-        this._operations.end(operation);
-        const affectedRoots = new Set([
-          ...externalRootsBefore,
-          ...affectedExternalRoots(
+        try {
+          for (const root of affectedExternalRoots(
             this.externalWorkingCopyRoots,
             externalImpact
-          )
-        ]);
+          )) {
+            affectedRoots.add(root);
+          }
+          for (const root of await tryDiscoverExternalRoots()) {
+            affectedRoots.add(root);
+          }
+        } finally {
+          this._operations.end(operation);
+        }
         this._onDidRunOperationDetail?.fire({
           operation,
           affectedExternalRoots: [...affectedRoots],

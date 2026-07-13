@@ -189,43 +189,6 @@ suite("StatusService E2E", () => {
     service.dispose();
   });
 
-  test("discovers nested external roots without UUID fetches", async () => {
-    vi.spyOn(configuration, "get").mockImplementation(((
-      key: string,
-      fallback?: unknown
-    ) =>
-      key === "sourceControl.combineExternalIfSameServer"
-        ? false
-        : fallback) as never);
-    const statusOptions: any[] = [];
-    const mockRepo = {
-      async getStatus(options: unknown) {
-        statusOptions.push(options);
-        return [
-          createMockStatus("external", Status.EXTERNAL),
-          createMockStatus("external/nested", Status.EXTERNAL)
-        ];
-      },
-      async getRepositoryUuid() {
-        return "mock-uuid-123";
-      }
-    } as unknown as Repository;
-    const service = new StatusService(mockRepo, "/workspace", "/workspace");
-
-    const result = await service.updateStatus({
-      checkRemoteChanges: false,
-      includeExternals: true
-    });
-
-    assert.strictEqual(statusOptions[0]?.includeExternals, true);
-    assert.strictEqual(statusOptions[0]?.fetchExternalUuids, false);
-    assert.deepStrictEqual(result.externalWorkingCopyPaths, [
-      "external",
-      "external/nested"
-    ]);
-    service.dispose();
-  });
-
   /**
    * Test 3: Dispose - verify config listener cleanup
    */
