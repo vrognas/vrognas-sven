@@ -76,7 +76,7 @@ Per-file blame tracking with:
 - LRU cache eviction (MAX_CACHE_SIZE=20)
 - Shared provider resolves deepest repo ownership per URI; owner generations,
   document versions, per-editor render generations, liveness, and current
-  settings fence async writes/applies
+  settings fence async writes/applies; delayed edit cleanup retains its owner
 - Visible split editors reconcile losslessly on repo open/close/status,
   mutations, saves, state changes, and configuration changes; work coalesces
   within a repo while separate repos repaint concurrently
@@ -84,9 +84,11 @@ Per-file blame tracking with:
   repo+revision; in-flight add-revision and message fetches are deduplicated
 - Line mapping strips equal edges, then uses bounded dense LCS, dense-compatible
   linear-space LCS, a bounded exact low-edit band with checkpointed traceback,
-  bounded exact match-sparse LCS, and non-crossing anchors for ambiguous cores
+  budget-derived exact match-sparse LCS, and non-crossing anchors for ambiguous
+  cores; exact sparse context retains internal rewrites without quadratic gaps
 - Status-bar teardown fences deferred repository readiness and cancels pending
-  debounce work before disposing UI resources; blame uses descendant ownership
+  debounce work before disposing UI resources; async results revalidate the
+  newest generation, active editor, and line. Blame uses descendant ownership
   so status exclusions cannot hide svn:externals
 - autoBlame-gated auto-fetch; CSV/large-file gates on all fetch paths
   (render, cursor, status bar)

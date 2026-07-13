@@ -40,6 +40,6 @@
 - Message-dependent render caches track exact scoped revision dependencies; do not use a global or repo-wide persistent epoch.
 - Lock-free cache peeks must use the fully resolved canonical key; unresolved BASE is a miss.
 - URI-scoped blame consumers use descendant ownership resolution; exclusion-aware status lookup hides svn:externals.
-- Oversized quadratic diffs: dense LCS, dense-compatible linear-space LCS, bounded exact low-edit band, bounded exact match-sparse LCS, then non-crossing anchors; never positional-fallback blame.
+- Oversized quadratic diffs: dense LCS, dense-compatible linear-space LCS, bounded exact low-edit band, resource-budgeted exact match-sparse LCS, then non-crossing anchors; exact sparse context maps internal rewrites, while one-sided edges stay conservative.
 - Exact diff traceback may checkpoint/recompute within the work budget; never drop a known exact alignment only because full trace retention exceeds memory.
-- Deferred UI continuations must check disposal; teardown cancels pending debounce timers before disposing UI resources.
+- Deferred UI continuations must check disposal and current generation/editor/line/owner; teardown cancels pending debounce timers before disposing UI resources.

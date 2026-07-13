@@ -7,6 +7,17 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.98] - 2026-07-13
+
+Fix sparse-mapping cliffs and shared blame UI races.
+
+### Fixed
+
+- **Sparse exact mapping uses real resource budgets.** Match graphs above 100k pairs remain eligible when trace-node and work limits permit.
+- **Exact sparse context retains rewritten lines.** Internal rewrites map linearly beyond the dense-gap cap while one-sided deletions remain unmapped.
+- **Status bar rejects stale async results.** Blame only applies from the newest refresh for the still-active editor and line.
+- **Edit cleanup stays with its repository owner.** Delayed clears cannot erase a replacement owner's render.
+
 ## [0.2.97] - 2026-07-13
 
 Fix remaining sparse-blame and external status ownership regressions.
