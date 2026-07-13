@@ -243,6 +243,29 @@ describe("computeLineMapping — large inputs", () => {
     );
   });
 
+  it("keeps over-cap contextual rewrites from an exact sparse LCS", () => {
+    const header = Array.from({ length: 655 }, (_, i) => `header ${i}`);
+    const before = Array.from({ length: 1858 }, (_, i) => `before ${i}`);
+    const baseChanges = Array.from({ length: 2100 }, (_, i) => `old ${i}`);
+    const workChanges = Array.from({ length: 2101 }, (_, i) => `new ${i}`);
+    const after = Array.from({ length: 1859 }, (_, i) => `after ${i}`);
+
+    const mapping = computeLineMapping(
+      [...header, ...before, ...baseChanges, ...after],
+      [...before, ...workChanges, ...after, ...header]
+    );
+    const firstChange = header.length + before.length + 1;
+    const firstAfter = firstChange + baseChanges.length;
+
+    expect(mapping.get(firstChange)).toBe(before.length + 1);
+    expect(mapping.get(firstChange + baseChanges.length - 1)).toBe(
+      before.length + baseChanges.length
+    );
+    expect(mapping.get(firstAfter)).toBe(
+      before.length + workChanges.length + 1
+    );
+  });
+
   it("keeps dense duplicate attribution in a sparse LCS", () => {
     const lineCount = 4472;
     const movedCount = 655;

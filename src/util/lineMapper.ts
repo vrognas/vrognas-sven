@@ -230,6 +230,10 @@ function denseCellCount(baseLength: number, workingLength: number): number {
   return (baseLength + 1) * (workingLength + 1);
 }
 
+function isExactSparseRewriteGap(gap: SparseGap): boolean {
+  return gap.exactSparseContext && gap.bracketBefore && gap.bracketAfter;
+}
+
 /** Find insert/delete edit distance with a work-capped Myers frontier. */
 function findBoundedEditDistance(
   baseLines: string[],
@@ -623,6 +627,7 @@ function computeSparseCoreMapping(
       gap =>
         gap.baseStart < gap.baseEnd &&
         gap.workingStart < gap.workingEnd &&
+        !isExactSparseRewriteGap(gap) &&
         gap.denseCells <= MAX_DENSE_LCS_CELLS
     )
     .sort(
@@ -659,15 +664,21 @@ function appendSparseGap(
 ): void {
   const baseLength = gap.baseEnd - gap.baseStart;
   const workingLength = gap.workingEnd - gap.workingStart;
+  const exactSparseRewrite = isExactSparseRewriteGap(gap);
   const balancedContext =
     baseLength === workingLength && (gap.bracketBefore || gap.bracketAfter);
-  const contextualRewrite =
-    balancedContext ||
-    (gap.exactSparseContext && gap.bracketBefore && gap.bracketAfter);
+  const contextualRewrite = balancedContext || exactSparseRewrite;
 
   for (let baseIdx = gap.baseStart; baseIdx < gap.baseEnd; baseIdx++) {
     const localBaseLine = baseIdx - gap.baseStart + 1;
-    const localWorkingLine = gap.mapping?.get(localBaseLine);
+    // Consecutive matches in an exact LCS prove that no exact match fits
+    // inside this gap. Dense mapping therefore pairs the bracketed rewrite
+    // in order; synthesize that result linearly instead of rerunning LCS.
+    const localWorkingLine = exactSparseRewrite
+      ? localBaseLine <= workingLength
+        ? localBaseLine
+        : undefined
+      : gap.mapping?.get(localBaseLine);
     if (localWorkingLine === undefined) {
       target.set(baseIdx + 1, undefined);
       continue;
