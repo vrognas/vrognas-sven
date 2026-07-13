@@ -146,4 +146,46 @@ describe("computeLineMapping — large inputs", () => {
       [...mapping.values()].filter(value => value !== undefined)
     ).toHaveLength(body.length);
   });
+
+  it("keeps the unchanged body past the checkpoint work cap", () => {
+    const lineCount = 4472;
+    const movedCount = 655;
+    const header = Array.from({ length: movedCount }, (_, i) => `header ${i}`);
+    const body = Array.from(
+      { length: lineCount - movedCount },
+      (_, i) => `body ${i}`
+    );
+
+    const mapping = computeLineMapping(
+      [...header, ...body],
+      [...body, ...header]
+    );
+
+    for (let baseLine = 1; baseLine <= movedCount; baseLine++) {
+      expect(mapping.get(baseLine)).toBeUndefined();
+    }
+    for (let bodyOffset = 0; bodyOffset < body.length; bodyOffset++) {
+      expect(mapping.get(movedCount + bodyOffset + 1)).toBe(bodyOffset + 1);
+    }
+  });
+
+  it("keeps dense tie attribution in a one-to-one sparse LCS", () => {
+    const lineCount = 4472;
+    const movedCount = 655;
+    const header = Array.from({ length: movedCount }, (_, i) => `header ${i}`);
+    const tail = Array.from(
+      { length: lineCount - movedCount - 2 },
+      (_, i) => `tail ${i}`
+    );
+
+    const mapping = computeLineMapping(
+      [...header, "one", "zero", ...tail],
+      ["zero", "one", ...tail, ...header]
+    );
+
+    expect(mapping.get(movedCount + 1)).toBeUndefined();
+    expect(mapping.get(movedCount + 2)).toBe(1);
+    expect(mapping.get(movedCount + 3)).toBe(3);
+    expect(mapping.get(lineCount)).toBe(tail.length + 2);
+  });
 });

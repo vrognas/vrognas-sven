@@ -548,9 +548,10 @@ function computeBoundedLowEditLCS(
 
 /**
  * Oversized-core fallback. Low-edit inputs get an exact bounded-band LCS.
- * Otherwise only unique anchors crossed by no possible match are retained,
- * and bounded gaps spend the shared dense budget. Unresolved regions remain
- * unmapped instead of receiving positional guesses.
+ * One-to-one match graphs get an exact sparse LCS. Otherwise only unique
+ * anchors crossed by no possible match are retained, and bounded gaps spend
+ * the shared dense budget. Unresolved regions remain unmapped instead of
+ * receiving positional guesses.
  */
 function computeSparseCoreMapping(
   baseLines: string[],
@@ -569,7 +570,9 @@ function computeSparseCoreMapping(
     );
   }
 
-  const anchors = findSafeUniqueAnchors(baseLines, workingLines);
+  const anchors =
+    computeOneToOneLCS(baseLines, workingLines) ??
+    findSafeUniqueAnchors(baseLines, workingLines);
   const gaps: SparseGap[] = [];
   let baseStart = 0;
   let workingStart = 0;
@@ -676,6 +679,40 @@ function appendSparseGap(
       target.set(baseIdx + 1, undefined);
     }
   }
+}
+
+/**
+ * Exact sparse LCS when every line shared by both inputs occurs once in each.
+ * The match graph is then a permutation, whose LCS is its increasing
+ * subsequence. Repeated common lines decline to the conservative fallback:
+ * their competing chains need the full DP tie policy for stable attribution.
+ */
+function computeOneToOneLCS(
+  baseLines: string[],
+  workingLines: string[]
+): LCSMatch[] | undefined {
+  const baseOccurrences = countLineOccurrences(baseLines);
+  const workingOccurrences = countLineOccurrences(workingLines);
+  const candidates: LCSMatch[] = [];
+
+  for (let baseIdx = 0; baseIdx < baseLines.length; baseIdx++) {
+    const line = baseLines[baseIdx]!;
+    const workingOccurrence = workingOccurrences.get(line);
+    if (!workingOccurrence) continue;
+
+    if (
+      baseOccurrences.get(line)!.count !== 1 ||
+      workingOccurrence.count !== 1
+    ) {
+      return undefined;
+    }
+
+    candidates.push({ baseIdx, workingIdx: workingOccurrence.index });
+  }
+
+  return candidates.length > 0
+    ? longestIncreasingAnchors(candidates)
+    : undefined;
 }
 
 function findSafeUniqueAnchors(
