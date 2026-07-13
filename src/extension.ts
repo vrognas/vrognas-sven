@@ -56,6 +56,7 @@ async function init(
   console.log(`Sven: Found SVN ${info.version} at ${info.path}`);
 
   const svn = new Svn({ svnPath: info.path, version: info.version });
+  disposables.push(svn);
 
   // Revision-pinned blame survives reloads (workspaceState-backed)
   initBlamePersistence(extensionContext.workspaceState);
@@ -243,13 +244,15 @@ async function init(
     toDisposable(() => svn.onOutput.removeListener("log", onOutput))
   );
   disposables.push(toDisposable(messages.dispose));
-  disposables.push(authConfigDisposable);
 }
 
 async function _activate(context: ExtensionContext, disposables: Disposable[]) {
   const outputChannel = window.createOutputChannel("Sven");
-  commands.registerCommand("sven.showOutput", () => outputChannel.show());
-  disposables.push(outputChannel);
+  disposables.push(
+    commands.registerCommand("sven.showOutput", () => outputChannel.show()),
+    outputChannel,
+    authConfigDisposable
+  );
 
   const showOutput = configuration.get<boolean>("showOutput");
 

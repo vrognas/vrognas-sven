@@ -259,6 +259,32 @@ export class Svn {
     authModeLoggedOnce = false;
   }
 
+  private throwOnFailure(
+    args: string[],
+    result: RawProcessResult,
+    decodedStdout: string
+  ): void {
+    if (!result.exitCode) return;
+
+    const svnErrorCode = getSvnErrorCode(result.stderr);
+    if (
+      result.useSystemKeyring &&
+      svnErrorCode === svnErrorCodes.AuthorizationFailed
+    ) {
+      void showSystemKeyringAuthNotification();
+    }
+
+    throw new SvnError({
+      message: "Failed to execute svn",
+      stdout: decodedStdout,
+      stderr: result.stderr,
+      stderrFormated: result.stderr.replace(/^svn: E\d+: +/gm, ""),
+      exitCode: result.exitCode,
+      svnErrorCode,
+      svnCommand: args[0]
+    });
+  }
+
   public logOutput(output: string): void {
     this._onOutput.emit("log", output);
   }
@@ -472,7 +498,7 @@ export class Svn {
     const cancellationPromise = new Promise<[number, Buffer, string]>(
       (_, reject) => {
         if (options.token) {
-          options.token.onCancellationRequested(() => {
+          const cancel = () => {
             spawnedProcess.kill();
             reject(
               new SvnError({
@@ -481,7 +507,12 @@ export class Svn {
                 exitCode: 130
               })
             );
-          });
+          };
+          if (options.token.isCancellationRequested) {
+            cancel();
+          } else {
+            disposables.push(options.token.onCancellationRequested(cancel));
+          }
         }
       }
     );
@@ -520,11 +551,10 @@ export class Svn {
       if (timeoutHandle) {
         clearTimeout(timeoutHandle);
       }
+      dispose(disposables);
     }
 
     const [exitCode, stdout, stderr] = result;
-
-    dispose(disposables);
 
     // Log stderr if present
     if (options.log !== false && stderr.length > 0) {
@@ -555,8 +585,8 @@ export class Svn {
     }
 
     // Execute the process using shared method
-    const { exitCode, stdout, stderr, useSystemKeyring } =
-      await this.executeProcess(cwd, args, options);
+    const result = await this.executeProcess(cwd, args, options);
+    const { exitCode, stdout, stderr } = result;
 
     // Detect encoding if not specified
     if (!encoding) {
@@ -575,31 +605,7 @@ export class Svn {
 
     const decodedStdout = textCodec.decode(stdout, encoding);
 
-    // Handle non-zero exit code
-    if (exitCode) {
-      const svnErrorCode = getSvnErrorCode(stderr);
-
-      // Show notification for system keyring auth failures (keyring may need unlock)
-      if (
-        useSystemKeyring &&
-        svnErrorCode === svnErrorCodes.AuthorizationFailed
-      ) {
-        // Fire and forget - don't await, just show notification
-        void showSystemKeyringAuthNotification();
-      }
-
-      return Promise.reject<IExecutionResult>(
-        new SvnError({
-          message: "Failed to execute svn",
-          stdout: decodedStdout,
-          stderr,
-          stderrFormated: stderr.replace(/^svn: E\d+: +/gm, ""),
-          exitCode,
-          svnErrorCode,
-          svnCommand: args[0]
-        })
-      );
-    }
+    this.throwOnFailure(args, result, decodedStdout);
 
     return { exitCode, stdout: decodedStdout, stderr };
   }
@@ -610,11 +616,9 @@ export class Svn {
     options: ICpOptions = {}
   ): Promise<BufferResult> {
     // Execute the process using shared method (returns raw Buffer)
-    const { exitCode, stdout, stderr } = await this.executeProcess(
-      cwd,
-      args,
-      options
-    );
+    const result = await this.executeProcess(cwd, args, options);
+    const { exitCode, stdout, stderr } = result;
+    this.throwOnFailure(args, result, stdout.toString());
     return { exitCode, stdout, stderr };
   }
 
