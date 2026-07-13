@@ -21,6 +21,12 @@ const MAX_LINEAR_LCS_ROW_LENGTH = 100_000;
 const MAX_ADAPTIVE_EDIT_WORK = 20_000_000;
 /** Maximum direction cells retained by the exact low-edit fallback. */
 const MAX_BANDED_TRACE_CELLS = 4_000_000;
+/** Caps exact sparse LCS match pairs before conservative fallback. */
+const MAX_SPARSE_LCS_MATCH_PAIRS = 100_000;
+/** Caps persistent sparse-LCS trace storage. */
+const MAX_SPARSE_LCS_TRACE_NODES = 2_000_000;
+/** Caps sparse-LCS tree query/update work. */
+const MAX_SPARSE_LCS_WORK = 20_000_000;
 const TRACE_DIAGONAL = 1;
 const TRACE_UP = 2;
 const TRACE_LEFT = 3;
@@ -548,7 +554,7 @@ function computeBoundedLowEditLCS(
 
 /**
  * Oversized-core fallback. Low-edit inputs get an exact bounded-band LCS.
- * One-to-one match graphs get an exact sparse LCS. Otherwise only unique
+ * Bounded match-sparse inputs get an exact sparse LCS. Otherwise only unique
  * anchors crossed by no possible match are retained, and bounded gaps spend
  * the shared dense budget. Unresolved regions remain unmapped instead of
  * receiving positional guesses.
@@ -571,7 +577,7 @@ function computeSparseCoreMapping(
   }
 
   const anchors =
-    computeOneToOneLCS(baseLines, workingLines) ??
+    computeMatchSparseLCS(baseLines, workingLines) ??
     findSafeUniqueAnchors(baseLines, workingLines);
   const gaps: SparseGap[] = [];
   let baseStart = 0;
@@ -682,37 +688,196 @@ function appendSparseGap(
 }
 
 /**
- * Exact sparse LCS when every line shared by both inputs occurs once in each.
- * The match graph is then a permutation, whose LCS is its increasing
- * subsequence. Repeated common lines decline to the conservative fallback:
- * their competing chains need the full DP tie policy for stable attribution.
+ * Persistent prefix-maximum tree. Each root is an immutable LCS row snapshot;
+ * leaves are one-indexed working-copy positions.
  */
-function computeOneToOneLCS(
+class PersistentPrefixMaxTree {
+  private readonly size: number;
+  private readonly leftChildren: Uint32Array;
+  private readonly rightChildren: Uint32Array;
+  private readonly maximums: Uint32Array;
+  private nodeCount = 0;
+
+  constructor(size: number, capacity: number) {
+    this.size = size;
+    this.leftChildren = new Uint32Array(capacity);
+    this.rightChildren = new Uint32Array(capacity);
+    this.maximums = new Uint32Array(capacity);
+  }
+
+  prefixMax(root: number, endInclusive: number): number {
+    if (root === 0 || endInclusive <= 0) return 0;
+    if (endInclusive >= this.size) return this.maximums[root]!;
+    return this.query(root, 1, this.size, endInclusive);
+  }
+
+  pointMax(root: number, position: number, value: number): number | undefined {
+    return this.update(root, 1, this.size, position, value);
+  }
+
+  private query(
+    root: number,
+    start: number,
+    end: number,
+    limit: number
+  ): number {
+    if (root === 0 || limit < start) return 0;
+    if (end <= limit) return this.maximums[root]!;
+
+    const middle = Math.floor((start + end) / 2);
+    const leftMaximum = this.query(
+      this.leftChildren[root]!,
+      start,
+      middle,
+      limit
+    );
+    if (limit <= middle) return leftMaximum;
+    return Math.max(
+      leftMaximum,
+      this.query(this.rightChildren[root]!, middle + 1, end, limit)
+    );
+  }
+
+  private update(
+    root: number,
+    start: number,
+    end: number,
+    position: number,
+    value: number
+  ): number | undefined {
+    const updated = this.clone(root);
+    if (updated === undefined) return undefined;
+
+    if (start === end) {
+      this.maximums[updated] = Math.max(this.maximums[updated]!, value);
+      return updated;
+    }
+
+    const middle = Math.floor((start + end) / 2);
+    if (position <= middle) {
+      const child = this.update(
+        this.leftChildren[root]!,
+        start,
+        middle,
+        position,
+        value
+      );
+      if (child === undefined) return undefined;
+      this.leftChildren[updated] = child;
+    } else {
+      const child = this.update(
+        this.rightChildren[root]!,
+        middle + 1,
+        end,
+        position,
+        value
+      );
+      if (child === undefined) return undefined;
+      this.rightChildren[updated] = child;
+    }
+
+    this.maximums[updated] = Math.max(
+      this.maximums[this.leftChildren[updated]!]!,
+      this.maximums[this.rightChildren[updated]!]!
+    );
+    return updated;
+  }
+
+  private clone(source: number): number | undefined {
+    const next = this.nodeCount + 1;
+    if (next >= this.maximums.length) return undefined;
+
+    this.nodeCount = next;
+    this.leftChildren[next] = this.leftChildren[source]!;
+    this.rightChildren[next] = this.rightChildren[source]!;
+    this.maximums[next] = this.maximums[source]!;
+    return next;
+  }
+}
+
+/**
+ * Exact LCS for bounded sparse match graphs. Prefix maxima reproduce every
+ * dense DP cell queried by the existing equality-first, left-on-tie trace.
+ */
+function computeMatchSparseLCS(
   baseLines: string[],
   workingLines: string[]
 ): LCSMatch[] | undefined {
-  const baseOccurrences = countLineOccurrences(baseLines);
-  const workingOccurrences = countLineOccurrences(workingLines);
-  const candidates: LCSMatch[] = [];
+  if (baseLines.length === 0 || workingLines.length === 0) return undefined;
 
-  for (let baseIdx = 0; baseIdx < baseLines.length; baseIdx++) {
-    const line = baseLines[baseIdx]!;
-    const workingOccurrence = workingOccurrences.get(line);
-    if (!workingOccurrence) continue;
+  const nodesPerUpdate = Math.ceil(Math.log2(workingLines.length)) + 1;
+  const traceWork =
+    4 * nodesPerUpdate * (baseLines.length + workingLines.length);
+  if (traceWork > MAX_SPARSE_LCS_WORK) return undefined;
 
-    if (
-      baseOccurrences.get(line)!.count !== 1 ||
-      workingOccurrence.count !== 1
-    ) {
-      return undefined;
+  const workingPositions = new Map<string, number[]>();
+  for (let workingIdx = 0; workingIdx < workingLines.length; workingIdx++) {
+    const line = workingLines[workingIdx]!;
+    const positions = workingPositions.get(line);
+    if (positions) {
+      positions.push(workingIdx + 1);
+    } else {
+      workingPositions.set(line, [workingIdx + 1]);
     }
-
-    candidates.push({ baseIdx, workingIdx: workingOccurrence.index });
   }
 
-  return candidates.length > 0
-    ? longestIncreasingAnchors(candidates)
-    : undefined;
+  let matchPairs = 0;
+  for (const line of baseLines) {
+    matchPairs += workingPositions.get(line)?.length ?? 0;
+    if (matchPairs > MAX_SPARSE_LCS_MATCH_PAIRS) return undefined;
+  }
+  if (matchPairs === 0) return undefined;
+
+  const nodeCapacity = matchPairs * nodesPerUpdate + 1;
+  const estimatedWork = 3 * nodesPerUpdate * matchPairs + traceWork;
+  if (
+    nodeCapacity > MAX_SPARSE_LCS_TRACE_NODES ||
+    estimatedWork > MAX_SPARSE_LCS_WORK
+  ) {
+    return undefined;
+  }
+
+  const tree = new PersistentPrefixMaxTree(workingLines.length, nodeCapacity);
+  const roots = new Uint32Array(baseLines.length + 1);
+
+  for (let baseIdx = 0; baseIdx < baseLines.length; baseIdx++) {
+    const previousRoot = roots[baseIdx]!;
+    let currentRoot = previousRoot;
+    const positions = workingPositions.get(baseLines[baseIdx]!);
+    if (positions) {
+      for (const workingPosition of positions) {
+        const length = tree.prefixMax(previousRoot, workingPosition - 1) + 1;
+        const nextRoot = tree.pointMax(currentRoot, workingPosition, length);
+        if (nextRoot === undefined) return undefined;
+        currentRoot = nextRoot;
+      }
+    }
+    roots[baseIdx + 1] = currentRoot;
+  }
+
+  const matches: LCSMatch[] = [];
+  let basePrefix = baseLines.length;
+  let workingPrefix = workingLines.length;
+  while (basePrefix > 0 && workingPrefix > 0) {
+    if (baseLines[basePrefix - 1] === workingLines[workingPrefix - 1]) {
+      matches.push({
+        baseIdx: basePrefix - 1,
+        workingIdx: workingPrefix - 1
+      });
+      basePrefix--;
+      workingPrefix--;
+    } else if (
+      tree.prefixMax(roots[basePrefix - 1]!, workingPrefix) >
+      tree.prefixMax(roots[basePrefix]!, workingPrefix - 1)
+    ) {
+      basePrefix--;
+    } else {
+      workingPrefix--;
+    }
+  }
+
+  matches.reverse();
+  return matches;
 }
 
 function findSafeUniqueAnchors(

@@ -169,6 +169,54 @@ describe("computeLineMapping — large inputs", () => {
     }
   });
 
+  it("keeps a sparse block move when one shared line repeats", () => {
+    const lineCount = 4472;
+    const movedCount = 655;
+    const header = Array.from({ length: movedCount }, (_, i) => `header ${i}`);
+    header[1] = header[0]!;
+    const body = Array.from(
+      { length: lineCount - movedCount },
+      (_, i) => `body ${i}`
+    );
+
+    const mapping = computeLineMapping(
+      [...header, ...body],
+      [...body, ...header]
+    );
+
+    for (let baseLine = 1; baseLine <= movedCount; baseLine++) {
+      expect(mapping.get(baseLine)).toBeUndefined();
+    }
+    for (let bodyOffset = 0; bodyOffset < body.length; bodyOffset++) {
+      expect(mapping.get(movedCount + bodyOffset + 1)).toBe(bodyOffset + 1);
+    }
+  });
+
+  it("keeps dense duplicate attribution in a sparse LCS", () => {
+    const lineCount = 4472;
+    const movedCount = 655;
+    const header = Array.from({ length: movedCount }, (_, i) => `header ${i}`);
+    const tail = Array.from(
+      { length: lineCount - movedCount - 2 },
+      (_, i) => `tail ${i}`
+    );
+
+    const laterBase = computeLineMapping(
+      [...header, "same", "same", ...tail],
+      ["same", ...tail, ...header]
+    );
+    expect(laterBase.get(movedCount + 1)).toBeUndefined();
+    expect(laterBase.get(movedCount + 2)).toBe(1);
+    expect(laterBase.get(movedCount + 3)).toBe(2);
+
+    const laterWorking = computeLineMapping(
+      [...header, "same", ...tail],
+      ["same", "same", ...tail, ...header]
+    );
+    expect(laterWorking.get(movedCount + 1)).toBe(2);
+    expect(laterWorking.get(movedCount + 2)).toBe(3);
+  });
+
   it("keeps dense tie attribution in a one-to-one sparse LCS", () => {
     const lineCount = 4472;
     const movedCount = 655;
