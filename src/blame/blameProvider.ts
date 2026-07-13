@@ -1535,13 +1535,19 @@ export class BlameProvider implements Disposable {
       return;
     }
 
-    const invalidated = new Set<Repository>([
+    const directlyInvalidated = new Set<Repository>([
       repo,
       ...this.externalRepositoriesForOperation(
         affectedExternalRoots,
         externalImpact
       )
     ]);
+    const invalidated = new Set<Repository>();
+    for (const affected of directlyInvalidated) {
+      for (const peer of this.repositoriesSharingWorkingCopy(affected)) {
+        invalidated.add(peer);
+      }
+    }
     const editors = this.visibleEditors().filter(editor => {
       const token = this.uriOwners.get(editor.document.uri.toString());
       const owner = this.repoFor(editor.document.uri);
@@ -1571,6 +1577,27 @@ export class BlameProvider implements Disposable {
     if (editors.length > 0) {
       void this.renderVisibleEditorsByRepository(editors);
     }
+  }
+
+  private repositoriesSharingWorkingCopy(repo: Repository): Set<Repository> {
+    const peers = new Set<Repository>([repo]);
+    let root: string;
+    try {
+      root = path.normalize(repo.root);
+    } catch {
+      return peers;
+    }
+
+    for (const candidate of this.sourceControlManager.repositories ?? []) {
+      try {
+        if (pathEquals(root, path.normalize(candidate.root))) {
+          peers.add(candidate);
+        }
+      } catch {
+        // Ignore incomplete repository stubs and disposed repositories.
+      }
+    }
+    return peers;
   }
 
   private externalRepositoriesForOperation(

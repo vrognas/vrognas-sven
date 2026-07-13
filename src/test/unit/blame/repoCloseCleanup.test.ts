@@ -104,6 +104,33 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
     assert.ok(clearNested.notCalled, "independent lower cache must survive");
   });
 
+  test("a parent update invalidates a deeper view of the same working copy", () => {
+    const parent = { workspaceRoot: "/wc", root: "/wc" };
+    const clearChild = sandbox.stub();
+    const child = {
+      workspaceRoot: "/wc/sub",
+      root: "/wc",
+      repository: { clearBlameCache: clearChild }
+    };
+    const childUri = Uri.file("/wc/sub/file.ts");
+    const scm = {
+      repositories: [parent, child],
+      getRepositoryFromUri: (uri: Uri) =>
+        uri.path.startsWith("/wc/sub") ? child : parent
+    };
+    provider = new BlameProvider(scm as never);
+
+    const p = provider as any;
+    p.claimOwner(childUri, child);
+    p.blameCache.set(childUri.toString(), { data: [], version: 1 });
+    sandbox.stub(window, "activeTextEditor").value(undefined);
+
+    p.onRepositoryOperation(Operation.Update, parent);
+
+    assert.ok(!p.blameCache.has(childUri.toString()));
+    assert.ok(clearChild.calledOnce, "same-WC lower cache cleared");
+  });
+
   test("a parent update invalidates its declared external repository", () => {
     const parent = { workspaceRoot: "/wc", root: "/wc" };
     const clearNested = sandbox.stub();
