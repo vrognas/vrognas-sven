@@ -1,5 +1,6 @@
 import * as assert from "assert";
 import { vi } from "vitest";
+import { Uri, window } from "vscode";
 import { RepoLogProvider } from "../../../historyView/repoLogProvider";
 import { ICachedLog } from "../../../historyView/common";
 import { ISvnLogEntry } from "../../../common/types";
@@ -23,7 +24,8 @@ function makeMock(repoRevision: string, cached?: Partial<ICachedLog>) {
   const repo: any = {
     branchRoot,
     repository: { info: { revision: repoRevision } },
-    clearLogCache: vi.fn()
+    clearLogCache: vi.fn(),
+    log: vi.fn().mockResolvedValue([])
   };
   const logCache = new Map<string, ICachedLog>();
   if (cached) {
@@ -46,7 +48,7 @@ function makeMock(repoRevision: string, cached?: Partial<ICachedLog>) {
     _onDidChangeTreeData: { fire: vi.fn() },
     evictOldestLogEntry: () => {}
   };
-  return { mockThis, logCache };
+  return { mockThis, logCache, repo };
 }
 
 const refresh = RepoLogProvider.prototype.refresh;
@@ -114,5 +116,135 @@ suite("RepoLogProvider explicit refresh at-newest skip", () => {
       0,
       "partially loaded caches must not be preserved"
     );
+  });
+
+  test("hidden refresh performs no log fetch", async () => {
+    const { mockThis, repo } = makeMock("105");
+    mockThis.treeView.visible = false;
+
+    await refresh.call(mockThis);
+
+    assert.strictEqual(
+      repo.log.mock.calls.length,
+      0,
+      "hidden history must defer network work until reveal"
+    );
+  });
+});
+
+suite("RepoLogProvider multi-root selection", () => {
+  test("shows active editor owner, else first open repository", () => {
+    const repoA = {
+      branchRoot: { toString: () => "http://server/repo-a/trunk" }
+    };
+    const repoB = {
+      branchRoot: { toString: () => "http://server/repo-b/trunk" }
+    };
+    const cacheFor = (repo: typeof repoA, revision: string): ICachedLog => ({
+      entries: [makeEntry(revision)],
+      revisionSet: new Set([revision]),
+      isComplete: true,
+      repo: repo as any,
+      svnTarget: repo.branchRoot as any,
+      persisted: { commitFrom: "HEAD" }
+    });
+    const logCache = new Map<string, ICachedLog>([
+      [repoA.branchRoot.toString(), cacheFor(repoA, "101")],
+      [repoB.branchRoot.toString(), cacheFor(repoB, "202")]
+    ]);
+    const mockThis: any = {
+      logCache,
+      itemCaches: new WeakMap(),
+      getCached: (RepoLogProvider.prototype as any).getCached,
+      filterService: {
+        getFilter: () => undefined,
+        hasActiveFilter: () => false
+      },
+      sourceControlManager: {
+        repositories: [repoA, repoB],
+        getRepositoryFromUri: () => repoB
+      }
+    };
+    const previousEditor = window.activeTextEditor;
+    try {
+      (window as any).activeTextEditor = {
+        document: { uri: Uri.file("/repo-b/file.ts") }
+      };
+      const active = RepoLogProvider.prototype.getChildren.call(
+        mockThis,
+        undefined
+      );
+      assert.strictEqual((active[0] as any).data.revision, "202");
+
+      (window as any).activeTextEditor = undefined;
+      const fallback = RepoLogProvider.prototype.getChildren.call(
+        mockThis,
+        undefined
+      );
+      assert.strictEqual((fallback[0] as any).data.revision, "101");
+    } finally {
+      (window as any).activeTextEditor = previousEditor;
+    }
+  });
+
+  test("rendered commit retains its repository after editor switch", () => {
+    const repoA = {
+      branchRoot: { toString: () => "http://server/repo-a/trunk" }
+    };
+    const repoB = {
+      branchRoot: { toString: () => "http://server/repo-b/trunk" }
+    };
+    const cachedA = {
+      entries: [makeEntry("101")],
+      revisionSet: new Set(["101"]),
+      isComplete: true,
+      repo: repoA,
+      svnTarget: repoA.branchRoot,
+      persisted: { commitFrom: "HEAD" }
+    } as ICachedLog;
+    const cachedB = {
+      ...cachedA,
+      entries: [makeEntry("202")],
+      revisionSet: new Set(["202"]),
+      repo: repoB,
+      svnTarget: repoB.branchRoot
+    } as ICachedLog;
+    const owner = vi.fn(() => repoA);
+    const mockThis: any = {
+      logCache: new Map([[repoA.branchRoot.toString(), cachedA]]),
+      itemCaches: new WeakMap(),
+      getCached: (RepoLogProvider.prototype as any).getCached,
+      filterService: {
+        getFilter: () => undefined,
+        hasActiveFilter: () => false
+      },
+      sourceControlManager: {
+        repositories: [repoA, repoB],
+        getRepositoryFromUri: owner
+      }
+    };
+    const previousEditor = window.activeTextEditor;
+    try {
+      (window as any).activeTextEditor = {
+        document: { uri: Uri.file("/repo-a/file.ts") }
+      };
+      const [commit] = RepoLogProvider.prototype.getChildren.call(
+        mockThis,
+        undefined
+      );
+      owner.mockReturnValue(repoB);
+      mockThis.logCache = new Map([
+        [repoB.branchRoot.toString(), cachedB],
+        [repoA.branchRoot.toString(), cachedA]
+      ]);
+
+      const cached = (RepoLogProvider.prototype as any).getCached.call(
+        mockThis,
+        commit
+      );
+      assert.strictEqual(cached.repo, repoA);
+    } finally {
+      (window as any).activeTextEditor = previousEditor;
+    }
   });
 });

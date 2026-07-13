@@ -60,6 +60,7 @@ export class RepoLogProvider
     this._onDidChangeTreeData.event;
   // TODO on-disk cache?
   private readonly logCache: Map<string, ICachedLog> = new Map();
+  private readonly itemCaches = new WeakMap<ILogTreeItem, ICachedLog>();
   private _dispose: Disposable[] = [];
   private static readonly MAX_LOG_CACHE_SIZE = 50;
 
@@ -91,27 +92,30 @@ export class RepoLogProvider
   }
 
   private getCached(maybeItem?: ILogTreeItem): ICachedLog | undefined {
-    // With flat structure, commits are at root level
-    // Walk up to find root, then return first cache entry
-    if (!maybeItem) {
-      // Return first repo in cache (should only be one workspace repo)
-      const first = this.logCache.values().next().value;
-      if (first) {
-        first.lastAccessed = Date.now();
+    if (maybeItem) {
+      const mapped = this.itemCaches.get(maybeItem);
+      if (mapped) {
+        const current = this.logCache.get(mapped.svnTarget.toString(true));
+        if (current !== mapped) return undefined;
+        mapped.lastAccessed = Date.now();
+        return mapped;
       }
-      return first;
+      if (maybeItem.parent) return this.getCached(maybeItem.parent);
     }
 
-    // For commits at root level, return first cache entry
-    if (!maybeItem.parent) {
-      const first = this.logCache.values().next().value;
-      if (first) {
-        first.lastAccessed = Date.now();
-      }
-      return first;
-    }
+    const repositories = this.sourceControlManager.repositories;
+    const activeUri = window.activeTextEditor?.document.uri;
+    const resolve = this.sourceControlManager.getRepositoryFromUri;
+    const activeRepository =
+      activeUri && typeof resolve === "function"
+        ? resolve.call(this.sourceControlManager, activeUri)
+        : undefined;
+    const repository = activeRepository ?? repositories[0];
+    if (!repository) return undefined;
 
-    return this.getCached(maybeItem.parent);
+    const cached = this.logCache.get(repository.branchRoot.toString(true));
+    if (cached) cached.lastAccessed = Date.now();
+    return cached;
   }
 
   constructor(private sourceControlManager: SourceControlManager) {
@@ -1126,7 +1130,6 @@ export class RepoLogProvider
         // Reaching here means explicit refresh or revision change:
         // clear entries unless the cache already covers the current
         // revision
-        const clearEntries = !alreadyCurrent;
         const entries = alreadyCurrent && snap ? snap.entries : [];
         // Preserve isComplete/fullHistory if we're keeping entries
         const isComplete = alreadyCurrent && snap ? snap.isComplete : false;
@@ -1151,12 +1154,6 @@ export class RepoLogProvider
           filter: this.filterService.getFilter()
         };
         this.logCache.set(repoUrl, newCached);
-
-        // If cache was cleared and tree is hidden, fetch now (getChildren won't be called)
-        // If visible, getChildren handles loading state for snappy UX
-        if (clearEntries && !this.treeView?.visible) {
-          await fetchMore(newCached);
-        }
       }
     }
     this._onDidChangeTreeData.fire(element);
@@ -1302,6 +1299,7 @@ export class RepoLogProvider
       }
 
       const result = transform(logentries, LogTreeItemKind.Commit, undefined);
+      for (const item of result) this.itemCaches.set(item, cached);
       insertBaseMarker(cached, logentries, result);
 
       // Check if we've reached r1 (no more revisions possible) - on the
@@ -1327,7 +1325,12 @@ export class RepoLogProvider
       const commit = element.data;
       // Filter out root "/" path - occurs in property-only commits and cannot be parsed
       const paths = commit.paths.filter(p => p._ !== "/");
-      return transform(paths, LogTreeItemKind.CommitDetail, element);
+      const result = transform(paths, LogTreeItemKind.CommitDetail, element);
+      const cached = this.getCached(element);
+      if (cached) {
+        for (const item of result) this.itemCaches.set(item, cached);
+      }
+      return result;
     }
     return [];
   }

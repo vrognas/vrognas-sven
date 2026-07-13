@@ -46,6 +46,7 @@ export class BlameStatusBar implements Disposable {
   // on the same line are skipped before they reach the blame pipeline.
   private lastLineKey?: string;
   private updateGeneration = 0;
+  private readonly repoHooks = new Map<Repository, Disposable | undefined>();
 
   constructor(private sourceControlManager: SourceControlManager) {
     // Create status bar item (right-aligned, priority 100)
@@ -88,16 +89,19 @@ export class BlameStatusBar implements Disposable {
     // same-line skip would pin pre-op blame while the cursor doesn't move.
     // (Guarded: stubbed managers in unit tests may lack instance fields.)
     const hookRepository = (repo: Repository) => {
+      if (this.repoHooks.has(repo)) return;
+      let operationHook: Disposable | undefined;
       if (typeof repo.onDidRunOperation === "function") {
-        this.disposables.push(
-          repo.onDidRunOperation(op => this.onRepositoryOperation(op))
+        operationHook = repo.onDidRunOperation(op =>
+          this.onRepositoryOperation(op)
         );
       }
+      this.repoHooks.set(repo, operationHook);
       // getBlameData no longer awaits the initial crawl, so re-evaluate once
       // it lands - a file blamed during the empty-index window reconciles.
       if (typeof repo.statusReady?.then === "function") {
         void repo.statusReady.then(() => {
-          if (this.isDisposed) {
+          if (this.isDisposed || !this.repoHooks.has(repo)) {
             return;
           }
           this.lastLineKey = undefined;
@@ -105,10 +109,22 @@ export class BlameStatusBar implements Disposable {
         });
       }
     };
+    const unhookRepository = (repo: Repository) => {
+      const operationHook = this.repoHooks.get(repo);
+      if (!this.repoHooks.delete(repo)) return;
+      operationHook?.dispose();
+      this.lastLineKey = undefined;
+      this.updateStatusBar();
+    };
     (this.sourceControlManager.repositories ?? []).forEach(hookRepository);
     if (typeof this.sourceControlManager.onDidOpenRepository === "function") {
       this.disposables.push(
         this.sourceControlManager.onDidOpenRepository(hookRepository)
+      );
+    }
+    if (typeof this.sourceControlManager.onDidCloseRepository === "function") {
+      this.disposables.push(
+        this.sourceControlManager.onDidCloseRepository(unhookRepository)
       );
     }
 
@@ -263,6 +279,8 @@ export class BlameStatusBar implements Disposable {
     this.isDisposed = true;
     cancelDebounce(this, "applyStatusBarUpdate");
     this.statusBarItem.dispose();
+    for (const hook of this.repoHooks.values()) hook?.dispose();
+    this.repoHooks.clear();
     this.disposables.forEach(d => d.dispose());
     this.disposables = [];
   }

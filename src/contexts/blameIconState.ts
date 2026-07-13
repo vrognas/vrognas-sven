@@ -65,7 +65,7 @@ export class BlameIconState implements IDisposable {
     }
 
     // Check if file is tracked in SVN
-    const repository = this.sourceControlManager.getRepository(
+    const repository = this.sourceControlManager.getRepositoryFromUri(
       editor.document.uri
     );
 

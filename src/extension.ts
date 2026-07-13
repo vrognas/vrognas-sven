@@ -139,7 +139,7 @@ async function init(
       "sven.blame.showDiff",
       async (uriStr: string, rev: string) => {
         const uri = Uri.parse(uriStr);
-        const repository = sourceControlManager.getRepository(uri);
+        const repository = sourceControlManager.getRepositoryFromUri(uri);
         if (!repository) {
           window.showErrorMessage("No SVN repository found for this file");
           return;
@@ -157,7 +157,7 @@ async function init(
         workingLine: number
       ) => {
         const uri = Uri.parse(uriStr);
-        const repository = sourceControlManager.getRepository(uri);
+        const repository = sourceControlManager.getRepositoryFromUri(uri);
         if (!repository) {
           window.showErrorMessage("No SVN repository found for this file");
           return;
@@ -176,7 +176,7 @@ async function init(
       "sven.blame.peekLineHistory",
       async (uriStr: string, baseLine: number, workingLine: number) => {
         const uri = Uri.parse(uriStr);
-        const repository = sourceControlManager.getRepository(uri);
+        const repository = sourceControlManager.getRepositoryFromUri(uri);
         if (!repository) {
           window.showErrorMessage("No SVN repository found for this file");
           return;
