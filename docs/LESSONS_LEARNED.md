@@ -5,6 +5,26 @@
 
 ---
 
+### 90. An Exact Empty Result Is Not Algorithm Failure
+
+**Lesson**: The sparse LCS returned `undefined` when two over-cap cores shared zero lines. That conflated a successfully proven empty LCS with resource exhaustion, disabled exact bracketing context, and made a one-line threshold crossing erase every blame mapping in a fully rewritten core.
+
+**Fix**: Return `[]` for zero matches and reserve `undefined` for exceeded work/storage budgets. The existing bracketed rewrite synthesis can then reproduce dense attribution without allocating a quadratic matrix.
+
+**Rule**: Result emptiness and computation failure are different states. Preserve that distinction through every fallback and test both sides of algorithm thresholds.
+
+---
+
+### 89. Cross-Working-Copy Invalidation Needs Operation Scope and Topology
+
+**Lesson**: Treating every lexically nested SVN working copy as affected by a parent Update/Switch/NewBranch cleared independent nested repositories. A bare `Operation.Update` was also too coarse: full, ignored-external, targeted, pull-file, and sparse-depth updates touch different working-copy sets.
+
+**Fix**: Keep unfiltered external-root metadata, carry normalized traversal/target impact in an additive post-operation event, union pre/post roots even on failure, and follow only declared external edges whose path exactly matches an opened WC root. Preserve the legacy operation event for unrelated consumers.
+
+**Rule**: Cache invalidation follows actual dependency topology and operation targets, never directory ancestry or an overloaded enum alone.
+
+---
+
 ### 88. Algorithm Thresholds Must Not Change Attribution
 
 **Lesson**: A unique sparse LCS anchor is not necessarily safe: a moved unique line can cross a much longer repeated match and discard thousands of correct blame mappings. Likewise, choosing the first or last equal Hirschberg split does not reproduce dense backtracking; attribution can flip solely when the core crosses the dense-cell cap.

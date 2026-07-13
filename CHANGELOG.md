@@ -7,6 +7,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.99] - 2026-07-13
+
+Fix final blame mapping and nested-repository invalidation cliffs.
+
+### Fixed
+
+- **Bracketed total rewrites retain blame above the 20M-cell boundary.** An exact empty sparse LCS is treated as proof, not resource exhaustion, so contextual rewrites keep positional attribution.
+- **Parent operations invalidate declared externals only.** Detailed pre/post operation impact follows exact external WC roots, preserving independent nested repositories and respecting ignored or targeted updates.
+
 ## [0.2.98] - 2026-07-13
 
 Fix sparse-mapping cliffs and shared blame UI races.

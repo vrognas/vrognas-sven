@@ -80,12 +80,16 @@ Per-file blame tracking with:
 - Visible split editors reconcile losslessly on repo open/close/status,
   mutations, saves, state changes, and configuration changes; work coalesces
   within a repo while separate repos repaint concurrently
+- Cross-WC invalidation carries pre/post operation targets and traversal scope,
+  then follows exact declared external-root → opened-WC-root edges; independent
+  nested repositories remain isolated
 - Scoped message LRU invalidates only render entries that depend on the changed
   repo+revision; in-flight add-revision and message fetches are deduplicated
 - Line mapping strips equal edges, then uses bounded dense LCS, dense-compatible
   linear-space LCS, a bounded exact low-edit band with checkpointed traceback,
   budget-derived exact match-sparse LCS, and non-crossing anchors for ambiguous
-  cores; exact sparse context retains internal rewrites without quadratic gaps
+  cores; an empty exact sparse LCS remains proof, so bracketed total rewrites
+  retain attribution without quadratic gaps
 - Status-bar teardown fences deferred repository readiness and cancels pending
   debounce work before disposing UI resources; async results revalidate the
   newest generation, active editor, and line. Blame uses descendant ownership
