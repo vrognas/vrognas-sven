@@ -618,7 +618,9 @@ export class Svn {
     // Execute the process using shared method (returns raw Buffer)
     const result = await this.executeProcess(cwd, args, options);
     const { exitCode, stdout, stderr } = result;
-    this.throwOnFailure(args, result, stdout.toString());
+    if (exitCode) {
+      this.throwOnFailure(args, result, stdout.toString());
+    }
     return { exitCode, stdout, stderr };
   }
 

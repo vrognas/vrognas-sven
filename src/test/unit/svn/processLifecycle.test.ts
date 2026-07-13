@@ -65,6 +65,36 @@ suite("Svn process lifecycle", () => {
     );
   });
 
+  test("successful execBuffer does not decode stdout", async () => {
+    const payload = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
+    const toStringSpy = sinon.spy(Buffer.prototype, "toString");
+    queueMicrotask(() => {
+      child.stdout.emit("data", payload);
+      child.stdout.emit("close");
+      child.stderr.emit("close");
+      child.emit("exit", 0);
+    });
+
+    let result;
+    let stdoutDecodeCount: number;
+    try {
+      result = await svn.execBuffer("/repo", ["cat", "binary.dat"], {
+        log: false
+      });
+      stdoutDecodeCount = toStringSpy
+        .getCalls()
+        .filter(
+          call =>
+            Buffer.isBuffer(call.thisValue) && call.thisValue.equals(payload)
+        ).length;
+    } finally {
+      toStringSpy.restore();
+    }
+
+    assert.deepStrictEqual(result.stdout, payload);
+    assert.strictEqual(stdoutDecodeCount, 0);
+  });
+
   test("timeout disposes all process listeners", async () => {
     await assert.rejects(
       svn.execBuffer("/repo", ["status"], { log: false, timeout: 1 }),
