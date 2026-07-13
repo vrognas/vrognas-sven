@@ -103,7 +103,7 @@ export function computeLineMapping(
     denseCells <= MAX_DENSE_LCS_CELLS
       ? computeCoreMapping(baseMid, workMid, bracketBefore, bracketAfter)
       : linearWork <= MAX_LINEAR_LCS_CELLS &&
-          workMid.length <= MAX_LINEAR_LCS_ROW_LENGTH
+          Math.min(baseMid.length, workMid.length) <= MAX_LINEAR_LCS_ROW_LENGTH
         ? computeCoreMapping(
             baseMid,
             workMid,
@@ -1072,18 +1072,36 @@ function buildLCSIndex(lcs: LCSMatch[]): LCSIndex {
  */
 function computeLinearSpaceLCS(base: string[], working: string[]): LCSMatch[] {
   const matches: LCSMatch[] = [];
-  // Preserve the dense algorithm's BASE/working tie-breaking asymmetry.
-  // The caller caps the working-axis row length explicitly.
+  if (working.length <= base.length) {
+    appendLinearSpaceLCS(
+      base,
+      0,
+      base.length,
+      working,
+      0,
+      working.length,
+      matches,
+      false
+    );
+    return matches;
+  }
+
+  // Transpose so rolling rows use the shorter axis. Original left-on-tie
+  // backtracking becomes up-on-tie after the axes swap.
   appendLinearSpaceLCS(
-    base,
-    0,
-    base.length,
     working,
     0,
     working.length,
-    matches
+    base,
+    0,
+    base.length,
+    matches,
+    true
   );
-  return matches;
+  return matches.map(match => ({
+    baseIdx: match.workingIdx,
+    workingIdx: match.baseIdx
+  }));
 }
 
 function appendLinearSpaceLCS(
@@ -1093,7 +1111,8 @@ function appendLinearSpaceLCS(
   right: string[],
   rightStart: number,
   rightEnd: number,
-  matches: LCSMatch[]
+  matches: LCSMatch[],
+  preferUpOnTie: boolean
 ): void {
   const leftLength = leftEnd - leftStart;
   const rightLength = rightEnd - rightStart;
@@ -1127,7 +1146,8 @@ function appendLinearSpaceLCS(
     leftEnd,
     right,
     rightStart,
-    rightEnd
+    rightEnd,
+    preferUpOnTie
   );
   const rightMid = rightStart + rightOffset;
 
@@ -1138,7 +1158,8 @@ function appendLinearSpaceLCS(
     right,
     rightStart,
     rightMid,
-    matches
+    matches,
+    preferUpOnTie
   );
   appendLinearSpaceLCS(
     left,
@@ -1147,7 +1168,8 @@ function appendLinearSpaceLCS(
     right,
     rightMid,
     rightEnd,
-    matches
+    matches,
+    preferUpOnTie
   );
 }
 
@@ -1160,7 +1182,8 @@ function findLinearSpaceSplit(
   leftEnd: number,
   right: string[],
   rightStart: number,
-  rightEnd: number
+  rightEnd: number,
+  preferUpOnTie: boolean
 ): number {
   let previous = computeLCSLengthRow(
     left,
@@ -1189,7 +1212,11 @@ function findLinearSpaceSplit(
       if (left[leftIdx] === right[rightIdx]) {
         current[rightOffset] = previous[rightOffset - 1]! + 1;
         currentOrigin[rightOffset] = previousOrigin[rightOffset - 1]!;
-      } else if (previous[rightOffset]! > current[rightOffset - 1]!) {
+      } else if (
+        preferUpOnTie
+          ? previous[rightOffset]! >= current[rightOffset - 1]!
+          : previous[rightOffset]! > current[rightOffset - 1]!
+      ) {
         current[rightOffset] = previous[rightOffset]!;
         currentOrigin[rightOffset] = previousOrigin[rightOffset]!;
       } else {

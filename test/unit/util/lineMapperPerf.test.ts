@@ -144,6 +144,28 @@ describe("computeLineMapping — large inputs", () => {
     ).toHaveLength(blockLength);
   });
 
+  it("uses the shorter linear-space row past 100k working lines", () => {
+    const base = [
+      ...Array<string>(99).fill("A"),
+      ...Array<string>(100).fill("B")
+    ];
+    const working = [
+      ...Array<string>(50_000).fill("B"),
+      ...Array<string>(50_001).fill("A")
+    ];
+
+    const mapping = computeLineMapping(base, working);
+
+    expect(mapping.get(1)).toBe(1);
+    expect(mapping.get(2)).toBeUndefined();
+    expect(mapping.get(99)).toBeUndefined();
+    expect(mapping.get(100)).toBe(49_901);
+    expect(mapping.get(199)).toBe(50_000);
+    expect(
+      [...mapping.values()].filter(value => value !== undefined)
+    ).toHaveLength(101);
+  });
+
   it("keeps a long repeated LCS ahead of a moved unique sparse anchor", () => {
     const repeated = Array<string>(5000).fill("same");
     const base = ["D", ...repeated, "ax"];
