@@ -462,6 +462,8 @@ export class Repository implements IRemoteRepository {
   private credentialLock: Promise<void> = Promise.resolve(); // Mutex for credential assignment
   private promptAuthCooldown: boolean = false;
   private promptAuthCooldownTimer?: ReturnType<typeof setTimeout>;
+  private propertyWarmupTimer?: ReturnType<typeof setTimeout>;
+  private disposed = false;
   private readonly credentialStore: CredentialStore;
 
   // Needs-lock cache: set of relative paths with svn:needs-lock property
@@ -770,50 +772,55 @@ export class Repository implements IRemoteRepository {
     this.remoteChangeService.start();
 
     // On change config, restart remote change service
-    configuration.onDidChange(e => {
-      // Invalidate config cache only when cached settings change (v2.32.14 fix)
-      // Previously invalidated on ANY config change which was too aggressive
-      if (
-        e.affectsConfiguration("sven.delete.actionForDeletedFiles") ||
-        e.affectsConfiguration("sven.delete.ignoredRulesForDeletedFiles") ||
-        e.affectsConfiguration("sven.sourceControl.countBadge") ||
-        e.affectsConfiguration("sven.autorefresh") ||
-        e.affectsConfiguration("sven.remoteChanges.checkFrequency") ||
-        e.affectsConfiguration("sven.sourceControl.ignoreOnStatusCount") ||
-        e.affectsConfiguration("sven.sourceControl.countUnversioned") ||
-        e.affectsConfiguration("sven.sourceControl.hideUnversioned") ||
-        e.affectsConfiguration("sven.sourceControl.ignore")
-      ) {
-        this._configCache = undefined;
-      }
+    this.disposables.push(
+      configuration.onDidChange(e => {
+        // Invalidate config cache only when cached settings change (v2.32.14 fix)
+        // Previously invalidated on ANY config change which was too aggressive
+        if (
+          e.affectsConfiguration("sven.delete.actionForDeletedFiles") ||
+          e.affectsConfiguration("sven.delete.ignoredRulesForDeletedFiles") ||
+          e.affectsConfiguration("sven.sourceControl.countBadge") ||
+          e.affectsConfiguration("sven.autorefresh") ||
+          e.affectsConfiguration("sven.remoteChanges.checkFrequency") ||
+          e.affectsConfiguration("sven.sourceControl.ignoreOnStatusCount") ||
+          e.affectsConfiguration("sven.sourceControl.countUnversioned") ||
+          e.affectsConfiguration("sven.sourceControl.hideUnversioned") ||
+          e.affectsConfiguration("sven.sourceControl.ignore")
+        ) {
+          this._configCache = undefined;
+        }
 
-      if (e.affectsConfiguration("sven.remoteChanges.checkFrequency")) {
-        this.remoteChangeService.restart();
-        void this.updateRemoteChangedFiles();
-      }
+        if (e.affectsConfiguration("sven.remoteChanges.checkFrequency")) {
+          this.remoteChangeService.restart();
+          void this.updateRemoteChangedFiles();
+        }
 
-      // Clear runtime credentials and caches when auth mode changes
-      // Forces re-authentication with new storage mode
-      if (e.affectsConfiguration("sven.auth.credentialMode")) {
-        // Chain credential clearing to saveAuthLock to serialize properly
-        // This ensures any concurrent operation waits for clearing to complete
-        this.saveAuthLock = this.saveAuthLock.then(() => {
-          this.username = undefined;
-          this.password = undefined;
-          this.canSaveAuth = false;
-          this.credentialStore.invalidate(this.getCredentialServiceName());
-        });
-      }
-    });
+        // Clear runtime credentials and caches when auth mode changes
+        // Forces re-authentication with new storage mode
+        if (e.affectsConfiguration("sven.auth.credentialMode")) {
+          // Chain credential clearing to saveAuthLock to serialize properly
+          // This ensures any concurrent operation waits for clearing to complete
+          this.saveAuthLock = this.saveAuthLock.then(() => {
+            this.username = undefined;
+            this.password = undefined;
+            this.canSaveAuth = false;
+            this.credentialStore.invalidate(this.getCredentialServiceName());
+          });
+        }
+      })
+    );
 
     this.status()
       .then(() => {
         this._statusReadyResolve();
+        if (this.disposed) return;
         // First remote check after initial status is ready
         void this.updateRemoteChangedFiles();
         // Defer propget caches past first paint — single svn proplist call
         // Skip if already warmed (e.g., hasNeedsLock triggered refresh early)
-        setTimeout(() => {
+        this.propertyWarmupTimer = setTimeout(() => {
+          this.propertyWarmupTimer = undefined;
+          if (this.disposed) return;
           if (!this.needsLockCacheWarmed || !this.propertyCacheWarmed) {
             void this.refreshAllPropertyCaches();
           }
@@ -822,6 +829,7 @@ export class Repository implements IRemoteRepository {
       .catch(err => {
         // Resolve even on error so callers don't hang
         this._statusReadyResolve();
+        if (this.disposed) return;
         // Show user-friendly message for connection errors on startup
         const svnError = err as ISvnErrorData;
         if (
@@ -3491,10 +3499,16 @@ export class Repository implements IRemoteRepository {
   }
 
   public dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     // Clear auth cooldown timer to prevent memory leak
     if (this.promptAuthCooldownTimer) {
       clearTimeout(this.promptAuthCooldownTimer);
       this.promptAuthCooldownTimer = undefined;
+    }
+    if (this.propertyWarmupTimer) {
+      clearTimeout(this.propertyWarmupTimer);
+      this.propertyWarmupTimer = undefined;
     }
     // Clear grace period refresh timer
     if (this.pendingGraceRefresh) {

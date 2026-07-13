@@ -132,7 +132,7 @@ export class SourceControlManager implements IDisposable {
 
   public openRepositoriesSorted(): IOpenRepository[] {
     // Sort by path length (First external and ignored over root)
-    return this.openRepositories.sort(
+    return [...this.openRepositories].sort(
       (a, b) =>
         b.repository.workspaceRoot.length - a.repository.workspaceRoot.length
     );
@@ -241,8 +241,7 @@ export class SourceControlManager implements IDisposable {
   }
 
   private disable(): void {
-    this.repositories.forEach(repository => repository.dispose());
-    this.openRepositories = [];
+    [...this.openRepositories].forEach(repository => repository.dispose());
 
     this.possibleSvnRepositoryPaths.clear();
     this.disposables = dispose(this.disposables);
@@ -256,20 +255,24 @@ export class SourceControlManager implements IDisposable {
       folder => !this.getOpenRepository(folder.uri)
     );
 
-    const openRepositoriesToDispose = removed
-      .map(folder => this.getOpenRepository(folder.uri.fsPath))
-      .filter(repository => !!repository)
-      .filter(
-        repository =>
-          !(workspace.workspaceFolders || []).some(f =>
-            repository!.repository.workspaceRoot.startsWith(f.uri.fsPath)
-          )
-      ) as IOpenRepository[];
+    const removedRoots = removed.map(folder => folder.uri.fsPath);
+    const remainingRoots = (workspace.workspaceFolders || []).map(
+      folder => folder.uri.fsPath
+    );
+    const openRepositoriesToDispose = this.openRepositories.filter(
+      ({ repository }) =>
+        removedRoots.some(root =>
+          isDescendant(root, repository.workspaceRoot)
+        ) &&
+        !remainingRoots.some(root =>
+          isDescendant(root, repository.workspaceRoot)
+        )
+    );
 
     possibleRepositoryFolders.forEach(p => {
       void this.tryOpenRepository(p.uri.fsPath);
     });
-    openRepositoriesToDispose.forEach(r => r.repository.dispose());
+    openRepositoriesToDispose.forEach(repository => repository.dispose());
   }
 
   private async scanWorkspaceFolders() {
@@ -499,7 +502,10 @@ export class SourceControlManager implements IDisposable {
       this.excludedPathsCache.set(repository.workspaceRoot, excluded);
     };
 
+    let disposed = false;
     const dispose = () => {
+      if (disposed) return;
+      disposed = true;
       disappearListener.dispose();
       changeListener.dispose();
       changeStatus.dispose();
