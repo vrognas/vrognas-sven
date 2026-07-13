@@ -1,7 +1,7 @@
 # SVN Extension Architecture
 
-**Version**: 0.2.92
-**Updated**: 2026-07-12
+**Version**: 0.2.102
+**Updated**: 2026-07-13
 
 ---
 
@@ -93,7 +93,8 @@ Per-file blame tracking with:
   linear-space LCS, a bounded exact low-edit band with checkpointed traceback,
   budget-derived exact match-sparse LCS, and non-crossing anchors for ambiguous
   cores; an empty exact sparse LCS remains proof, so bracketed total rewrites
-  retain attribution without quadratic gaps
+  retain attribution without quadratic gaps. Dense storage counts its boundary
+  row/column; linear-space work counts only real line pairs.
 - Status-bar teardown fences deferred repository readiness and cancels pending
   debounce work before disposing UI resources; async results revalidate the
   newest generation, active editor, and line. Blame uses descendant ownership

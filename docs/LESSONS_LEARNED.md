@@ -1,7 +1,17 @@
 # Lessons Learned
 
-**Version**: 0.2.101
+**Version**: 0.2.102
 **Updated**: 2026-07-13
+
+---
+
+### 95. Resource Gates Must Count the Resource They Bound
+
+**Lesson**: Linear-space LCS was gated by dense-table allocation cells, (m + 1) _ (n + 1), instead of its real comparison work, m _ n. A 4,472-line repeated-block swap was therefore rejected despite fitting the 20M pair budget; sparse tracing also exhausted, so every valid blame mapping disappeared.
+
+**Fix**: Keep boundary-inclusive cell counts for dense storage and dense-gap allocation, but gate Hirschberg on line-pair work. Pin the last in-budget repetitive case against dense-compatible attribution.
+
+**Rule**: Each resource limit must measure the resource its algorithm consumes. Do not charge storage-only borders to a work budget; test exact values at dispatch boundaries.
 
 ---
 

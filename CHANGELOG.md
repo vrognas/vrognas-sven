@@ -7,6 +7,14 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.102] - 2026-07-13
+
+Fix repeated-block blame mapping at the linear-work boundary.
+
+### Fixed
+
+- **Linear LCS budgets real comparisons.** Dense-table border cells no longer push an otherwise in-budget repetitive diff into the conservative sparse fallback and erase valid blame.
+
 ## [0.2.101] - 2026-07-13
 
 Fix incomplete external invalidation and post-commit teardown.
