@@ -63,6 +63,8 @@ export class SourceControlManager implements IDisposable {
   private disposables: Disposable[] = [];
   private possibleSvnRepositoryPaths = new Set<string>();
   private pendingOpenPaths = new Set<string>();
+  private disposed = false;
+  private topologyGeneration = 0;
   private ignoreList: string[] = [];
   private maxDepth: number = 0;
   private excludedPathsCache = new Map<string, Set<string>>(); // Phase 15 perf fix
@@ -251,9 +253,8 @@ export class SourceControlManager implements IDisposable {
     added,
     removed
   }: WorkspaceFoldersChangeEvent) {
-    const possibleRepositoryFolders = added.filter(
-      folder => !this.getOpenRepository(folder.uri)
-    );
+    if (this.disposed) return;
+    this.topologyGeneration++;
 
     const removedRoots = removed.map(folder => folder.uri.fsPath);
     const remainingRoots = (workspace.workspaceFolders || []).map(
@@ -269,10 +270,13 @@ export class SourceControlManager implements IDisposable {
         )
     );
 
-    possibleRepositoryFolders.forEach(p => {
-      void this.tryOpenRepository(p.uri.fsPath);
-    });
     openRepositoriesToDispose.forEach(repository => repository.dispose());
+
+    added
+      .filter(folder => !this.getOpenRepository(folder.uri))
+      .forEach(folder => {
+        void this.tryOpenRepository(folder.uri.fsPath);
+      });
   }
 
   private async scanWorkspaceFolders() {
@@ -284,6 +288,8 @@ export class SourceControlManager implements IDisposable {
   }
 
   public async tryOpenRepository(path: string, level = 0): Promise<void> {
+    const discoveryGeneration = this.topologyGeneration;
+    if (!this.isDiscoveryCurrent(discoveryGeneration, path)) return;
     if (this.getRepository(path)) {
       return;
     }
@@ -297,7 +303,9 @@ export class SourceControlManager implements IDisposable {
     const checkParent = level === 0;
 
     try {
-      if (await isSvnFolder(path, checkParent)) {
+      const isRepository = await isSvnFolder(path, checkParent);
+      if (!this.isDiscoveryCurrent(discoveryGeneration, path)) return;
+      if (isRepository) {
         // Config based on folder path
         const resourceConfig = workspace.getConfiguration(
           "sven",
@@ -316,9 +324,15 @@ export class SourceControlManager implements IDisposable {
 
         const { root: repositoryRoot, info } =
           await this.svn.getRepositoryRoot(path);
+        if (!this.isDiscoveryCurrent(discoveryGeneration, path)) return;
 
+        const baseRepository = await this.svn.open(repositoryRoot, path, info);
+        if (!this.isDiscoveryCurrent(discoveryGeneration, path)) {
+          baseRepository.clearInfoCacheTimers();
+          return;
+        }
         const repository = new Repository(
-          await this.svn.open(repositoryRoot, path, info),
+          baseRepository,
           this.extensionContext.secrets
         );
 
@@ -326,6 +340,7 @@ export class SourceControlManager implements IDisposable {
         return;
       }
     } catch (err) {
+      if (!this.isDiscoveryCurrent(discoveryGeneration, path)) return;
       if (err instanceof SvnError) {
         if (err.svnErrorCode === svnErrorCodes.WorkingCopyIsTooOld) {
           await commands.executeCommand("sven.upgrade", path);
@@ -340,6 +355,7 @@ export class SourceControlManager implements IDisposable {
 
     const newLevel = level + 1;
     if (newLevel <= this.maxDepth) {
+      if (!this.isDiscoveryCurrent(discoveryGeneration, path)) return;
       let files: string[] | Buffer[] = [];
 
       try {
@@ -347,6 +363,7 @@ export class SourceControlManager implements IDisposable {
       } catch (error) {
         return;
       }
+      if (!this.isDiscoveryCurrent(discoveryGeneration, path)) return;
 
       // Phase 9.1 perf fix - bounded parallel operations (max 16 concurrent)
       // Previously: Unlimited Promise.all() → file descriptor exhaustion on 1000+ files
@@ -359,6 +376,7 @@ export class SourceControlManager implements IDisposable {
           try {
             const stats = await stat(dir);
             if (
+              this.isDiscoveryCurrent(discoveryGeneration, dir) &&
               stats.isDirectory() &&
               !matchAll(dir, this.ignoreList, { dot: true })
             ) {
@@ -371,6 +389,17 @@ export class SourceControlManager implements IDisposable {
         16 // Concurrency limit
       );
     }
+  }
+
+  private isDiscoveryCurrent(
+    generation: number,
+    candidatePath: string
+  ): boolean {
+    if (this.disposed) return false;
+    if (generation === this.topologyGeneration) return true;
+    return (workspace.workspaceFolders || []).some(folder =>
+      isDescendant(folder.uri.fsPath, candidatePath)
+    );
   }
 
   public async getRemoteRepository(uri: Uri): Promise<RemoteRepository> {
@@ -630,7 +659,13 @@ export class SourceControlManager implements IDisposable {
   }
 
   public dispose(): void {
-    this.disable();
-    this.configurationChangeDisposable.dispose();
+    if (this.disposed) return;
+    this.disposed = true;
+    this.topologyGeneration++;
+    try {
+      this.disable();
+    } finally {
+      this.configurationChangeDisposable.dispose();
+    }
   }
 }

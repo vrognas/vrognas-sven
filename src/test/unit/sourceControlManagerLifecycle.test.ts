@@ -1,4 +1,7 @@
 import * as assert from "assert";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import * as sinon from "sinon";
 import { Uri, workspace, WorkspaceFolder } from "vscode";
 import { IOpenRepository } from "../../common/types";
@@ -102,5 +105,64 @@ suite("SourceControlManager workspace lifecycle", () => {
 
     assert.strictEqual(handleDispose.callCount, 1);
     assert.strictEqual(nestedDispose.callCount, 1);
+  });
+
+  test("parent-to-child workspace replacement rescans after close", () => {
+    const parentUri = Uri.file("/workspace");
+    const childUri = Uri.file("/workspace/child");
+    const { manager, handleDispose } = openRepository(parentUri);
+    const tryOpen = sandbox
+      .stub(manager, "tryOpenRepository")
+      .resolves(undefined);
+    sandbox
+      .stub(workspace, "workspaceFolders")
+      .value([folder(childUri, "child")]);
+
+    (manager as any).onDidChangeWorkspaceFolders({
+      added: [folder(childUri, "child")],
+      removed: [folder(parentUri, "parent")]
+    });
+
+    assert.strictEqual(handleDispose.callCount, 1);
+    assert.ok(tryOpen.calledOnceWith(childUri.fsPath));
+  });
+
+  test("removed workspace fences an in-flight repository open", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sven-open-race-"));
+    fs.mkdirSync(path.join(root, ".svn"));
+    const rootUri = Uri.file(root);
+    let folders: WorkspaceFolder[] = [folder(rootUri, "race")];
+    sandbox.stub(workspace, "workspaceFolders").get(() => folders);
+    let resolveRoot!: (value: { root: string; info: object }) => void;
+    const rootReady = new Promise<{ root: string; info: object }>(resolve => {
+      resolveRoot = resolve;
+    });
+    const svn = {
+      getRepositoryRoot: sandbox.stub().returns(rootReady),
+      open: sandbox.stub().rejects(new Error("stale open"))
+    };
+    const manager = new SourceControlManager(svn as never, {} as never);
+    managers.push(manager);
+
+    try {
+      const pending = manager.tryOpenRepository(root);
+      for (let i = 0; i < 20 && svn.getRepositoryRoot.callCount === 0; i++) {
+        await new Promise<void>(resolve => setImmediate(resolve));
+      }
+      assert.strictEqual(svn.getRepositoryRoot.callCount, 1);
+      folders = [];
+      (manager as any).onDidChangeWorkspaceFolders({
+        added: [],
+        removed: [folder(rootUri, "race")]
+      });
+      resolveRoot({ root, info: {} });
+
+      await pending;
+
+      assert.strictEqual(svn.open.callCount, 0);
+      assert.strictEqual(manager.openRepositories.length, 0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
