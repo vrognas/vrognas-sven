@@ -93,4 +93,25 @@ suite("svnRepository.cat normalization + cache", () => {
 
     assert.strictEqual(execCount, 1);
   });
+
+  test("cat propagates execBuffer rejection unchanged", async () => {
+    const { Repository: SvnRepository } = await import(
+      "../../../svnRepository"
+    );
+    const failure = new Error("svn cat failed");
+    const repo: any = Object.create(SvnRepository.prototype);
+    repo.execBuffer = async () => {
+      throw failure;
+    };
+    repo._catInFlight = new Map();
+    repo._catCache = new LRUCache(50, 30 * 1000);
+
+    await assert.rejects(
+      (SvnRepository.prototype as any).showBufferWithArgs.call(repo, [
+        "cat",
+        "file.txt"
+      ]),
+      error => error === failure
+    );
+  });
 });
