@@ -145,11 +145,72 @@ type RepositoryConfig = {
   ignore: string[];
 };
 
+export type ExternalOperationImpact = {
+  readonly traverseExternals: boolean;
+  readonly targets?: readonly string[];
+};
+
+export type RepositoryOperationDetail = {
+  readonly operation: Operation;
+  readonly affectedExternalRoots: readonly string[];
+  /** Absolute targets after normalization by Repository.run(). */
+  readonly externalImpact?: ExternalOperationImpact;
+};
+
+type RunOptions = {
+  readonly externalImpact?: ExternalOperationImpact;
+};
+
+function absoluteOperationPath(workspaceRoot: string, value: string): string {
+  return path.normalize(
+    path.isAbsolute(value) ? value : path.join(workspaceRoot, value)
+  );
+}
+
+function normalizeExternalImpact(
+  workspaceRoot: string,
+  impact: ExternalOperationImpact | undefined
+): ExternalOperationImpact | undefined {
+  if (!impact) return undefined;
+  const targets = impact.targets?.map(target =>
+    absoluteOperationPath(workspaceRoot, target)
+  );
+  return targets?.length
+    ? { traverseExternals: impact.traverseExternals, targets }
+    : { traverseExternals: impact.traverseExternals };
+}
+
+function externalRootAffected(
+  root: string,
+  impact: ExternalOperationImpact | undefined
+): boolean {
+  if (!impact) return false;
+  if (!impact.targets?.length) return impact.traverseExternals;
+  return impact.targets.some(
+    target =>
+      // An explicit target inside an external updates that WC even when
+      // traversal is disabled. Reaching an external below a target requires
+      // normal external traversal.
+      isDescendant(root, target) ||
+      (impact.traverseExternals && isDescendant(target, root))
+  );
+}
+
+function affectedExternalRoots(
+  roots: readonly string[] | undefined,
+  impact: ExternalOperationImpact | undefined
+): string[] {
+  return (roots ?? [])
+    .map(root => path.normalize(root))
+    .filter(root => externalRootAffected(root, impact));
+}
+
 export class Repository implements IRemoteRepository {
   public sourceControl: SourceControl;
   public statusBar: StatusBarCommands;
   public ignored: Resource[] = [];
   public statusExternal: IFileStatus[] = [];
+  public externalWorkingCopyRoots: string[] = [];
   private disposables: Disposable[] = [];
   public currentBranch = "";
   public remoteChangedFiles: number = 0;
@@ -282,6 +343,11 @@ export class Repository implements IRemoteRepository {
   private _onDidRunOperation = new EventEmitter<Operation>();
   public readonly onDidRunOperation: Event<Operation> =
     this._onDidRunOperation.event;
+
+  private _onDidRunOperationDetail =
+    new EventEmitter<RepositoryOperationDetail>();
+  public readonly onDidRunOperationDetail: Event<RepositoryOperationDetail> =
+    this._onDidRunOperationDetail.event;
 
   @memoize
   get onDidChangeOperations(): Event<void> {
@@ -1039,6 +1105,9 @@ export class Repository implements IRemoteRepository {
 
     // Update metadata
     this.statusExternal = [...result.statusExternal];
+    this.externalWorkingCopyRoots = result.externalWorkingCopyPaths.map(value =>
+      absoluteOperationPath(this.workspaceRoot, value)
+    );
     this.ignored = [...result.ignored];
     this.isIncomplete = result.isIncomplete;
     this.needCleanUp = result.needCleanUp;
@@ -1482,17 +1551,25 @@ export class Repository implements IRemoteRepository {
     name: string,
     commitMessage: string = "Created new branch"
   ) {
-    return this.run(Operation.NewBranch, async () => {
-      await this.repository.newBranch(name, commitMessage);
-      void this.updateRemoteChangedFiles();
-    });
+    return this.run(
+      Operation.NewBranch,
+      async () => {
+        await this.repository.newBranch(name, commitMessage);
+        void this.updateRemoteChangedFiles();
+      },
+      { externalImpact: { traverseExternals: true } }
+    );
   }
 
   public async switchBranch(name: string, force: boolean = false) {
-    await this.run(Operation.SwitchBranch, async () => {
-      await this.repository.switchBranch(name, force);
-      void this.updateRemoteChangedFiles();
-    });
+    await this.run(
+      Operation.SwitchBranch,
+      async () => {
+        await this.repository.switchBranch(name, force);
+        void this.updateRemoteChangedFiles();
+      },
+      { externalImpact: { traverseExternals: true } }
+    );
   }
 
   public async merge(
@@ -1518,25 +1595,34 @@ export class Repository implements IRemoteRepository {
       files?: string[];
     } = {}
   ): Promise<IUpdateResult> {
-    const result = await this.run<IUpdateResult>(Operation.Update, async () => {
-      const updateResult = await this.repository.update(ignoreExternals, {
-        token,
-        files
-      });
-      // Note: status refresh handled by run() via updateModelState() after callback
-      // Do NOT call this.status() here - causes credentialLock deadlock (nested retryRun)
-      if (updateResult.revision !== null) {
-        this.recordServerRevision(updateResult.revision);
+    const result = await this.run<IUpdateResult>(
+      Operation.Update,
+      async () => {
+        const updateResult = await this.repository.update(ignoreExternals, {
+          token,
+          files
+        });
+        // Note: status refresh handled by run() via updateModelState() after callback
+        // Do NOT call this.status() here - causes credentialLock deadlock (nested retryRun)
+        if (updateResult.revision !== null) {
+          this.recordServerRevision(updateResult.revision);
+        }
+        if (!files || files.length === 0) {
+          // Full update — at HEAD, no remote changes
+          this._lastRemoteCheck = { hasChanges: false, timestamp: Date.now() };
+        } else {
+          // Targeted update — invalidate cache so next check re-queries server
+          this._lastRemoteCheck = undefined;
+        }
+        return updateResult;
+      },
+      {
+        externalImpact: {
+          traverseExternals: !ignoreExternals,
+          ...(files?.length ? { targets: files } : {})
+        }
       }
-      if (!files || files.length === 0) {
-        // Full update — at HEAD, no remote changes
-        this._lastRemoteCheck = { hasChanges: false, timestamp: Date.now() };
-      } else {
-        // Targeted update — invalidate cache so next check re-queries server
-        this._lastRemoteCheck = undefined;
-      }
-      return updateResult;
-    });
+    );
     // Fetch history views (skipped when caller handles refresh, e.g. commitFiles)
     if (!skipHistoryRefresh) {
       await Promise.all([
@@ -1623,12 +1709,21 @@ export class Repository implements IRemoteRepository {
   }
 
   public async pullIncomingChange(path: string) {
-    return this.run<string>(Operation.Update, async () => {
-      const response = await this.repository.pullIncomingChange(path);
-      // Note: updateRemoteChangedFiles() called by caller after batch completes
-      // to avoid N redundant calls when pulling N files
-      return response;
-    });
+    return this.run<string>(
+      Operation.Update,
+      async () => {
+        const response = await this.repository.pullIncomingChange(path);
+        // Note: updateRemoteChangedFiles() called by caller after batch completes
+        // to avoid N redundant calls when pulling N files
+        return response;
+      },
+      {
+        externalImpact: {
+          traverseExternals: false,
+          targets: [path]
+        }
+      }
+    );
   }
 
   /**
@@ -1988,8 +2083,10 @@ export class Repository implements IRemoteRepository {
   }
 
   public async finishCheckout() {
-    return this.run(Operation.SwitchBranch, () =>
-      this.repository.finishCheckout()
+    return this.run(
+      Operation.SwitchBranch,
+      () => this.repository.finishCheckout(),
+      { externalImpact: { traverseExternals: true } }
     );
   }
 
@@ -2281,13 +2378,23 @@ export class Repository implements IRemoteRepository {
 
   private async run<T>(
     operation: Operation,
-    runOperation: () => Promise<T> = () => Promise.resolve(null as T)
+    runOperation: () => Promise<T> = () => Promise.resolve(null as T),
+    options: RunOptions = {}
   ): Promise<T> {
     if (this.state !== RepositoryState.Idle) {
       throw new Error("Repository not initialized");
     }
 
+    const externalImpact = normalizeExternalImpact(
+      this.workspaceRoot,
+      options.externalImpact
+    );
+
     const run = async () => {
+      const externalRootsBefore = affectedExternalRoots(
+        this.externalWorkingCopyRoots,
+        externalImpact
+      );
       this._operations.start(operation);
       this._onRunOperation.fire(operation);
 
@@ -2332,9 +2439,14 @@ export class Repository implements IRemoteRepository {
           // StatusRemote forces the refresh: the poll already gated the
           // decision, so the 1s model cache must not swallow the fetch
           // (it would mark the lock sweep done with zero lock data)
+          const forceExternalMetadataRefresh =
+            externalImpact?.traverseExternals === true &&
+            !externalImpact.targets?.length;
           await this.updateModelState(
             checkRemote,
-            forceRefresh || operation === Operation.StatusRemote,
+            forceRefresh ||
+              forceExternalMetadataRefresh ||
+              operation === Operation.StatusRemote,
             fetchLockStatus
           );
         }
@@ -2371,6 +2483,18 @@ export class Repository implements IRemoteRepository {
         throw err;
       } finally {
         this._operations.end(operation);
+        const affectedRoots = new Set([
+          ...externalRootsBefore,
+          ...affectedExternalRoots(
+            this.externalWorkingCopyRoots,
+            externalImpact
+          )
+        ]);
+        this._onDidRunOperationDetail?.fire({
+          operation,
+          affectedExternalRoots: [...affectedRoots],
+          externalImpact
+        });
         this._onDidRunOperation.fire(operation);
       }
     };
@@ -2512,8 +2636,15 @@ export class Repository implements IRemoteRepository {
     depth: keyof typeof SvnDepth,
     options?: { parents?: boolean; timeout?: number }
   ) {
-    return this.run(Operation.Update, () =>
-      this.repository.setDepth(folderPath, depth, options)
+    return this.run(
+      Operation.Update,
+      () => this.repository.setDepth(folderPath, depth, options),
+      {
+        externalImpact: {
+          traverseExternals: true,
+          targets: [folderPath]
+        }
+      }
     );
   }
 

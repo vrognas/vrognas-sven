@@ -38,6 +38,8 @@ export type StatusResult = {
   readonly changelists: ReadonlyMap<string, Resource[]>;
   readonly remoteChanges: Resource[];
   readonly statusExternal: readonly IFileStatus[];
+  /** Raw svn:externals paths before same-repository UI combining. */
+  readonly externalWorkingCopyPaths: readonly string[];
   readonly ignored: Resource[];
   readonly isIncomplete: boolean;
   readonly needCleanUp: boolean;
@@ -128,6 +130,9 @@ export class StatusService implements IStatusService {
     const excludeList = this.buildExcludeList(config.filesExclude);
 
     // Separate external statuses
+    const externalWorkingCopyPaths = statuses
+      .filter(status => status.status === Status.EXTERNAL)
+      .map(status => status.path);
     const { statusExternal, statusesRepository } = await this.separateExternals(
       statuses,
       config.combineExternal
@@ -146,6 +151,7 @@ export class StatusService implements IStatusService {
       changelists: categorized.changelists,
       remoteChanges: categorized.remoteChanges,
       statusExternal,
+      externalWorkingCopyPaths,
       ignored: categorized.ignored,
       isIncomplete: categorized.isIncomplete,
       needCleanUp: categorized.needCleanUp,

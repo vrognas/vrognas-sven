@@ -299,10 +299,6 @@ export const BLAME_INVALIDATING_OPERATIONS: ReadonlySet<Operation> = new Set([
   Operation.NewBranch
 ]);
 
-/** Operations that may also change BASE in nested working copies. */
-export const DESCENDANT_BLAME_INVALIDATING_OPERATIONS: ReadonlySet<Operation> =
-  new Set([Operation.Update, Operation.SwitchBranch, Operation.NewBranch]);
-
 /**
  * Whether an operation needs lock status (--show-updates) in its post-op status.
  * Only operations that interact with locks or check remote state need it.

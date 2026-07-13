@@ -54,7 +54,7 @@ suite("ResourceGroupManager Tests", () => {
 
   test("Group creation - static groups created on construction", () => {
     // Arrange & Act
-        void new ResourceGroupManager(
+    void new ResourceGroupManager(
       mockSourceControl as SourceControl,
       disposables
     );
@@ -73,7 +73,7 @@ suite("ResourceGroupManager Tests", () => {
 
   test("Group updates - updateGroups correctly updates all groups from StatusResult", () => {
     // Arrange
-        const manager = new ResourceGroupManager(
+    const manager = new ResourceGroupManager(
       mockSourceControl as SourceControl,
       disposables
     );
@@ -88,6 +88,7 @@ suite("ResourceGroupManager Tests", () => {
       changelists: new Map(),
       remoteChanges: [],
       statusExternal: [],
+      externalWorkingCopyPaths: [],
       ignored: [],
       isIncomplete: false,
       needCleanUp: false,
@@ -137,7 +138,7 @@ suite("ResourceGroupManager Tests", () => {
 
   test("Changelist management - dynamic changelist groups created and disposed", () => {
     // Arrange
-        const manager = new ResourceGroupManager(
+    const manager = new ResourceGroupManager(
       mockSourceControl as SourceControl,
       disposables
     );
@@ -159,6 +160,7 @@ suite("ResourceGroupManager Tests", () => {
       changelists: changelists1,
       remoteChanges: [],
       statusExternal: [],
+      externalWorkingCopyPaths: [],
       ignored: [],
       isIncomplete: false,
       needCleanUp: false,
@@ -210,6 +212,7 @@ suite("ResourceGroupManager Tests", () => {
       changelists: changelists2,
       remoteChanges: [],
       statusExternal: [],
+      externalWorkingCopyPaths: [],
       ignored: [],
       isIncomplete: false,
       needCleanUp: false,
@@ -230,7 +233,7 @@ suite("ResourceGroupManager Tests", () => {
 
   test("Index rebuild - skipped when resources unchanged (Phase 16)", () => {
     // Arrange
-        const manager = new ResourceGroupManager(
+    const manager = new ResourceGroupManager(
       mockSourceControl as SourceControl,
       disposables
     );
@@ -242,6 +245,7 @@ suite("ResourceGroupManager Tests", () => {
       changelists: new Map(),
       remoteChanges: [],
       statusExternal: [],
+      externalWorkingCopyPaths: [],
       ignored: [],
       isIncomplete: false,
       needCleanUp: false,
@@ -272,7 +276,7 @@ suite("ResourceGroupManager Tests", () => {
 
   test("Index rebuild - triggered when resources change (Phase 16)", () => {
     // Arrange
-        const manager = new ResourceGroupManager(
+    const manager = new ResourceGroupManager(
       mockSourceControl as SourceControl,
       disposables
     );
@@ -284,6 +288,7 @@ suite("ResourceGroupManager Tests", () => {
       changelists: new Map(),
       remoteChanges: [],
       statusExternal: [],
+      externalWorkingCopyPaths: [],
       ignored: [],
       isIncomplete: false,
       needCleanUp: false,
@@ -300,6 +305,7 @@ suite("ResourceGroupManager Tests", () => {
       changelists: new Map(),
       remoteChanges: [],
       statusExternal: [],
+      externalWorkingCopyPaths: [],
       ignored: [],
       isIncomplete: false,
       needCleanUp: false,
@@ -340,7 +346,7 @@ suite("ResourceGroupManager Tests", () => {
 
   test("Index rebuild - triggered when changelist count changes (Phase 16)", () => {
     // Arrange
-        const manager = new ResourceGroupManager(
+    const manager = new ResourceGroupManager(
       mockSourceControl as SourceControl,
       disposables
     );
@@ -352,6 +358,7 @@ suite("ResourceGroupManager Tests", () => {
       changelists: new Map(),
       remoteChanges: [],
       statusExternal: [],
+      externalWorkingCopyPaths: [],
       ignored: [],
       isIncomplete: false,
       needCleanUp: false,
@@ -370,6 +377,7 @@ suite("ResourceGroupManager Tests", () => {
       changelists,
       remoteChanges: [],
       statusExternal: [],
+      externalWorkingCopyPaths: [],
       ignored: [],
       isIncomplete: false,
       needCleanUp: false,
@@ -398,5 +406,3 @@ suite("ResourceGroupManager Tests", () => {
     assert.ok(resource, "file2.txt from changelist found in index");
   });
 });
-
-

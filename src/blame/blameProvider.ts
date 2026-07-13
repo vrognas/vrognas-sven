@@ -4,6 +4,7 @@
 
 "use strict";
 
+import * as path from "path";
 import {
   ColorThemeKind,
   commands,
@@ -20,7 +21,7 @@ import {
 } from "vscode";
 import { ISvnBlameLine } from "../common/types";
 import { configuration } from "../helpers/configuration";
-import { Repository } from "../repository";
+import { ExternalOperationImpact, Repository } from "../repository";
 import { SourceControlManager } from "../source_control_manager";
 import { blameConfiguration } from "./blameConfiguration";
 import { blameStateManager } from "./blameStateManager";
@@ -35,8 +36,8 @@ import { buildBlameHover } from "./blameHover";
 import { Operation, Status } from "../common/types";
 import {
   BLAME_INVALIDATING_OPERATIONS,
-  DESCENDANT_BLAME_INVALIDATING_OPERATIONS,
-  isDescendant
+  isDescendant,
+  pathEquals
 } from "../util";
 import {
   computeLineMapping,
@@ -356,7 +357,18 @@ export class BlameProvider implements Disposable {
     // fields.)
     const hookRepository = (repo: Repository) => {
       const hooks: Disposable[] = [];
-      if (typeof repo.onDidRunOperation === "function") {
+      if (typeof repo.onDidRunOperationDetail === "function") {
+        hooks.push(
+          repo.onDidRunOperationDetail(detail =>
+            this.onRepositoryOperation(
+              detail.operation,
+              repo,
+              detail.affectedExternalRoots,
+              detail.externalImpact
+            )
+          )
+        );
+      } else if (typeof repo.onDidRunOperation === "function") {
         hooks.push(
           repo.onDidRunOperation(op => this.onRepositoryOperation(op, repo))
         );
@@ -1513,22 +1525,23 @@ export class BlameProvider implements Disposable {
    * BASE content (commit/update/revert/... plus switch/merge), then
    * refresh every affected visible editor so decorations reflect the new BASE.
    */
-  private onRepositoryOperation(operation: Operation, repo: Repository): void {
+  private onRepositoryOperation(
+    operation: Operation,
+    repo: Repository,
+    affectedExternalRoots: readonly string[] = [],
+    externalImpact?: ExternalOperationImpact
+  ): void {
     if (!BLAME_INVALIDATING_OPERATIONS.has(operation)) {
       return;
     }
 
-    const invalidated = new Set<Repository>([repo]);
-    if (DESCENDANT_BLAME_INVALIDATING_OPERATIONS.has(operation)) {
-      for (const child of this.sourceControlManager.repositories ?? []) {
-        if (
-          child !== repo &&
-          isDescendant(repo.workspaceRoot, child.workspaceRoot)
-        ) {
-          invalidated.add(child);
-        }
-      }
-    }
+    const invalidated = new Set<Repository>([
+      repo,
+      ...this.externalRepositoriesForOperation(
+        affectedExternalRoots,
+        externalImpact
+      )
+    ]);
     const editors = this.visibleEditors().filter(editor => {
       const token = this.uriOwners.get(editor.document.uri.toString());
       const owner = this.repoFor(editor.document.uri);
@@ -1558,6 +1571,56 @@ export class BlameProvider implements Disposable {
     if (editors.length > 0) {
       void this.renderVisibleEditorsByRepository(editors);
     }
+  }
+
+  private externalRepositoriesForOperation(
+    roots: readonly string[],
+    impact?: ExternalOperationImpact
+  ): Set<Repository> {
+    const affected = new Set<Repository>();
+    const pending = [...roots];
+    const seen = new Set<string>();
+
+    while (pending.length > 0) {
+      const root = path.normalize(pending.shift()!);
+      const key = process.platform === "win32" ? root.toLowerCase() : root;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      for (const candidate of this.sourceControlManager.repositories ?? []) {
+        let candidateRoot: string;
+        try {
+          candidateRoot = path.normalize(candidate.root);
+        } catch {
+          continue;
+        }
+        if (!pathEquals(root, candidateRoot) || affected.has(candidate)) {
+          continue;
+        }
+
+        affected.add(candidate);
+        for (const nestedRoot of candidate.externalWorkingCopyRoots ?? []) {
+          if (this.externalRootAffected(nestedRoot, impact)) {
+            pending.push(nestedRoot);
+          }
+        }
+      }
+    }
+
+    return affected;
+  }
+
+  private externalRootAffected(
+    root: string,
+    impact?: ExternalOperationImpact
+  ): boolean {
+    if (!impact) return false;
+    if (!impact.targets?.length) return impact.traverseExternals;
+    return impact.targets.some(
+      target =>
+        isDescendant(root, target) ||
+        (impact.traverseExternals && isDescendant(target, root))
+    );
   }
 
   /** Resolve the owning repo for a cache key (a uri.toString()); undefined on

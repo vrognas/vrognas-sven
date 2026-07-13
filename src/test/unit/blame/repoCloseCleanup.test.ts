@@ -65,21 +65,22 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
     );
   });
 
-  test("a parent-repo op does not clear a nested repo's caches", () => {
-    const parent = { workspaceRoot: "/wc" };
+  test("a parent update preserves an independent nested repo", () => {
+    const parent = { workspaceRoot: "/wc", root: "/wc" };
     const clearNested = sandbox.stub();
     const nested = {
-      workspaceRoot: "/wc/nested",
+      workspaceRoot: "/wc/external/private",
+      root: "/wc/external/private",
       repository: { clearBlameCache: clearNested }
     };
-    const nestedUri = Uri.file("/wc/nested/file.ts");
+    const nestedUri = Uri.file("/wc/external/private/file.ts");
     const scm = {
       repositories: [parent, nested],
       onDidOpenRepository: () => ({ dispose() {} }),
       onDidCloseRepository: () => ({ dispose() {} }),
       // Deepest-owner resolution: a nested file resolves to the nested repo.
       getRepositoryFromUri: (uri: Uri) =>
-        uri.path.startsWith("/wc/nested")
+        uri.path.startsWith("/wc/external/private")
           ? nested
           : uri.path.startsWith("/wc")
             ? parent
@@ -92,29 +93,32 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
     p.blameCache.set(nestedUri.toString(), { data: [], version: 1 });
     sandbox.stub(window, "activeTextEditor").value(undefined);
 
-    p.onRepositoryOperation(Operation.Commit, parent);
+    p.onRepositoryOperation(Operation.Update, parent, ["/wc/external"], {
+      traverseExternals: true
+    });
 
     assert.ok(
       p.blameCache.has(nestedUri.toString()),
-      "nested repo's cache must survive a commit in the parent repo"
+      "independent nested cache must survive a parent update"
     );
-    assert.ok(clearNested.notCalled, "nested lower cache must survive commit");
+    assert.ok(clearNested.notCalled, "independent lower cache must survive");
   });
 
-  test("a parent update invalidates opened nested repositories", () => {
-    const parent = { workspaceRoot: "/wc" };
+  test("a parent update invalidates its declared external repository", () => {
+    const parent = { workspaceRoot: "/wc", root: "/wc" };
     const clearNested = sandbox.stub();
     const nested = {
-      workspaceRoot: "/wc/nested",
+      workspaceRoot: "/wc/external/subdir",
+      root: "/wc/external",
       repository: { clearBlameCache: clearNested }
     };
-    const nestedUri = Uri.file("/wc/nested/file.ts");
+    const nestedUri = Uri.file("/wc/external/subdir/file.ts");
     const scm = {
       repositories: [parent, nested],
       onDidOpenRepository: () => ({ dispose() {} }),
       onDidCloseRepository: () => ({ dispose() {} }),
       getRepositoryFromUri: (uri: Uri) =>
-        uri.path.startsWith("/wc/nested")
+        uri.path.startsWith("/wc/external/subdir")
           ? nested
           : uri.path.startsWith("/wc")
             ? parent
@@ -127,7 +131,9 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
     p.blameCache.set(nestedUri.toString(), { data: [], version: 1 });
     sandbox.stub(window, "activeTextEditor").value(undefined);
 
-    p.onRepositoryOperation(Operation.Update, parent);
+    p.onRepositoryOperation(Operation.Update, parent, [nested.root], {
+      traverseExternals: true
+    });
 
     assert.ok(!p.blameCache.has(nestedUri.toString()));
     assert.ok(clearNested.calledOnce, "nested lower cache cleared");
@@ -203,10 +209,12 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
   test("parent update rerenders a visible nested external", async () => {
     const parent = {
       workspaceRoot: "/wc",
+      root: "/wc",
       repository: { clearBlameCache: sandbox.stub() }
     };
     const nested = {
       workspaceRoot: "/wc/nested",
+      root: "/wc/nested",
       repository: { clearBlameCache: sandbox.stub() }
     };
     const nestedEditor = createEditor(Uri.file("/wc/nested/file.ts"));
@@ -226,7 +234,9 @@ suite("BlameProvider - repo close cleanup + scoped invalidation", () => {
     p.renderDecorations = render;
     sandbox.stub(p, "updateDecorations").resolves();
 
-    p.onRepositoryOperation(Operation.Update, parent);
+    p.onRepositoryOperation(Operation.Update, parent, [nested.root], {
+      traverseExternals: true
+    });
     await Promise.resolve();
 
     assert.ok(clear.calledWith(nestedEditor));

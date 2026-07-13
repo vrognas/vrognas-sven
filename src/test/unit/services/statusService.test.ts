@@ -1,7 +1,9 @@
 import * as assert from "assert";
+import { vi } from "vitest";
 import { StatusService } from "../../../services/StatusService";
 import { Repository } from "../../../svnRepository";
 import { IFileStatus, Status } from "../../../common/types";
+import { configuration } from "../../../helpers/configuration";
 
 /**
  * StatusService E2E Tests
@@ -12,6 +14,8 @@ import { IFileStatus, Status } from "../../../common/types";
  * 3. Clear status - verify cleanup works
  */
 suite("StatusService E2E", () => {
+  teardown(() => vi.restoreAllMocks());
+
   /**
    * Test 1: Update status - verify model state updates
    */
@@ -151,6 +155,37 @@ suite("StatusService E2E", () => {
       "Non-descendant src/file2.ts should remain"
     );
 
+    service.dispose();
+  });
+
+  test("retains raw external paths when same-repo externals are combined", async () => {
+    vi.spyOn(configuration, "get").mockImplementation(((
+      key: string,
+      fallback?: unknown
+    ) =>
+      key === "sourceControl.combineExternalIfSameServer"
+        ? true
+        : fallback) as never);
+    const external = createMockStatus("external1", Status.EXTERNAL);
+    external.repositoryUuid = "same-uuid";
+    const mockRepo = {
+      async getStatus() {
+        return [external];
+      },
+      async getRepositoryUuid() {
+        return "same-uuid";
+      }
+    } as unknown as Repository;
+    const service = new StatusService(mockRepo, "/workspace", "/workspace");
+
+    const result = await service.updateStatus({ checkRemoteChanges: false });
+
+    assert.deepStrictEqual(result.statusExternal, []);
+    assert.deepStrictEqual(
+      (result as any).externalWorkingCopyPaths,
+      ["external1"],
+      "raw external roots must survive UI combine filtering"
+    );
     service.dispose();
   });
 
