@@ -84,9 +84,10 @@ Per-file blame tracking with:
   repo+revision; in-flight add-revision and message fetches are deduplicated
 - Line mapping strips equal edges, then uses bounded dense LCS, dense-compatible
   linear-space LCS, a bounded exact low-edit band with checkpointed traceback,
-  exact one-to-one match-sparse LCS, and non-crossing anchors for ambiguous cores
+  bounded exact match-sparse LCS, and non-crossing anchors for ambiguous cores
 - Status-bar teardown fences deferred repository readiness and cancels pending
-  debounce work before disposing UI resources
+  debounce work before disposing UI resources; blame uses descendant ownership
+  so status exclusions cannot hide svn:externals
 - autoBlame-gated auto-fetch; CSV/large-file gates on all fetch paths
   (render, cursor, status bar)
 

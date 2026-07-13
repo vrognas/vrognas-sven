@@ -1,7 +1,7 @@
 # Lessons Learned
 
-**Version**: 0.2.95
-**Updated**: 2026-07-12
+**Version**: 0.2.97
+**Updated**: 2026-07-13
 
 ---
 
@@ -9,7 +9,7 @@
 
 **Lesson**: A unique sparse LCS anchor is not necessarily safe: a moved unique line can cross a much longer repeated match and discard thousands of correct blame mappings. Likewise, choosing the first or last equal Hirschberg split does not reproduce dense backtracking; attribution can flip solely when the core crosses the dense-cell cap.
 
-**Fix**: Before sparse fallback, discover low edit distance with a work-capped frontier and reconstruct the dense policy inside a bounded band. Above the direct trace-memory cap, retain rolling-row checkpoints and recompute one block at a time during traceback; do not discard an exact alignment merely because storing every direction would exceed memory. If every common line occurs once per side, recover the exact LCS as a dense-compatible increasing subsequence. Otherwise, when the total work budget is exhausted, retain a unique anchor only when no possible exact match crosses it. For linear-space LCS, propagate the midpoint column reached by the dense policy (equal diagonal, strict up win, otherwise left) instead of resolving split ties locally.
+**Fix**: Before sparse fallback, discover low edit distance with a work-capped frontier and reconstruct the dense policy inside a bounded band. Above the direct trace-memory cap, retain rolling-row checkpoints and recompute one block at a time during traceback; do not discard an exact alignment merely because storing every direction would exceed memory. For bounded match graphs, recover the exact LCS with persistent prefix-maximum row snapshots, including repeated common lines and the dense equality-first/left-on-tie policy. Otherwise, when the total work budget is exhausted, retain a unique anchor only when no possible exact match crosses it. For linear-space LCS, propagate the midpoint column reached by the dense policy instead of resolving split ties locally.
 
 **Rule**: Performance thresholds may change cost, never semantics. Align discovery and reconstruction budgets; use checkpointed traceback when full trace retention is the only exceeded resource. Differential-test every exact fallback against the reference algorithm, and treat “unique” as an anchor candidate—not proof that the anchor belongs in a maximum alignment.
 
@@ -19,7 +19,7 @@
 
 **Lesson**: Merging the per-repository `BlameProvider` into one shared singleton looked like a clean dedup, but every assumption that used to be true "because there's one instance per repo" quietly became false, and an adversarial review found four regressions the tests missed: (1) repo resolution switched from `isDescendant(workspaceRoot)` to `getRepository`, which _excludes_ svn:externals — so files under an external lost blame; (2) `messageCache` keyed by bare revision number collided across repos (r42 is a different commit in each); (3) `onRepositoryOperation` cleared _all_ caches, so a commit in repo A wiped repo B's blame; (4) lifecycle moved — the per-repo provider painted at repo-open and disposed at repo-close, but the singleton activates once at startup (before repos are discovered) and never releases per-repo hooks.
 
-**Fix**: Resolve via `getRepositoryFromUri` (pure descendant match, includes externals); scope `messageCache` by owning-repo `workspaceRoot`; scope invalidation to the operating repo's files; render on repo-open and release hooks on repo-close (tracked in a per-repo `Map`). Revalidate owner, document version, per-editor render generation, liveness, and settings after every await. Coalesce active work per repo, run repos concurrently, and key edit/cursor timers by URI/editor. Fence deferred readiness callbacks by disposal state and cancel their pending debounces during teardown.
+**Fix**: Resolve provider and status-bar blame via `getRepositoryFromUri` (pure descendant match, includes externals); scope `messageCache` by owning-repo `workspaceRoot`; scope invalidation to the operating repo's files; render on repo-open and release hooks on repo-close (tracked in a per-repo `Map`). Revalidate owner, document version, per-editor render generation, liveness, and settings after every await. Coalesce active work per repo, run repos concurrently, and key edit/cursor timers by URI/editor. Fence deferred readiness callbacks by disposal state and cancel their pending debounces during teardown.
 
 **Rule**: When collapsing N instances into one shared instance, enumerate everything implicitly scoped by that boundary: resolution, cache keys, invalidation, subscriptions, async applies, timers, and scheduling. Preserve the old concurrency partition: one slow repo must not block another, and target-specific cleanup/repaint must be lossless. Cache invalidation must follow exact dependencies, not a global or coarse scope. Test multiple repos and visible splits.
 

@@ -7,6 +7,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.97] - 2026-07-13
+
+Fix remaining sparse-blame and external status ownership regressions.
+
+### Fixed
+
+- **Duplicate-containing sparse block moves retain exact blame.** A bounded persistent-prefix LCS preserves dense tie attribution without quadratic trace storage.
+- **Status bar retains blame for svn:externals.** Repository lookup now uses the same descendant owner resolution as the shared blame provider.
+
 ## [0.2.96] - 2026-07-13
 
 Preserve blame through the remaining observed large-diff work-cap boundary.
