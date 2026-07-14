@@ -50,6 +50,7 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 | Commands | command.ts (base), commands/\*.ts (73 files)                                          |
 | Parsing  | statusParser.ts, logParser.ts, infoParser.ts, blameParser.ts                          |
 | Blame    | blameConfiguration.ts, blameStateManager.ts, blameProvider.ts                         |
+| Sparse   | sparse/depthOptions.ts, sparse/sparseOperations.ts, sparseCheckoutProvider.ts         |
 
 ---
 
@@ -123,6 +124,14 @@ Per-file blame tracking with:
 
 - Commands: lock, unlock, breakLock
 - Lock status in tooltips and decorations
+
+### Sparse Checkout
+
+- Commands and tree providers share one typed depth-option leaf and one pure
+  changed/unversioned descendant scan.
+- Each action suppresses status once per affected repository and always releases
+  it. Entry points retain their exact cancellation, progress, refresh, and batch
+  aggregation behavior.
 - Directory support
 
 ### Sparse Checkout (v0.1.0+)
@@ -253,7 +262,7 @@ External: vscode, @posit-dev/positron
 1. Clean separation of concerns (services extracted)
 2. Type-safe (strict TypeScript, minimal `any`)
 3. Performance optimized (all P0/P1 fixed)
-4. Comprehensive testing (2194 tests)
+4. Comprehensive testing (2198 tests)
 5. Security hardened (sanitization, stdin passwords)
 6. Multi-repo support (independent operation queues)
 

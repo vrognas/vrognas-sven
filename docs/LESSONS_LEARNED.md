@@ -5,6 +5,16 @@
 
 ---
 
+### 112. Sparse Depth Workflows Need Shared Safety and Status Scopes
+
+**Lesson**: Set-depth, tree checkout, and tree exclude duplicated depth choices, unsafe-path scans, and manual status suppression. The copies could drift on descendant matching or leave status suppressed after a new exit path.
+
+**Fix**: Move depth choices to a dependency-light leaf, share one pure unsafe-path collector, and wrap each whole action in one balanced per-repository suppression scope. Keep cancellation, progress, refresh, and aggregation at the entry point.
+
+**Rule**: Centralize sparse invariants; keep workflow-specific UI and outcomes local.
+
+---
+
 ### 111. Operation Semantics Need One Exhaustive Policy
 
 **Lesson**: Read-only, refresh, progress, BASE invalidation, lock status, watcher suppression, and failure recovery were separate operation lists. Adding or reclassifying one operation could update only some consumers.

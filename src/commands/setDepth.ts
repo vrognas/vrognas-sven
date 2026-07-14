@@ -7,17 +7,19 @@ import {
   CancellationToken,
   commands,
   ProgressLocation,
-  QuickPickItem,
   Uri,
   window,
   workspace
 } from "vscode";
-import { SvnDepth } from "../common/types";
 import { Command } from "./command";
 import { confirm } from "../ui";
 import { formatBytes, formatDuration, formatSpeed } from "../util/formatting";
-import { Repository } from "../repository";
 import { showActionFeedback } from "../util/actionFeedback";
+import {
+  collectUnsafeSparsePaths,
+  withSparseStatusSuppressed
+} from "../sparse/sparseOperations";
+import { depthPickerOptions } from "../sparse/depthOptions";
 
 /** Default download timeout in minutes */
 const DEFAULT_DOWNLOAD_TIMEOUT_MINUTES = 10;
@@ -89,80 +91,6 @@ function getFolderStats(
   return { count, size };
 }
 
-/**
- * Find uncommitted changes and unversioned files under a path.
- * Returns relative paths that would be lost on depth change.
- */
-function getUnsafeFiles(repo: Repository, targetPath: string): string[] {
-  const unsafe: string[] = [];
-  const root = repo.workspaceRoot;
-  const prefix = targetPath.replace(/\\/g, "/").toLowerCase();
-
-  for (const group of [repo.changes, repo.unversioned]) {
-    for (const r of group.resourceStates) {
-      const fp = r.resourceUri.fsPath.replace(/\\/g, "/").toLowerCase();
-      if (fp.startsWith(prefix + "/") || fp === prefix) {
-        unsafe.push(path.relative(root, r.resourceUri.fsPath));
-      }
-    }
-  }
-  return unsafe;
-}
-
-/** SVN-native depth picker item (no `_omitExternals` sentinel). */
-export interface SvnDepthQuickPickItem extends QuickPickItem {
-  depth: keyof typeof SvnDepth;
-}
-
-/**
- * Wider type used only by the initial-checkout multi-select picker,
- * which adds an `_omitExternals` sentinel alongside real depths.
- */
-export interface DepthQuickPickItem extends QuickPickItem {
-  depth: keyof typeof SvnDepth | "_omitExternals";
-}
-
-/** Checkout depth options (for restoring ghost items - no exclude option) */
-export const checkoutDepthOptions: SvnDepthQuickPickItem[] = [
-  {
-    label: "$(folder-opened) Full",
-    description: "Download everything",
-    detail: "Downloads the folder and all its contents recursively.",
-    depth: "infinity"
-  },
-  {
-    label: "$(list-tree) Shallow",
-    description: "Files + empty subfolders",
-    detail:
-      "Downloads files and shows subfolders as empty. Good for exploring structure.",
-    depth: "immediates"
-  },
-  {
-    label: "$(file) Files Only",
-    description: "Skip subfolders",
-    detail: "Downloads files in this folder, but skips all subfolders.",
-    depth: "files"
-  },
-  {
-    label: "$(folder) Folder Only",
-    description: "Empty placeholder",
-    detail: "Keeps the folder as a placeholder but downloads no files.",
-    depth: "empty"
-  }
-];
-
-/** Full depth options including exclude (for setDepth command on local items) */
-export const depthPickerOptions: SvnDepthQuickPickItem[] = [
-  {
-    label: "$(eye-closed) Exclude",
-    description: "Don't download this folder",
-    detail:
-      "Removes the folder and all contents locally. Use for large folders you don't need.",
-    depth: "exclude"
-  },
-  ...checkoutDepthOptions
-];
-
 export class SetDepth extends Command {
   constructor() {
     super("sven.setDepth");
@@ -208,7 +136,7 @@ export class SetDepth extends Command {
     // For destructive depths, check for uncommitted/unversioned files first
     const destructiveDepths = ["exclude", "empty", "files", "immediates"];
     if (destructiveDepths.includes(selected.depth)) {
-      const unsafeFiles = getUnsafeFiles(repository, uri.fsPath);
+      const unsafeFiles = collectUnsafeSparsePaths(repository, uri.fsPath);
       if (unsafeFiles.length > 0) {
         const fileList = unsafeFiles.slice(0, 5).join("\n");
         const more =
@@ -253,279 +181,284 @@ export class SetDepth extends Command {
       .get<number>("downloadTimeoutMinutes", DEFAULT_DOWNLOAD_TIMEOUT_MINUTES);
     const downloadTimeoutMs = timeoutMinutes * 60 * 1000;
 
-    // Suppress status updates during download (prevents WC lock conflicts)
-    repository.beginSparseDownload();
+    await withSparseStatusSuppressed([repository], async () => {
+      try {
+        // Detect ghost folder (not locally present) - these are downloads regardless of depth
+        const isGhostFolder = !fs.existsSync(uri.fsPath);
 
-    try {
-      // Detect ghost folder (not locally present) - these are downloads regardless of depth
-      const isGhostFolder = !fs.existsSync(uri.fsPath);
+        // Download mode: ghost folder with any download depth, or infinity on local folder
+        // Depths that download content: infinity, immediates, files
+        // Depths that don't download: empty (placeholder only), exclude (removal)
+        const downloadDepths = ["infinity", "immediates", "files"] as const;
+        const isDownload = isGhostFolder
+          ? downloadDepths.includes(
+              selected.depth as (typeof downloadDepths)[number]
+            )
+          : selected.depth === "infinity";
 
-      // Download mode: ghost folder with any download depth, or infinity on local folder
-      // Depths that download content: infinity, immediates, files
-      // Depths that don't download: empty (placeholder only), exclude (removal)
-      const downloadDepths = ["infinity", "immediates", "files"] as const;
-      const isDownload = isGhostFolder
-        ? downloadDepths.includes(
-            selected.depth as (typeof downloadDepths)[number]
-          )
-        : selected.depth === "infinity";
+        const result = await window.withProgress(
+          {
+            location: ProgressLocation.Notification,
+            title: isDownload
+              ? `Downloading "${folderName}"...`
+              : `Setting depth for "${folderName}"...`,
+            cancellable: isDownload
+          },
+          async (progress, token: CancellationToken) => {
+            // Immediate feedback
+            progress.report({
+              message: isDownload ? "Starting download..." : "Preparing..."
+            });
 
-      const result = await window.withProgress(
-        {
-          location: ProgressLocation.Notification,
-          title: isDownload
-            ? `Downloading "${folderName}"...`
-            : `Setting depth for "${folderName}"...`,
-          cancellable: isDownload
-        },
-        async (progress, token: CancellationToken) => {
-          // Immediate feedback
-          progress.report({
-            message: isDownload ? "Starting download..." : "Preparing..."
-          });
+            // Check for cancellation before starting
+            if (token.isCancellationRequested) {
+              return { exitCode: -1, cancelled: true, stderr: "" };
+            }
 
-          // Check for cancellation before starting
-          if (token.isCancellationRequested) {
-            return { exitCode: -1, cancelled: true, stderr: "" };
-          }
+            let pollInterval: ReturnType<typeof setInterval> | undefined;
+            let expectedFileCount = 0;
+            let expectedTotalSize = 0;
+            let initialFileCount = 0;
+            let initialTotalSize = 0;
 
-          let pollInterval: ReturnType<typeof setInterval> | undefined;
-          let expectedFileCount = 0;
-          let expectedTotalSize = 0;
-          let initialFileCount = 0;
-          let initialTotalSize = 0;
+            try {
+              if (isDownload) {
+                // For downloads, pre-scan server to get expected file count and size
+                // Use depth-aware listing: recursive for infinity, non-recursive for immediates/files
+                progress.report({ message: `Scanning ${folderName}...` });
 
-          try {
-            if (isDownload) {
-              // For downloads, pre-scan server to get expected file count and size
-              // Use depth-aware listing: recursive for infinity, non-recursive for immediates/files
-              progress.report({ message: `Scanning ${folderName}...` });
-
-              try {
-                const relativePath = repository.repository.removeAbsolutePath(
-                  uri.fsPath
-                );
-
-                // Depth-aware pre-scan:
-                // - infinity: list all files recursively
-                // - immediates/files: list only direct children (non-recursive)
-                const items =
-                  selected.depth === "infinity"
-                    ? await repository.listRecursive(
-                        relativePath,
-                        PRE_SCAN_TIMEOUT_SECONDS * 1000
-                      )
-                    : await repository.list(uri.fsPath);
-
-                const files = items.filter(i => i.kind === "file");
-                expectedFileCount = files.length;
-                expectedTotalSize = files.reduce(
-                  (sum, f) => sum + parseInt(f.size ?? "0", 10),
-                  0
-                );
-
-                if (token.isCancellationRequested) {
-                  return { exitCode: -1, cancelled: true, stderr: "" };
-                }
-
-                progress.report({
-                  message: `Found ${expectedFileCount} files (${formatBytes(expectedTotalSize)}) in ${folderName}`
-                });
-              } catch {
-                expectedFileCount = 0;
-                expectedTotalSize = 0;
-              }
-
-              // Start progress polling for downloads
-              if (expectedFileCount > 0) {
-                const startTime = Date.now();
-                let smoothedSpeed = 0; // Exponential moving average
-                let lastSize = 0;
-                let lastTime = startTime;
-
-                // Depth-aware polling: recursive for infinity, non-recursive for immediates/files
-                const pollRecursive = selected.depth === "infinity";
-
-                progress.report({
-                  message: `Downloading ${folderName} (0/${expectedFileCount} files)...`
-                });
-
-                pollInterval = setInterval(() => {
-                  if (token.isCancellationRequested) return;
-                  const stats = getFolderStats(uri.fsPath, pollRecursive);
-                  const pct = Math.max(
-                    0,
-                    Math.min(
-                      100,
-                      Math.round((stats.size / expectedTotalSize) * 100)
-                    )
+                try {
+                  const relativePath = repository.repository.removeAbsolutePath(
+                    uri.fsPath
                   );
 
-                  // Calculate smoothed speed with exponential moving average
-                  const now = Date.now();
-                  const elapsed = (now - startTime) / 1000;
-                  const deltaTime = (now - lastTime) / 1000;
-                  const deltaSize = stats.size - lastSize;
+                  // Depth-aware pre-scan:
+                  // - infinity: list all files recursively
+                  // - immediates/files: list only direct children (non-recursive)
+                  const items =
+                    selected.depth === "infinity"
+                      ? await repository.listRecursive(
+                          relativePath,
+                          PRE_SCAN_TIMEOUT_SECONDS * 1000
+                        )
+                      : await repository.list(uri.fsPath);
 
-                  if (deltaTime > 0 && deltaSize > 0) {
-                    const instantSpeed = deltaSize / deltaTime;
-                    smoothedSpeed =
-                      smoothedSpeed === 0
-                        ? instantSpeed
-                        : ETA_SMOOTHING_FACTOR * instantSpeed +
-                          (1 - ETA_SMOOTHING_FACTOR) * smoothedSpeed;
-                  }
-                  lastSize = stats.size;
-                  lastTime = now;
+                  const files = items.filter(i => i.kind === "file");
+                  expectedFileCount = files.length;
+                  expectedTotalSize = files.reduce(
+                    (sum, f) => sum + parseInt(f.size ?? "0", 10),
+                    0
+                  );
 
-                  // Build progress message with speed and ETA
-                  let speedEtaLabel = "";
-                  if (smoothedSpeed > 0) {
-                    speedEtaLabel = ` ${formatSpeed(smoothedSpeed)}`;
-                    // Only show ETA after minimum elapsed time
-                    if (elapsed >= MIN_ELAPSED_FOR_ETA) {
-                      const remaining = expectedTotalSize - stats.size;
-                      if (remaining > 0) {
-                        const eta = remaining / smoothedSpeed;
-                        speedEtaLabel += ` ~${formatDuration(eta)}`;
-                      }
-                    }
+                  if (token.isCancellationRequested) {
+                    return { exitCode: -1, cancelled: true, stderr: "" };
                   }
 
                   progress.report({
-                    message: `${folderName}: ${formatBytes(stats.size)}/${formatBytes(expectedTotalSize)} (${pct}%)${speedEtaLabel}`
+                    message: `Found ${expectedFileCount} files (${formatBytes(expectedTotalSize)}) in ${folderName}`
                   });
-                }, POLL_INTERVAL_MS);
-              } else {
-                progress.report({ message: `Downloading ${folderName}...` });
-              }
-            } else {
-              // For removals (exclude, empty, files, immediates), count existing files
-              const initialStats = getFolderStats(uri.fsPath);
-              initialFileCount = initialStats.count;
-              initialTotalSize = initialStats.size;
+                } catch {
+                  expectedFileCount = 0;
+                  expectedTotalSize = 0;
+                }
 
-              if (initialFileCount > 0) {
-                const startTime = Date.now();
-                let smoothedSpeed = 0;
-                let lastRemovedSize = 0;
-                let lastTime = startTime;
+                // Start progress polling for downloads
+                if (expectedFileCount > 0) {
+                  const startTime = Date.now();
+                  let smoothedSpeed = 0; // Exponential moving average
+                  let lastSize = 0;
+                  let lastTime = startTime;
 
-                const actionLabel =
-                  selected.depth === "exclude" ? "Excluding" : "Removing files";
-                progress.report({
-                  message: `${actionLabel} ${initialFileCount} files (${formatBytes(initialTotalSize)})...`
-                });
+                  // Depth-aware polling: recursive for infinity, non-recursive for immediates/files
+                  const pollRecursive = selected.depth === "infinity";
 
-                pollInterval = setInterval(() => {
-                  const stats = getFolderStats(uri.fsPath);
-                  const removedSize = initialTotalSize - stats.size;
-                  const pct = Math.max(
-                    0,
-                    Math.min(
-                      100,
-                      Math.round((removedSize / initialTotalSize) * 100)
-                    )
-                  );
+                  progress.report({
+                    message: `Downloading ${folderName} (0/${expectedFileCount} files)...`
+                  });
 
-                  // Calculate smoothed speed with exponential moving average
-                  const now = Date.now();
-                  const elapsed = (now - startTime) / 1000;
-                  const deltaTime = (now - lastTime) / 1000;
-                  const deltaRemoved = removedSize - lastRemovedSize;
+                  pollInterval = setInterval(() => {
+                    if (token.isCancellationRequested) return;
+                    const stats = getFolderStats(uri.fsPath, pollRecursive);
+                    const pct = Math.max(
+                      0,
+                      Math.min(
+                        100,
+                        Math.round((stats.size / expectedTotalSize) * 100)
+                      )
+                    );
 
-                  if (deltaTime > 0 && deltaRemoved > 0) {
-                    const instantSpeed = deltaRemoved / deltaTime;
-                    smoothedSpeed =
-                      smoothedSpeed === 0
-                        ? instantSpeed
-                        : ETA_SMOOTHING_FACTOR * instantSpeed +
-                          (1 - ETA_SMOOTHING_FACTOR) * smoothedSpeed;
-                  }
-                  lastRemovedSize = removedSize;
-                  lastTime = now;
+                    // Calculate smoothed speed with exponential moving average
+                    const now = Date.now();
+                    const elapsed = (now - startTime) / 1000;
+                    const deltaTime = (now - lastTime) / 1000;
+                    const deltaSize = stats.size - lastSize;
 
-                  if (removedSize > 0) {
+                    if (deltaTime > 0 && deltaSize > 0) {
+                      const instantSpeed = deltaSize / deltaTime;
+                      smoothedSpeed =
+                        smoothedSpeed === 0
+                          ? instantSpeed
+                          : ETA_SMOOTHING_FACTOR * instantSpeed +
+                            (1 - ETA_SMOOTHING_FACTOR) * smoothedSpeed;
+                    }
+                    lastSize = stats.size;
+                    lastTime = now;
+
                     // Build progress message with speed and ETA
                     let speedEtaLabel = "";
                     if (smoothedSpeed > 0) {
                       speedEtaLabel = ` ${formatSpeed(smoothedSpeed)}`;
                       // Only show ETA after minimum elapsed time
-                      if (elapsed >= MIN_ELAPSED_FOR_ETA && stats.size > 0) {
-                        const eta = stats.size / smoothedSpeed;
-                        speedEtaLabel += ` ~${formatDuration(eta)}`;
+                      if (elapsed >= MIN_ELAPSED_FOR_ETA) {
+                        const remaining = expectedTotalSize - stats.size;
+                        if (remaining > 0) {
+                          const eta = remaining / smoothedSpeed;
+                          speedEtaLabel += ` ~${formatDuration(eta)}`;
+                        }
                       }
                     }
 
                     progress.report({
-                      message: `${actionLabel}: ${formatBytes(removedSize)}/${formatBytes(initialTotalSize)} (${pct}%)${speedEtaLabel}`
+                      message: `${folderName}: ${formatBytes(stats.size)}/${formatBytes(expectedTotalSize)} (${pct}%)${speedEtaLabel}`
                     });
-                  }
-                }, POLL_INTERVAL_MS);
+                  }, POLL_INTERVAL_MS);
+                } else {
+                  progress.report({ message: `Downloading ${folderName}...` });
+                }
               } else {
-                progress.report({ message: "Applying changes..." });
+                // For removals (exclude, empty, files, immediates), count existing files
+                const initialStats = getFolderStats(uri.fsPath);
+                initialFileCount = initialStats.count;
+                initialTotalSize = initialStats.size;
+
+                if (initialFileCount > 0) {
+                  const startTime = Date.now();
+                  let smoothedSpeed = 0;
+                  let lastRemovedSize = 0;
+                  let lastTime = startTime;
+
+                  const actionLabel =
+                    selected.depth === "exclude"
+                      ? "Excluding"
+                      : "Removing files";
+                  progress.report({
+                    message: `${actionLabel} ${initialFileCount} files (${formatBytes(initialTotalSize)})...`
+                  });
+
+                  pollInterval = setInterval(() => {
+                    const stats = getFolderStats(uri.fsPath);
+                    const removedSize = initialTotalSize - stats.size;
+                    const pct = Math.max(
+                      0,
+                      Math.min(
+                        100,
+                        Math.round((removedSize / initialTotalSize) * 100)
+                      )
+                    );
+
+                    // Calculate smoothed speed with exponential moving average
+                    const now = Date.now();
+                    const elapsed = (now - startTime) / 1000;
+                    const deltaTime = (now - lastTime) / 1000;
+                    const deltaRemoved = removedSize - lastRemovedSize;
+
+                    if (deltaTime > 0 && deltaRemoved > 0) {
+                      const instantSpeed = deltaRemoved / deltaTime;
+                      smoothedSpeed =
+                        smoothedSpeed === 0
+                          ? instantSpeed
+                          : ETA_SMOOTHING_FACTOR * instantSpeed +
+                            (1 - ETA_SMOOTHING_FACTOR) * smoothedSpeed;
+                    }
+                    lastRemovedSize = removedSize;
+                    lastTime = now;
+
+                    if (removedSize > 0) {
+                      // Build progress message with speed and ETA
+                      let speedEtaLabel = "";
+                      if (smoothedSpeed > 0) {
+                        speedEtaLabel = ` ${formatSpeed(smoothedSpeed)}`;
+                        // Only show ETA after minimum elapsed time
+                        if (elapsed >= MIN_ELAPSED_FOR_ETA && stats.size > 0) {
+                          const eta = stats.size / smoothedSpeed;
+                          speedEtaLabel += ` ~${formatDuration(eta)}`;
+                        }
+                      }
+
+                      progress.report({
+                        message: `${actionLabel}: ${formatBytes(removedSize)}/${formatBytes(initialTotalSize)} (${pct}%)${speedEtaLabel}`
+                      });
+                    }
+                  }, POLL_INTERVAL_MS);
+                } else {
+                  progress.report({ message: "Applying changes..." });
+                }
+              }
+
+              // Check cancellation before starting SVN operation
+              if (token.isCancellationRequested) {
+                return { exitCode: -1, cancelled: true, stderr: "" };
+              }
+
+              const res = await repository.setDepth(
+                uri.fsPath,
+                selected.depth,
+                {
+                  parents: true,
+                  timeout: downloadTimeoutMs
+                }
+              );
+
+              // SVN completed — show success even if cancel was pressed during execution,
+              // since the operation actually finished and the working copy was changed.
+              return { ...res, cancelled: false };
+            } catch (err) {
+              return {
+                exitCode: 1,
+                cancelled: token.isCancellationRequested,
+                stderr: String(err)
+              };
+            } finally {
+              if (pollInterval) {
+                clearInterval(pollInterval);
               }
             }
-
-            // Check cancellation before starting SVN operation
-            if (token.isCancellationRequested) {
-              return { exitCode: -1, cancelled: true, stderr: "" };
-            }
-
-            const res = await repository.setDepth(uri.fsPath, selected.depth, {
-              parents: true,
-              timeout: downloadTimeoutMs
-            });
-
-            // SVN completed — show success even if cancel was pressed during execution,
-            // since the operation actually finished and the working copy was changed.
-            return { ...res, cancelled: false };
-          } catch (err) {
-            return {
-              exitCode: 1,
-              cancelled: token.isCancellationRequested,
-              stderr: String(err)
-            };
-          } finally {
-            if (pollInterval) {
-              clearInterval(pollInterval);
-            }
           }
-        }
-      );
-
-      if (result.cancelled) {
-        showActionFeedback(`Operation cancelled`);
-        return;
-      }
-
-      if (result.exitCode === 0) {
-        const successMessages: Record<string, string> = {
-          exclude: `"${folderName}" excluded`,
-          empty: `"${folderName}" contents removed (folder kept)`,
-          files: `"${folderName}" set to files only`,
-          immediates: `"${folderName}" set to shallow`,
-          infinity: `"${folderName}" fully restored`
-        };
-        showActionFeedback(
-          successMessages[selected.depth] || `Checkout depth changed`
         );
-        // Refresh sparse checkout tree to reflect changes
-        commands.executeCommand("sven.sparse.refresh");
-      } else {
-        // Full recovery chain: auth/lock/cleanup/update/conflict prompts,
-        // sanitized stderr - replaces the hand-rolled cleanup-only branch
-        // that showed raw stderr
+
+        if (result.cancelled) {
+          showActionFeedback(`Operation cancelled`);
+          return;
+        }
+
+        if (result.exitCode === 0) {
+          const successMessages: Record<string, string> = {
+            exclude: `"${folderName}" excluded`,
+            empty: `"${folderName}" contents removed (folder kept)`,
+            files: `"${folderName}" set to files only`,
+            immediates: `"${folderName}" set to shallow`,
+            infinity: `"${folderName}" fully restored`
+          };
+          showActionFeedback(
+            successMessages[selected.depth] || `Checkout depth changed`
+          );
+          // Refresh sparse checkout tree to reflect changes
+          commands.executeCommand("sven.sparse.refresh");
+        } else {
+          // Full recovery chain: auth/lock/cleanup/update/conflict prompts,
+          // sanitized stderr - replaces the hand-rolled cleanup-only branch
+          // that showed raw stderr
+          await this.handleOperationError(
+            result,
+            "Failed to change checkout depth"
+          );
+        }
+      } catch (error) {
         await this.handleOperationError(
-          result,
+          error,
           "Failed to change checkout depth"
         );
       }
-    } catch (error) {
-      await this.handleOperationError(error, "Failed to change checkout depth");
-    } finally {
-      // Re-enable status updates
-      repository.endSparseDownload();
-    }
+    });
   }
 }
