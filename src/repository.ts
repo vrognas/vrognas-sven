@@ -118,6 +118,10 @@ import { match } from "./util/globMatch";
 import { IHistoryFilter } from "./historyView/historyFilter";
 import { RepositoryFilesWatcher } from "./watchers/repositoryFilesWatcher";
 
+function ownsPath(workspaceRoot: string, filePath: string): boolean {
+  return isDescendant(workspaceRoot, filePath);
+}
+
 function shouldShowProgress(operation: Operation): boolean {
   switch (operation) {
     case Operation.CurrentBranch:
@@ -1075,7 +1079,7 @@ export class Repository implements IRemoteRepository {
   }): Promise<void> {
     for (const { oldUri, newUri } of e.files) {
       // Skip files outside this repository
-      if (!oldUri.fsPath.startsWith(this.workspaceRoot)) {
+      if (!ownsPath(this.workspaceRoot, oldUri.fsPath)) {
         continue;
       }
 
@@ -1117,7 +1121,7 @@ export class Repository implements IRemoteRepository {
 
     for (const uri of e.files) {
       // Skip files outside this repository
-      if (!uri.fsPath.startsWith(this.workspaceRoot)) {
+      if (!ownsPath(this.workspaceRoot, uri.fsPath)) {
         continue;
       }
 
@@ -2990,7 +2994,7 @@ export class Repository implements IRemoteRepository {
   public hasNeedsLockCached(filePath: string): boolean {
     // Convert absolute path to relative
     let relativePath = filePath;
-    if (filePath.startsWith(this.workspaceRoot)) {
+    if (ownsPath(this.workspaceRoot, filePath)) {
       relativePath = filePath.substring(this.workspaceRoot.length);
       // Remove leading separator
       if (relativePath.startsWith("/") || relativePath.startsWith("\\")) {
@@ -3206,10 +3210,8 @@ export class Repository implements IRemoteRepository {
 
   public async promptLockIfNeeded(uri: Uri): Promise<void> {
     // Only check files in this repository's working copy
-    // Use case-insensitive comparison for Windows (drive letter case)
-    const normalizedUri = uri.fsPath.toLowerCase();
-    const normalizedRoot = this.workspaceRoot.toLowerCase();
-    if (!normalizedUri.startsWith(normalizedRoot)) {
+    const normalizedUri = normalizePath(uri.fsPath);
+    if (!ownsPath(this.workspaceRoot, uri.fsPath)) {
       return;
     }
 
@@ -3289,12 +3291,11 @@ export class Repository implements IRemoteRepository {
    * entirely). Prompt on the FIRST keystroke instead, once per file.
    */
   public async promptLockOnEdit(uri: Uri): Promise<void> {
-    const normalizedUri = uri.fsPath.toLowerCase();
+    const normalizedUri = normalizePath(uri.fsPath);
     if (this.lockEditPromptShown.has(normalizedUri)) {
       return;
     }
-    const normalizedRoot = this.workspaceRoot.toLowerCase();
-    if (!normalizedUri.startsWith(normalizedRoot)) {
+    if (!ownsPath(this.workspaceRoot, uri.fsPath)) {
       return;
     }
 
@@ -3337,10 +3338,7 @@ export class Repository implements IRemoteRepository {
    */
   private async promptUpdateIfRemoteChanges(uri: Uri): Promise<void> {
     // Only check files in this repository's working copy
-    // Use case-insensitive comparison for Windows (drive letter case)
-    const normalizedUri = uri.fsPath.toLowerCase();
-    const normalizedRoot = this.workspaceRoot.toLowerCase();
-    if (!normalizedUri.startsWith(normalizedRoot)) {
+    if (!ownsPath(this.workspaceRoot, uri.fsPath)) {
       return;
     }
 

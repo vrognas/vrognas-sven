@@ -152,6 +152,8 @@ Per-file blame tracking with:
   checks manager liveness and workspace topology after each await; late opened
   base repositories clear their caches instead of registering. Debounced scans
   carry their enqueue topology generation and revalidate before dispatch.
+- Repository file hooks use segment-aware descendant ownership; prompt
+  deduplication folds case only on case-insensitive platforms.
 - Activation registers `Svn`, output commands/channels, and configuration
   listeners with the extension context immediately after creation.
 - `Svn.executeProcess()` owns process listeners, timeout, and cancellation as

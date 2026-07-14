@@ -5,6 +5,16 @@
 
 ---
 
+### 109. Path Ownership Is Segment-Aware and Platform-Aware
+
+**Lesson**: Raw prefix checks made /workspace/repo own sibling /workspace/repository, while unconditional lowercase prompt keys merged distinct files on case-sensitive systems.
+
+**Fix**: Route repository ownership through isDescendant and prompt identity through platform-aware normalization.
+
+**Rule**: Filesystem ownership compares path segments; filesystem identity follows platform case semantics.
+
+---
+
 ### 108. Cache Clear Must Detach In-Flight Ownership
 
 **Lesson**: Clearing property-diff values left the pending promise registered. New callers joined stale work, and its completion repopulated the cleared cache after refresh or disposal.
