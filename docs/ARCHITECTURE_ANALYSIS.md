@@ -191,6 +191,8 @@ All critical bottlenecks fixed:
 Caching strategy:
 
 - LRU eviction for info, blame, log caches
+- Property-diff invalidation clears values and in-flight ownership together;
+  detached reads may finish but cannot republish after refresh or disposal
 - Info fetch, lock-free peek, and invalidation share one platform-aware key
   builder; case folds only on case-insensitive platforms
 - Property reads map only structured `W200017` to absence; operational failures

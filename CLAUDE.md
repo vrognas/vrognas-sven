@@ -55,6 +55,7 @@
 - Buffer-returning APIs keep successful output binary; decode only failure paths that require text.
 - Derived indexes hash every field affecting lookup semantics, including file/directory kind; build replacements fully before synchronous swap.
 - Cache invalidation fences publication and future joining; never recursively retry an old read when a serialized writer may await it.
+- Cache clear removes both values and matching in-flight ownership; detached reads cannot republish.
 - Teardown is best-effort per resource; deregister ownership before fallible inner disposal.
 - Multi-root views retain their live owner for panel/unowned focus; first-repository fallback is initialization only.
 - Preserve generic SVN error codes before formatting stderr; prefer errors over warnings.

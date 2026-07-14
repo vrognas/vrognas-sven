@@ -1,5 +1,6 @@
 import * as assert from "assert";
 import { LRUCache } from "../../../util/lruCache";
+import { makeFakeSvnRepo } from "./helpers/fakeSvnRepository";
 
 /**
  * Diff-open produces two svn-scheme URIs (different rev params) that both
@@ -113,5 +114,54 @@ suite("svnRepository.cat normalization + cache", () => {
       ]),
       error => error === failure
     );
+  });
+});
+
+suite("svnRepository property-change cache lifetime", () => {
+  test("clear detaches an older property-diff fetch", async () => {
+    const { repo, getCount, setExec } = await makeFakeSvnRepo();
+    const resolvers: Array<(value: { stdout: string }) => void> = [];
+    setExec(
+      () =>
+        new Promise(resolve => {
+          resolvers.push(resolve);
+        })
+    );
+
+    const oldRead = repo.getPropertyChanges("file.txt");
+    repo.clearPropertyChangesCache();
+    const freshRead = repo.getPropertyChanges("file.txt");
+
+    assert.strictEqual(getCount(), 2);
+    resolvers[1]!({ stdout: "Added: svn:fresh" });
+    assert.deepStrictEqual(await freshRead, [
+      { name: "svn:fresh", changeType: "added" }
+    ]);
+    resolvers[0]!({ stdout: "Added: svn:stale" });
+    await oldRead;
+
+    assert.deepStrictEqual(await repo.getPropertyChanges("file.txt"), [
+      { name: "svn:fresh", changeType: "added" }
+    ]);
+    assert.strictEqual(getCount(), 2);
+  });
+
+  test("dispose prevents a pending property diff from repopulating cache", async () => {
+    const { repo, setExec } = await makeFakeSvnRepo();
+    let resolveRead!: (value: { stdout: string }) => void;
+    setExec(
+      () =>
+        new Promise(resolve => {
+          resolveRead = resolve;
+        })
+    );
+
+    const read = repo.getPropertyChanges("file.txt");
+    repo.clearInfoCacheTimers();
+    resolveRead({ stdout: "Added: svn:stale" });
+    await read;
+
+    assert.strictEqual(repo._propertyChangesInFlight.size, 0);
+    assert.strictEqual(repo._propertyChangesCache.get("file.txt"), undefined);
   });
 });

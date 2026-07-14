@@ -2801,6 +2801,7 @@ export class Repository {
   /** Clear the property-changes cache (called on forceRefresh). */
   public clearPropertyChangesCache(): void {
     this._propertyChangesCache.clear();
+    this._propertyChangesInFlight.clear();
   }
 
   /**
@@ -2965,5 +2966,6 @@ export class Repository {
     this._copyPointCache.clear();
     this._patchRevisionCache.clear();
     this._patchRevisionInFlight.clear();
+    this.clearPropertyChangesCache();
   }
 }

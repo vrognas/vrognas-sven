@@ -73,6 +73,8 @@ export async function makeFakeSvnRepo(): Promise<FakeSvnRepo> {
   repo._listInFlight = new Map();
   repo._patchRevisionCache = new LRUCache(50, 24 * 60 * 60 * 1000);
   repo._patchRevisionInFlight = new Map();
+  repo._propertyChangesCache = new LRUCache(500, 30 * 1000);
+  repo._propertyChangesInFlight = new Map();
 
   return {
     repo,

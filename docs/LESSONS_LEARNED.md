@@ -5,6 +5,16 @@
 
 ---
 
+### 108. Cache Clear Must Detach In-Flight Ownership
+
+**Lesson**: Clearing property-diff values left the pending promise registered. New callers joined stale work, and its completion repopulated the cleared cache after refresh or disposal.
+
+**Fix**: Clear cached values and the matching in-flight registry together. The shared owner guard then rejects late publication.
+
+**Rule**: Invalidation detaches both reusable values and reusable work. A cleared promise may finish for existing waiters but cannot publish or accept new joiners.
+
+---
+
 ### 107. Absence and Failed Reads Are Different Results
 
 **Lesson**: Property helpers caught every SVN failure and returned null or empty collections. Auth, lock, and transport failures therefore looked like successful "no properties" responses and could warm empty caches.
