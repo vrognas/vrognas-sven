@@ -66,6 +66,17 @@ import {
   validateLockComment
 } from "./validation";
 
+const SVN_PROPERTY_NOT_FOUND = "W200017";
+
+function isMissingPropertyError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { svnErrorCode?: unknown }).svnErrorCode ===
+      SVN_PROPERTY_NOT_FOUND
+  );
+}
+
 export class Repository {
   // LRU caches with TTL expiration
   private _infoCache = new LRUCache<ISvnInfo | null>(500, 2 * 60 * 1000);
@@ -405,8 +416,9 @@ export class Repository {
       const result = await this.exec(["propget", name, normalized]);
       const value = result.stdout.trim();
       return value || null;
-    } catch {
-      return null;
+    } catch (error) {
+      if (isMissingPropertyError(error)) return null;
+      throw error;
     }
   }
 
@@ -451,8 +463,9 @@ export class Repository {
     try {
       const result = await this.exec(["propget", name, "-R", "."]);
       return this.parsePropertyListOutput(result.stdout);
-    } catch {
-      return new Map();
+    } catch (error) {
+      if (isMissingPropertyError(error)) return new Map();
+      throw error;
     }
   }
 
@@ -494,41 +507,37 @@ export class Repository {
     const eolStyle = new Map<string, string>();
     const mimeType = new Map<string, string>();
 
-    try {
-      const result = await this.exec(["proplist", "-R", "-v", "."]);
-      let currentPath = "";
-      let currentProp = "";
+    const result = await this.exec(["proplist", "-R", "-v", "."]);
+    let currentPath = "";
+    let currentProp = "";
 
-      for (const line of result.stdout.split("\n")) {
-        const pathMatch = line.match(/^Properties on '(.+)':$/);
-        if (pathMatch?.[1]) {
-          currentPath = pathMatch[1];
-          currentProp = "";
-          continue;
-        }
-
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-
-        // Property name lines are indented with 2 spaces, values with 4+
-        if (line.startsWith("    ") && currentProp && currentPath) {
-          // Value line
-          const value = trimmed;
-          if (currentProp === "svn:needs-lock") {
-            needsLock.add(currentPath);
-          } else if (currentProp === "svn:eol-style") {
-            eolStyle.set(currentPath, value);
-          } else if (currentProp === "svn:mime-type") {
-            mimeType.set(currentPath, value);
-          }
-          currentProp = "";
-        } else if (line.startsWith("  ") && !line.startsWith("    ")) {
-          // Property name line
-          currentProp = trimmed;
-        }
+    for (const line of result.stdout.split("\n")) {
+      const pathMatch = line.match(/^Properties on '(.+)':$/);
+      if (pathMatch?.[1]) {
+        currentPath = pathMatch[1];
+        currentProp = "";
+        continue;
       }
-    } catch (e) {
-      logError("getAllProperties", e);
+
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      // Property name lines are indented with 2 spaces, values with 4+
+      if (line.startsWith("    ") && currentProp && currentPath) {
+        // Value line
+        const value = trimmed;
+        if (currentProp === "svn:needs-lock") {
+          needsLock.add(currentPath);
+        } else if (currentProp === "svn:eol-style") {
+          eolStyle.set(currentPath, value);
+        } else if (currentProp === "svn:mime-type") {
+          mimeType.set(currentPath, value);
+        }
+        currentProp = "";
+      } else if (line.startsWith("  ") && !line.startsWith("    ")) {
+        // Property name line
+        currentProp = trimmed;
+      }
     }
 
     return { needsLock, eolStyle, mimeType };
@@ -2398,16 +2407,7 @@ export class Repository {
   private async getIgnorePropertyValue(
     directory: string
   ): Promise<string | null> {
-    try {
-      const result = await this.getProperty("svn:ignore", directory || ".");
-      return result;
-    } catch (error) {
-      // W200017 = "Property 'svn:ignore' not found" - expected when no patterns set
-      if (!String(error).includes("W200017")) {
-        logError(`Failed to get svn:ignore for ${directory || "."}`, error);
-      }
-      return null;
-    }
+    return this.getProperty("svn:ignore", directory || ".");
   }
 
   /**

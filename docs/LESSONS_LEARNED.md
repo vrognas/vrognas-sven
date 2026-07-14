@@ -5,6 +5,16 @@
 
 ---
 
+### 107. Absence and Failed Reads Are Different Results
+
+**Lesson**: Property helpers caught every SVN failure and returned null or empty collections. Auth, lock, and transport failures therefore looked like successful "no properties" responses and could warm empty caches.
+
+**Fix**: Treat structured `W200017` as the only missing-property sentinel. Propagate all other single, recursive, and batched read failures.
+
+**Rule**: Never publish absence from a failed read. Map only explicit domain sentinels to benign empty values.
+
+---
+
 ### 106. Cache Keys Must Preserve Filesystem Case Semantics
 
 **Lesson**: Info fetch, peek, and invalidation independently lowercased paths. That matched Windows but merged distinct `A.ts` and `a.ts` entries on case-sensitive filesystems, allowing a warm hit to return the other file's metadata.

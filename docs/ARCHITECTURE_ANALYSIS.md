@@ -193,6 +193,8 @@ Caching strategy:
 - LRU eviction for info, blame, log caches
 - Info fetch, lock-free peek, and invalidation share one platform-aware key
   builder; case folds only on case-insensitive platforms
+- Property reads map only structured `W200017` to absence; operational failures
+  propagate and cannot publish empty cache snapshots
 - Blame: lock-free warm reads require a resolved numeric BASE key and are
   guarded by mutation state; info, persistent-key namespace, BASE-key,
   negative-cache, and blame writes share generation fences that start before
