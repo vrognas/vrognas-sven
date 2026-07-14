@@ -5,6 +5,16 @@
 
 ---
 
+### 113. Teardown Must Attempt Every Owned Resource
+
+**Lesson**: Repeated cleanup loops needed identical failure isolation. A throw from one listener could otherwise skip later resources and lifecycle notifications.
+
+**Fix**: Share one best-effort disposal primitive and use it at repository lifecycle boundaries.
+
+**Rule**: Teardown preserves order, logs each failure, and always attempts the remaining resources.
+
+---
+
 ### 112. Sparse Depth Workflows Need Shared Safety and Status Scopes
 
 **Lesson**: Set-depth, tree checkout, and tree exclude duplicated depth choices, unsafe-path scans, and manual status suppression. The copies could drift on descendant matching or leave status suppressed after a new exit path.

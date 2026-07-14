@@ -170,6 +170,8 @@ Per-file blame tracking with:
   repository beneath the removed root using path-aware descendant checks.
   Listener and repository failures are logged independently; deregistration,
   close notification, remaining repositories, and manager resources still run.
+  Repeated listener/resource cleanup uses the shared best-effort teardown
+  primitive, preserving order while isolating each failure.
   Removed handles close before replacement roots are evaluated. Async discovery
   checks manager liveness and workspace topology after each await; late opened
   base repositories clear their caches instead of registering. Debounced scans

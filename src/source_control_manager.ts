@@ -27,6 +27,7 @@ import { Repository } from "./repository";
 import { Svn, svnErrorCodes } from "./svn";
 import SvnError from "./svnError";
 import { logError } from "./util/errorLogger";
+import { disposeBestEffort, runTeardown } from "./util/disposal";
 import {
   anyEvent,
   filterEvent,
@@ -40,14 +41,6 @@ import {
 import { matchAll } from "./util/globMatch";
 
 type State = "uninitialized" | "initialized";
-
-function runTeardown(message: string, action: () => void): void {
-  try {
-    action();
-  } catch (error) {
-    logError(message, error);
-  }
-}
 
 export class SourceControlManager implements IDisposable {
   private _onDidOpenRepository = new EventEmitter<Repository>();
@@ -555,19 +548,10 @@ export class SourceControlManager implements IDisposable {
     const dispose = () => {
       if (disposed) return;
       disposed = true;
-      const listeners = [
-        disappearListener,
-        changeListener,
-        changeStatus,
-        statusListener
-      ];
-      for (const listener of listeners) {
-        if (listener) {
-          runTeardown("Failed to dispose repository listener", () =>
-            listener.dispose()
-          );
-        }
-      }
+      disposeBestEffort(
+        [disappearListener, changeListener, changeStatus, statusListener],
+        "Failed to dispose repository listener"
+      );
 
       this.openRepositories = this.openRepositories.filter(
         e => e !== openRepository
@@ -610,11 +594,10 @@ export class SourceControlManager implements IDisposable {
         ...localDisposables,
         repository
       ];
-      for (const d of failureDisposables) {
-        runTeardown("Failed to clean up unopened repository", () =>
-          d.dispose()
-        );
-      }
+      disposeBestEffort(
+        failureDisposables,
+        "Failed to clean up unopened repository"
+      );
       throw error;
     }
   }
