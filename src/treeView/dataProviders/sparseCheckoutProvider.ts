@@ -35,6 +35,10 @@ import { dispose } from "../../util";
 import { logError } from "../../util/errorLogger";
 import { needsCleanupFromFullError } from "../../commands/errorDetectors";
 import {
+  beginSparseStatusSuppression,
+  collectUnsafeSparsePaths
+} from "../../sparse/sparseOperations";
+import {
   formatBytes,
   formatDuration,
   parseSizeToBytes
@@ -48,10 +52,6 @@ import {
   FILE_POLL_INTERVAL_MS
 } from "./downloadProgressMonitor";
 import { showViewFeedback } from "../../util/actionFeedback";
-import {
-  collectUnsafeSparsePaths,
-  withSparseStatusSuppressed
-} from "../../sparse/sparseOperations";
 
 /** Max concurrent svn info subprocess calls (prevents EMFILE / WC lock contention) */
 const MAX_CONCURRENT_INFO = 5;
@@ -765,283 +765,286 @@ export default class SparseCheckoutProvider
         .filter((r): r is Repository => r !== undefined)
     );
 
-    await withSparseStatusSuppressed(affectedRepos, async () => {
-      try {
-        // Use notification for cancellation support
-        const isBatch = validNodes.length > 1;
+    // Suppress status updates during download (fixes svn info spam on Windows)
+    const releaseSparseStatus =
+      beginSparseStatusSuppression(affectedRepos);
 
-        const result = await window.withProgress(
-          {
-            location: ProgressLocation.Notification,
-            title: `Downloading ${label}${sizeLabel}`,
-            cancellable: true
-          },
-          async (progress, token: CancellationToken) => {
-            // Immediate feedback that download is starting
-            progress.report({ message: "Starting download..." });
+    try {
+      // Use notification for cancellation support
+      const isBatch = validNodes.length > 1;
 
-            let success = 0;
-            let failed = 0;
-            let cancelled = false;
-            let bytesDownloaded = 0;
+      const result = await window.withProgress(
+        {
+          location: ProgressLocation.Notification,
+          title: `Downloading ${label}${sizeLabel}`,
+          cancellable: true
+        },
+        async (progress, token: CancellationToken) => {
+          // Immediate feedback that download is starting
+          progress.report({ message: "Starting download..." });
 
-            // Active monitors for cleanup on cancellation
-            let activeFileMonitor:
-              | ReturnType<typeof createFileSizeMonitor>
-              | undefined;
-            let activeFolderMonitor:
-              | ReturnType<typeof createFolderMonitor>
-              | undefined;
-            let activeInterval: ReturnType<typeof setInterval> | undefined;
+          let success = 0;
+          let failed = 0;
+          let cancelled = false;
+          let bytesDownloaded = 0;
 
-            /** Cleanup current monitors and interval */
-            const cleanup = () => {
-              activeFileMonitor?.stop();
-              activeFileMonitor = undefined;
-              activeFolderMonitor?.stop();
-              activeFolderMonitor = undefined;
-              if (activeInterval) {
-                clearInterval(activeInterval);
-                activeInterval = undefined;
-              }
-            };
+          // Active monitors for cleanup on cancellation
+          let activeFileMonitor:
+            | ReturnType<typeof createFileSizeMonitor>
+            | undefined;
+          let activeFolderMonitor:
+            | ReturnType<typeof createFolderMonitor>
+            | undefined;
+          let activeInterval: ReturnType<typeof setInterval> | undefined;
 
-            for (let i = 0; i < nodeRepos.length; i++) {
-              // Check cancellation before each item
+          /** Cleanup current monitors and interval */
+          const cleanup = () => {
+            activeFileMonitor?.stop();
+            activeFileMonitor = undefined;
+            activeFolderMonitor?.stop();
+            activeFolderMonitor = undefined;
+            if (activeInterval) {
+              clearInterval(activeInterval);
+              activeInterval = undefined;
+            }
+          };
+
+          for (let i = 0; i < nodeRepos.length; i++) {
+            // Check cancellation before each item
+            if (token.isCancellationRequested) {
+              cleanup(); // Memory leak fix: cleanup on cancel
+              cancelled = true;
+              break;
+            }
+
+            const { node, repo } = nodeRepos[i]!;
+            if (!repo) {
+              failed++;
+              continue;
+            }
+
+            // Calculate dynamic ETA based on current progress
+            const elapsed = (Date.now() - startTime) / 1000;
+            const currentSpeed =
+              elapsed > 0 && bytesDownloaded > 0
+                ? bytesDownloaded / elapsed
+                : avgSpeed;
+            const remainingBytes = totalSize - bytesDownloaded;
+            const etaRemaining =
+              remainingBytes > 0 && currentSpeed > 0
+                ? remainingBytes / currentSpeed
+                : 0;
+            const etaText =
+              etaRemaining > 3 ? ` ~${formatDuration(etaRemaining)} left` : "";
+
+            progress.report({
+              message: isBatch
+                ? `(${i + 1}/${nodeRepos.length}) ${path.basename(node.fullPath)}${etaText}`
+                : `${path.basename(node.fullPath)}${etaText}`,
+              increment: 100 / nodeRepos.length
+            });
+
+            // Get file size using fullPath key (fixes basename collision)
+            const expectedSize = fileSizeMap.get(node.fullPath) ?? 0;
+
+            // For folders with infinity depth: pre-scan for file count and size
+            let expectedFileCount = 0;
+            let expectedFolderSize = 0;
+            if (node.kind === "dir" && depth === "infinity") {
+              // Check cancellation BEFORE pre-scan (can be slow for large folders)
               if (token.isCancellationRequested) {
-                cleanup(); // Memory leak fix: cleanup on cancel
+                cleanup();
                 cancelled = true;
                 break;
               }
 
-              const { node, repo } = nodeRepos[i]!;
-              if (!repo) {
-                failed++;
-                continue;
-              }
+              // Get configurable pre-scan timeout
+              const preScanTimeoutSeconds = workspace
+                .getConfiguration("sven.sparse")
+                .get<number>(
+                  "preScanTimeoutSeconds",
+                  DEFAULT_PRESCAN_TIMEOUT_SECONDS
+                );
+              const preScanTimeoutMs = preScanTimeoutSeconds * 1000;
 
-              // Calculate dynamic ETA based on current progress
-              const elapsed = (Date.now() - startTime) / 1000;
-              const currentSpeed =
-                elapsed > 0 && bytesDownloaded > 0
-                  ? bytesDownloaded / elapsed
-                  : avgSpeed;
-              const remainingBytes = totalSize - bytesDownloaded;
-              const etaRemaining =
-                remainingBytes > 0 && currentSpeed > 0
-                  ? remainingBytes / currentSpeed
-                  : 0;
-              const etaText =
-                etaRemaining > 3
-                  ? ` ~${formatDuration(etaRemaining)} left`
-                  : "";
-
+              // Show scanning progress (user feedback that something is happening)
+              const folderName = path.basename(node.fullPath);
               progress.report({
-                message: isBatch
-                  ? `(${i + 1}/${nodeRepos.length}) ${path.basename(node.fullPath)}${etaText}`
-                  : `${path.basename(node.fullPath)}${etaText}`,
-                increment: 100 / nodeRepos.length
+                message: `Scanning ${folderName}...`
               });
 
-              // Get file size using fullPath key (fixes basename collision)
-              const expectedSize = fileSizeMap.get(node.fullPath) ?? 0;
-
-              // For folders with infinity depth: pre-scan for file count and size
-              let expectedFileCount = 0;
-              let expectedFolderSize = 0;
-              if (node.kind === "dir" && depth === "infinity") {
-                // Check cancellation BEFORE pre-scan (can be slow for large folders)
-                if (token.isCancellationRequested) {
-                  cleanup();
-                  cancelled = true;
-                  break;
-                }
-
-                // Get configurable pre-scan timeout
-                const preScanTimeoutSeconds = workspace
-                  .getConfiguration("sven.sparse")
-                  .get<number>(
-                    "preScanTimeoutSeconds",
-                    DEFAULT_PRESCAN_TIMEOUT_SECONDS
-                  );
-                const preScanTimeoutMs = preScanTimeoutSeconds * 1000;
-
-                // Show scanning progress (user feedback that something is happening)
-                const folderName = path.basename(node.fullPath);
-                progress.report({
-                  message: `Scanning ${folderName}...`
-                });
-
-                try {
-                  // Pre-scan folder to get expected file count and total size
-                  const folderContents = await repo.listRecursive(
-                    node.fullPath,
-                    preScanTimeoutMs
-                  );
-                  const files = folderContents.filter(f => f.kind === "file");
-                  expectedFileCount = files.length;
-                  expectedFolderSize = files.reduce(
-                    (sum: number, f: ISvnListItem) =>
-                      sum + parseInt(f.size ?? "0", 10),
-                    0
-                  );
-
-                  // Show file count and size found
-                  progress.report({
-                    message: `Found ${expectedFileCount} files (${formatBytes(expectedFolderSize)}) in ${folderName}`
-                  });
-                } catch (err) {
-                  // Pre-scan failed - log error, continue without progress tracking
-                  logError("Pre-scan failed for folder progress", err);
-                }
-
-                // Check cancellation AFTER pre-scan (user may have cancelled during scan)
-                if (token.isCancellationRequested) {
-                  cleanup();
-                  cancelled = true;
-                  break;
-                }
-              }
-
-              // Start appropriate monitor based on item type
-              if (node.kind === "file" && expectedSize > 1024 * 1024) {
-                // File monitor for large files (>1MB)
-                activeFileMonitor = createFileSizeMonitor(node.fullPath);
-              } else if (node.kind === "dir" && expectedFolderSize > 0) {
-                // Folder monitor only if we have size to track (skip empty folders)
-                activeFolderMonitor = createFolderMonitor(
-                  node.fullPath,
-                  expectedFolderSize,
-                  expectedFileCount
-                );
-              }
-
-              // Progress update interval during download
-              // Clear any existing interval before creating new one (prevents leak)
-              if (activeInterval) {
-                clearInterval(activeInterval);
-                activeInterval = undefined;
-              }
-              if (activeFileMonitor && expectedSize > 0) {
-                const monitor = activeFileMonitor; // Capture for closure
-                activeInterval = setInterval(() => {
-                  if (monitor.isStopped()) return;
-                  const realSpeed = monitor.getSpeed();
-                  const downloaded = Math.min(monitor.getSize(), expectedSize);
-                  if (realSpeed > 0) {
-                    const remaining = expectedSize - downloaded;
-                    const eta = remaining > 0 ? remaining / realSpeed : 0;
-                    const speedLabel = `${formatBytes(realSpeed)}/s`;
-                    const etaLabel = eta > 2 ? ` ~${formatDuration(eta)}` : "";
-                    progress.report({
-                      message: `${path.basename(node.fullPath)} ${speedLabel}${etaLabel}`
-                    });
-                  }
-                }, FILE_POLL_INTERVAL_MS);
-              } else if (activeFolderMonitor && expectedFolderSize > 0) {
-                const monitor = activeFolderMonitor; // Capture for closure
-                const folderName = path.basename(node.fullPath);
-                activeInterval = setInterval(() => {
-                  if (monitor.isStopped()) return;
-                  const currentSize = monitor.getSize();
-                  const pct = Math.round(monitor.getProgress() * 100);
-                  const speed = monitor.getSpeed();
-                  // Speed and ETA label
-                  let speedEtaLabel = "";
-                  if (speed > 0) {
-                    speedEtaLabel = ` ${formatBytes(speed)}/s`;
-                    const remaining = expectedFolderSize - currentSize;
-                    if (remaining > 0) {
-                      const eta = remaining / speed;
-                      if (eta > 2) speedEtaLabel += ` ~${formatDuration(eta)}`;
-                    }
-                  }
-                  progress.report({
-                    message: `${folderName}: ${formatBytes(currentSize)}/${formatBytes(expectedFolderSize)} (${pct}%)${speedEtaLabel}`
-                  });
-                }, FILE_POLL_INTERVAL_MS);
-              }
-
               try {
-                // Show that actual download is starting (after pre-scan)
-                const itemName = path.basename(node.fullPath);
-                if (node.kind === "dir" && expectedFolderSize > 0) {
-                  progress.report({
-                    message: `Downloading ${itemName} (${formatBytes(expectedFolderSize)})...`
-                  });
-                } else {
-                  progress.report({
-                    message: `Downloading ${itemName}...`
-                  });
-                }
+                // Pre-scan folder to get expected file count and total size
+                const folderContents = await repo.listRecursive(
+                  node.fullPath,
+                  preScanTimeoutMs
+                );
+                const files = folderContents.filter(f => f.kind === "file");
+                expectedFileCount = files.length;
+                expectedFolderSize = files.reduce(
+                  (sum: number, f: ISvnListItem) =>
+                    sum + parseInt(f.size ?? "0", 10),
+                  0
+                );
 
-                const res = await repo.setDepth(node.fullPath, depth, {
-                  parents: true,
-                  timeout: downloadTimeoutMs
+                // Show file count and size found
+                progress.report({
+                  message: `Found ${expectedFileCount} files (${formatBytes(expectedFolderSize)}) in ${folderName}`
                 });
+              } catch (err) {
+                // Pre-scan failed - log error, continue without progress tracking
+                logError("Pre-scan failed for folder progress", err);
+              }
 
+              // Check cancellation AFTER pre-scan (user may have cancelled during scan)
+              if (token.isCancellationRequested) {
                 cleanup();
-
-                if (res.exitCode === 0) {
-                  success++;
-                  // Track bytes from file size or folder size (for ETA)
-                  bytesDownloaded +=
-                    node.kind === "dir" ? expectedFolderSize : expectedSize;
-                } else {
-                  failed++;
-                }
-              } catch {
-                cleanup();
-                failed++;
+                cancelled = true;
+                break;
               }
             }
 
-            return { success, failed, cancelled, bytesDownloaded };
-          }
-        );
+            // Start appropriate monitor based on item type
+            if (node.kind === "file" && expectedSize > 1024 * 1024) {
+              // File monitor for large files (>1MB)
+              activeFileMonitor = createFileSizeMonitor(node.fullPath);
+            } else if (node.kind === "dir" && expectedFolderSize > 0) {
+              // Folder monitor only if we have size to track (skip empty folders)
+              activeFolderMonitor = createFolderMonitor(
+                node.fullPath,
+                expectedFolderSize,
+                expectedFileCount
+              );
+            }
 
-        // Track download speed for future ETA estimates (only if we had size data)
-        if (totalSize > 0 && result.success > 0 && !result.cancelled) {
-          const elapsedMs = Date.now() - startTime;
-          if (elapsedMs > 1000) {
-            // Only track if >1s to avoid noise
-            const speed = totalSize / (elapsedMs / 1000);
-            this.recordDownloadSpeed(speed);
-          }
-        }
+            // Progress update interval during download
+            // Clear any existing interval before creating new one (prevents leak)
+            if (activeInterval) {
+              clearInterval(activeInterval);
+              activeInterval = undefined;
+            }
+            if (activeFileMonitor && expectedSize > 0) {
+              const monitor = activeFileMonitor; // Capture for closure
+              activeInterval = setInterval(() => {
+                if (monitor.isStopped()) return;
+                const realSpeed = monitor.getSpeed();
+                const downloaded = Math.min(monitor.getSize(), expectedSize);
+                if (realSpeed > 0) {
+                  const remaining = expectedSize - downloaded;
+                  const eta = remaining > 0 ? remaining / realSpeed : 0;
+                  const speedLabel = `${formatBytes(realSpeed)}/s`;
+                  const etaLabel = eta > 2 ? ` ~${formatDuration(eta)}` : "";
+                  progress.report({
+                    message: `${path.basename(node.fullPath)} ${speedLabel}${etaLabel}`
+                  });
+                }
+              }, FILE_POLL_INTERVAL_MS);
+            } else if (activeFolderMonitor && expectedFolderSize > 0) {
+              const monitor = activeFolderMonitor; // Capture for closure
+              const folderName = path.basename(node.fullPath);
+              activeInterval = setInterval(() => {
+                if (monitor.isStopped()) return;
+                const currentSize = monitor.getSize();
+                const pct = Math.round(monitor.getProgress() * 100);
+                const speed = monitor.getSpeed();
+                // Speed and ETA label
+                let speedEtaLabel = "";
+                if (speed > 0) {
+                  speedEtaLabel = ` ${formatBytes(speed)}/s`;
+                  const remaining = expectedFolderSize - currentSize;
+                  if (remaining > 0) {
+                    const eta = remaining / speed;
+                    if (eta > 2) speedEtaLabel += ` ~${formatDuration(eta)}`;
+                  }
+                }
+                progress.report({
+                  message: `${folderName}: ${formatBytes(currentSize)}/${formatBytes(expectedFolderSize)} (${pct}%)${speedEtaLabel}`
+                });
+              }, FILE_POLL_INTERVAL_MS);
+            }
 
-        this.refresh();
-
-        // Show appropriate message based on outcome
-        const totalItems = nodeRepos.length;
-        const remaining = totalItems - result.success - result.failed;
-        if (result.cancelled) {
-          window.showInformationMessage(
-            `Download cancelled. ${result.success} of ${totalItems} completed, ${remaining} not downloaded.`
-          );
-        } else if (result.failed > 0) {
-          window
-            .showWarningMessage(
-              `Download completed with errors: ${result.success} succeeded, ${result.failed} failed`,
-              "Show Output"
-            )
-            .then(choice => {
-              if (choice === "Show Output") {
-                commands.executeCommand("sven.showOutputChannel");
+            try {
+              // Show that actual download is starting (after pre-scan)
+              const itemName = path.basename(node.fullPath);
+              if (node.kind === "dir" && expectedFolderSize > 0) {
+                progress.report({
+                  message: `Downloading ${itemName} (${formatBytes(expectedFolderSize)})...`
+                });
+              } else {
+                progress.report({
+                  message: `Downloading ${itemName}...`
+                });
               }
-            });
-        } else if (result.success > 0) {
-          // Positive feedback INSIDE the view the download ran from
-          const sizeInfo = totalSize > 0 ? ` (${formatBytes(totalSize)})` : "";
-          showViewFeedback(
-            this.treeView,
-            `Downloaded ${result.success} ${result.success === 1 ? "item" : "items"}${sizeInfo}`
-          );
+
+              const res = await repo.setDepth(node.fullPath, depth, {
+                parents: true,
+                timeout: downloadTimeoutMs
+              });
+
+              cleanup();
+
+              if (res.exitCode === 0) {
+                success++;
+                // Track bytes from file size or folder size (for ETA)
+                bytesDownloaded +=
+                  node.kind === "dir" ? expectedFolderSize : expectedSize;
+              } else {
+                failed++;
+              }
+            } catch {
+              cleanup();
+              failed++;
+            }
+          }
+
+          return { success, failed, cancelled, bytesDownloaded };
         }
-      } catch (err) {
-        showSparseOperationError("checkout", "Download", err);
+      );
+
+      // Track download speed for future ETA estimates (only if we had size data)
+      if (totalSize > 0 && result.success > 0 && !result.cancelled) {
+        const elapsedMs = Date.now() - startTime;
+        if (elapsedMs > 1000) {
+          // Only track if >1s to avoid noise
+          const speed = totalSize / (elapsedMs / 1000);
+          this.recordDownloadSpeed(speed);
+        }
       }
-    });
+
+      this.refresh();
+
+      // Show appropriate message based on outcome
+      const totalItems = nodeRepos.length;
+      const remaining = totalItems - result.success - result.failed;
+      if (result.cancelled) {
+        window.showInformationMessage(
+          `Download cancelled. ${result.success} of ${totalItems} completed, ${remaining} not downloaded.`
+        );
+      } else if (result.failed > 0) {
+        window
+          .showWarningMessage(
+            `Download completed with errors: ${result.success} succeeded, ${result.failed} failed`,
+            "Show Output"
+          )
+          .then(choice => {
+            if (choice === "Show Output") {
+              commands.executeCommand("sven.showOutputChannel");
+            }
+          });
+      } else if (result.success > 0) {
+        // Positive feedback INSIDE the view the download ran from
+        const sizeInfo = totalSize > 0 ? ` (${formatBytes(totalSize)})` : "";
+        showViewFeedback(
+          this.treeView,
+          `Downloaded ${result.success} ${result.success === 1 ? "item" : "items"}${sizeInfo}`
+        );
+      }
+    } catch (err) {
+      showSparseOperationError("checkout", "Download", err);
+    } finally {
+      // Re-enable status updates after download completes
+      releaseSparseStatus();
+    }
   }
 
   /**
@@ -1155,66 +1158,71 @@ export default class SparseCheckoutProvider
       }
     }
 
+    // Suppress status updates during exclude (prevents WC lock conflicts)
     const affectedRepos = new Set(repoMap.values());
-    await withSparseStatusSuppressed(affectedRepos, async () => {
-      try {
-        // Use status bar for single items, notification for batches
-        const isBatch = validNodes.length > 1;
+    const releaseSparseStatus =
+      beginSparseStatusSuppression(affectedRepos);
 
-        const result = await window.withProgress(
-          {
-            location: isBatch
-              ? ProgressLocation.Notification
-              : ProgressLocation.Window,
-            title: `Excluding ${label}...`,
-            cancellable: false
-          },
-          async progress => {
-            let success = 0;
-            let failed = 0;
+    try {
+      // Use status bar for single items, notification for batches
+      const isBatch = validNodes.length > 1;
 
-            for (let i = 0; i < validNodes.length; i++) {
-              const node = validNodes[i]!;
-              const repo = repoMap.get(node.fullPath);
-              if (!repo) {
-                failed++;
-                continue;
-              }
+      const result = await window.withProgress(
+        {
+          location: isBatch
+            ? ProgressLocation.Notification
+            : ProgressLocation.Window,
+          title: `Excluding ${label}...`,
+          cancellable: false
+        },
+        async progress => {
+          let success = 0;
+          let failed = 0;
 
-              if (isBatch) {
-                progress.report({
-                  message: `(${i + 1}/${validNodes.length}) ${path.basename(node.fullPath)}`,
-                  increment: 100 / validNodes.length
-                });
-              }
-
-              try {
-                const res = await repo.setDepth(node.fullPath, "exclude");
-                if (res.exitCode === 0) {
-                  success++;
-                } else {
-                  failed++;
-                }
-              } catch {
-                failed++;
-              }
+          for (let i = 0; i < validNodes.length; i++) {
+            const node = validNodes[i]!;
+            const repo = repoMap.get(node.fullPath);
+            if (!repo) {
+              failed++;
+              continue;
             }
 
-            return { success, failed };
+            if (isBatch) {
+              progress.report({
+                message: `(${i + 1}/${validNodes.length}) ${path.basename(node.fullPath)}`,
+                increment: 100 / validNodes.length
+              });
+            }
+
+            try {
+              const res = await repo.setDepth(node.fullPath, "exclude");
+              if (res.exitCode === 0) {
+                success++;
+              } else {
+                failed++;
+              }
+            } catch {
+              failed++;
+            }
           }
-        );
 
-        this.refresh();
-
-        if (result.failed > 0) {
-          window.showWarningMessage(
-            `Exclude: ${result.success} succeeded, ${result.failed} failed`
-          );
+          return { success, failed };
         }
-      } catch (err) {
-        showSparseOperationError("exclude", "Exclude", err);
+      );
+
+      this.refresh();
+
+      if (result.failed > 0) {
+        window.showWarningMessage(
+          `Exclude: ${result.success} succeeded, ${result.failed} failed`
+        );
       }
-    });
+    } catch (err) {
+      showSparseOperationError("exclude", "Exclude", err);
+    } finally {
+      // Re-enable status updates after exclude completes
+      releaseSparseStatus();
+    }
   }
 
   public dispose(): void {

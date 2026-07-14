@@ -33,16 +33,13 @@ export function collectUnsafeSparsePaths(
   return unsafe;
 }
 
-/** Suppress repository status work once per repository for the whole action. */
-export async function withSparseStatusSuppressed<T>(
-  repositories: Iterable<SparseStatusController>,
-  action: () => Promise<T>
-): Promise<T> {
+/** Suppress repository status work once; return its balanced release. */
+export function beginSparseStatusSuppression(
+  repositories: Iterable<SparseStatusController>
+): () => void {
   const unique = new Set(repositories);
   for (const repository of unique) repository.beginSparseDownload();
-  try {
-    return await action();
-  } finally {
+  return () => {
     for (const repository of unique) repository.endSparseDownload();
-  }
+  };
 }

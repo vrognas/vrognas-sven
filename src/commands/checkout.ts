@@ -50,8 +50,7 @@ const initialCheckoutDepthOptions: DepthQuickPickItem[] = [
   {
     label: "$(folder-opened) Full",
     description: "Download everything",
-    detail:
-      "Downloads all files and folders recursively. Can be slow for large repos.",
+    detail: "Downloads all files and folders recursively. Can be slow for large repos.",
     depth: "infinity"
   }
 ];
@@ -147,25 +146,23 @@ export class Checkout extends Command {
     }
 
     // Step 4: Depth + externals picker
-    const depthPick = (await window.showQuickPick(
+    const depthPick = await window.showQuickPick(
       [
         ...initialCheckoutDepthOptions,
         { label: "", kind: QuickPickItemKind.Separator } as DepthQuickPickItem,
         {
           label: "$(exclude) Omit Externals",
           description: "Skip svn:externals",
-          detail:
-            "Don't download external references. Useful if externals are large or need separate credentials.",
+          detail: "Don't download external references. Useful if externals are large or need separate credentials.",
           depth: "_omitExternals"
         } as DepthQuickPickItem
       ],
       {
-        placeHolder:
-          "How much to download? (use Selective Download to add more later)",
+        placeHolder: "How much to download? (use Selective Download to add more later)",
         title: "Checkout (4/4): Download Depth",
         canPickMany: true
       }
-    )) as DepthQuickPickItem[] | undefined;
+    ) as DepthQuickPickItem[] | undefined;
 
     if (!depthPick || depthPick.length === 0) {
       return;
@@ -190,10 +187,7 @@ export class Checkout extends Command {
       ).Notification!;
     }
 
-    const depthLabel =
-      selectedDepth.depth === "infinity"
-        ? ""
-        : ` (${selectedDepth.description})`;
+    const depthLabel = selectedDepth.depth === "infinity" ? "" : ` (${selectedDepth.description})`;
     const progressOptions = {
       location,
       title: `Checkout svn repository${depthLabel}...`,
@@ -208,13 +202,7 @@ export class Checkout extends Command {
       attempt++;
       try {
         await window.withProgress(progressOptions, async () => {
-          const args = [
-            "checkout",
-            "--depth",
-            selectedDepth.depth,
-            url,
-            repositoryPath
-          ];
+          const args = ["checkout", "--depth", selectedDepth.depth, url, repositoryPath];
           if (omitExternals) {
             args.push("--ignore-externals");
           }
@@ -281,9 +269,9 @@ export class Checkout extends Command {
   }
 
   /** Show URL picker with history + option to enter new URL */
-  private async promptUrl(globalState: {
-    get<T>(key: string): T | undefined;
-  }): Promise<string | undefined> {
+  private async promptUrl(
+    globalState: { get<T>(key: string): T | undefined }
+  ): Promise<string | undefined> {
     const history = globalState.get<string[]>(URL_HISTORY_KEY) || [];
 
     if (history.length === 0) {
@@ -333,10 +321,7 @@ export class Checkout extends Command {
 
   /** Save URL to MRU history */
   private saveUrlHistory(
-    globalState: {
-      get<T>(key: string): T | undefined;
-      update(key: string, value: unknown): Thenable<void>;
-    },
+    globalState: { get<T>(key: string): T | undefined; update(key: string, value: unknown): Thenable<void> },
     url: string
   ): void {
     const history = globalState.get<string[]>(URL_HISTORY_KEY) || [];
