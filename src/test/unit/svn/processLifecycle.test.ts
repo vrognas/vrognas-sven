@@ -128,6 +128,25 @@ suite("Svn process lifecycle", () => {
     assert.strictEqual(stdoutDecodeCount, 0);
   });
 
+  test("exec leaves caller args and options unchanged", async () => {
+    const args = ["status"];
+    const options = {
+      encoding: "utf8",
+      env: { SVN_INPUT_SENTINEL: "unchanged" },
+      log: false,
+      username: "test-user"
+    };
+    const expectedArgs = [...args];
+    const expectedOptions = { ...options, env: { ...options.env } };
+    emitResult(0, "clean");
+
+    const result = await svn.exec("/repo", args, options);
+
+    assert.strictEqual(result.stdout, "clean");
+    assert.deepStrictEqual(args, expectedArgs);
+    assert.deepStrictEqual(options, expectedOptions);
+  });
+
   test("timeout disposes all process listeners", async () => {
     await assert.rejects(
       svn.execBuffer("/repo", ["status"], { log: false, timeout: 1 }),

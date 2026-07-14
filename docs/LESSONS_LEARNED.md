@@ -5,6 +5,16 @@
 
 ---
 
+### 110. Process Wrappers Do Not Own Caller Inputs
+
+**Lesson**: SVN execution appended auth flags to the caller's argument array, added cwd to its options, and deleted its encoding. Reusing either object silently changed later commands.
+
+**Fix**: Clone arguments and options at the process boundary, then augment only those local copies.
+
+**Rule**: Treat caller inputs as immutable. Boundary adapters clone before normalization, defaults, or transport metadata.
+
+---
+
 ### 109. Path Ownership Is Segment-Aware and Platform-Aware
 
 **Lesson**: Raw prefix checks made /workspace/repo own sibling /workspace/repository, while unconditional lowercase prompt keys merged distinct files on case-sensitive systems.

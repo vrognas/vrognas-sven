@@ -61,3 +61,4 @@
 - Multi-root views retain their live owner for panel/unowned focus; first-repository fallback is initialization only.
 - Preserve generic SVN error codes before formatting stderr; prefer errors over warnings.
 - Expected SVN absence uses a structured error code; operational failures never become empty cache results.
+- Process boundaries clone caller-owned arguments and options before adding defaults, authentication, or transport metadata.

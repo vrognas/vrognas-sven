@@ -66,6 +66,12 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 
 ## Key Subsystems
 
+### SVN Process Boundary
+
+- `Svn.exec()` and `execBuffer()` treat caller arguments and options as
+  immutable. `executeProcess()` owns local copies for cwd, authentication, and
+  non-interactive flags.
+
 ### Blame System
 
 Per-file blame tracking with:

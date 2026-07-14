@@ -299,9 +299,12 @@ export class Svn {
    */
   private async executeProcess(
     cwd: string,
-    args: string[],
-    options: ICpOptions = {}
+    inputArgs: string[],
+    inputOptions: ICpOptions = {}
   ): Promise<RawProcessResult> {
+    const args = [...inputArgs];
+    const options = { ...inputOptions };
+
     if (cwd) {
       this.lastCwd = cwd;
       options.cwd = cwd;
@@ -575,9 +578,8 @@ export class Svn {
     args: string[],
     options: ICpOptions = {}
   ): Promise<IExecutionResult> {
-    // Determine encoding before executeProcess modifies args
+    // Determine output encoding without mutating caller options.
     let encoding: string | undefined | null = options.encoding;
-    delete options.encoding;
 
     // SVN with '--xml' always return 'UTF-8', and jschardet detects this encoding: 'TIS-620'
     if (args.includes("--xml")) {
