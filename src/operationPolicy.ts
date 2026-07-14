@@ -12,43 +12,35 @@ export type OperationPolicy = Readonly<{
   suppressWatcherWhileRunning: boolean;
   refreshOnFailure: boolean;
 }>;
-
 const policy = (
   refresh: OperationRefresh,
   overrides: Partial<Omit<OperationPolicy, "refresh">> = {}
-): OperationPolicy =>
-  Object.freeze({
-    refresh,
-    showProgress: true,
-    invalidatesBase: false,
-    fetchLockStatus: false,
-    suppressWatcherWhileRunning: false,
-    refreshOnFailure: false,
-    ...overrides
-  });
+): OperationPolicy => ({
+  refresh,
+  showProgress: true,
+  invalidatesBase: false,
+  fetchLockStatus: false,
+  suppressWatcherWhileRunning: false,
+  refreshOnFailure: false,
+  ...overrides
+});
 
 const BACKGROUND_READ = policy("none", { showProgress: false });
 const READ = policy("none");
 const NORMAL = policy("normal");
-const BASE_MUTATION = policy("normal", { invalidatesBase: true });
-const BULK_BASE_MUTATION = policy("normal", {
-  invalidatesBase: true,
-  suppressWatcherWhileRunning: true
-});
-const FORCE = policy("force", { invalidatesBase: true });
-const UPDATE = policy("force", {
-  invalidatesBase: true,
-  suppressWatcherWhileRunning: true
-});
+const BASE = { invalidatesBase: true } as const;
+const BULK_BASE = { ...BASE, suppressWatcherWhileRunning: true } as const;
+const BASE_MUTATION = policy("normal", BASE);
+const BULK_BASE_MUTATION = policy("normal", BULK_BASE);
+const FORCE = policy("force", BASE);
+const UPDATE = policy("force", BULK_BASE);
 const LOCK_MUTATION = policy("force", {
   invalidatesBase: true,
   fetchLockStatus: true,
   refreshOnFailure: true
 });
 const REMOTE_STATUS = policy("remote", { fetchLockStatus: true });
-
-/** Exhaustive core behavior. UI-only operation groups stay separate. */
-export const OPERATION_POLICY = Object.freeze({
+export const OPERATION_POLICY = {
   [Operation.Add]: FORCE,
   [Operation.AddChangelist]: FORCE,
   [Operation.Blame]: BACKGROUND_READ,
@@ -77,7 +69,7 @@ export const OPERATION_POLICY = Object.freeze({
   [Operation.Unlock]: LOCK_MUTATION,
   [Operation.Update]: UPDATE,
   [Operation.List]: BACKGROUND_READ
-}) satisfies Record<Operation, OperationPolicy>;
+} as const satisfies Record<Operation, OperationPolicy>;
 
 export const getOperationPolicy = (operation: Operation): OperationPolicy =>
   OPERATION_POLICY[operation];
