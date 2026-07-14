@@ -228,7 +228,7 @@ suite("RepoLogProvider multi-root selection", () => {
     assert.strictEqual(cached.repo, repoA);
   });
 
-  test("shows active editor owner, else first open repository", () => {
+  test("keeps rendered owner when unowned, else initially uses first repository", () => {
     const repoA = {
       branchRoot: { toString: () => "http://server/repo-a/trunk" }
     };
@@ -257,7 +257,8 @@ suite("RepoLogProvider multi-root selection", () => {
       },
       sourceControlManager: {
         repositories: [repoA, repoB],
-        getRepositoryFromUri: () => repoB
+        getRepositoryFromUri: (uri: Uri) =>
+          uri.scheme === "file" ? repoB : null
       }
     };
     const previousEditor = window.activeTextEditor;
@@ -271,6 +272,16 @@ suite("RepoLogProvider multi-root selection", () => {
       );
       assert.strictEqual((active[0] as any).data.revision, "202");
 
+      (window as any).activeTextEditor = {
+        document: { uri: Uri.parse("output:/panel") }
+      };
+      const retained = RepoLogProvider.prototype.getChildren.call(
+        mockThis,
+        undefined
+      );
+      assert.strictEqual((retained[0] as any).data.revision, "202");
+
+      mockThis.selectedOwner = undefined;
       (window as any).activeTextEditor = undefined;
       const fallback = RepoLogProvider.prototype.getChildren.call(
         mockThis,
@@ -492,6 +503,35 @@ suite("RepoLogProvider multi-root selection", () => {
     assert.strictEqual(fire.mock.calls.length, 0);
   });
 
+  test("keeps the rendered owner when the editor has no repository", () => {
+    const repoA = {};
+    const repoB = {};
+    const fire = vi.fn();
+    const handler = (RepoLogProvider.prototype as any).onActiveEditorChanged;
+    const mockThis: any = {
+      selectedOwner: repoB,
+      sourceControlManager: {
+        repositories: [repoA, repoB],
+        getRepositoryFromUri: () => null
+      },
+      _onDidChangeTreeData: { fire }
+    };
+    const previousEditor = window.activeTextEditor;
+
+    try {
+      (window as any).activeTextEditor = undefined;
+      handler.call(mockThis, undefined);
+      handler.call(mockThis, {
+        document: { uri: Uri.parse("output:/panel") }
+      });
+
+      assert.strictEqual(mockThis.selectedOwner, repoB);
+      assert.strictEqual(fire.mock.calls.length, 0);
+    } finally {
+      (window as any).activeTextEditor = previousEditor;
+    }
+  });
+
   test("revision lookup does not reveal after the displayed owner changes", async () => {
     let releasePage!: (entries: ISvnLogEntry[]) => void;
     let markStarted!: () => void;
@@ -583,6 +623,68 @@ suite("RepoLogProvider multi-root selection", () => {
       assert.strictEqual(reveal.mock.calls.length, 0);
     } finally {
       releasePage([]);
+      withProgress.mockImplementation(previousProgress);
+      (window as any).activeTextEditor = previousEditor;
+    }
+  });
+
+  test("revision lookup continues when focus leaves repository editors", async () => {
+    let releaseLookup!: (found: boolean) => void;
+    const lookup = new Promise<boolean>(resolve => {
+      releaseLookup = resolve;
+    });
+    const repoA = {};
+    const repoB = {};
+    const cachedB = {
+      entries: [makeEntry("100")],
+      revisionSet: new Set(["100"]),
+      isComplete: false,
+      repo: repoB,
+      svnTarget: Uri.parse("http://server/repo-b/trunk"),
+      persisted: { commitFrom: "HEAD" }
+    } as ICachedLog;
+    const reveal = vi.fn().mockResolvedValue(undefined);
+    const fire = vi.fn();
+    const mockThis: any = {
+      selectedOwner: repoB,
+      treeView: { reveal },
+      logCache: new Map([[repoB, cachedB]]),
+      itemCaches: new WeakMap(),
+      getCached: (RepoLogProvider.prototype as any).getCached,
+      filterService: { hasActiveFilter: () => false },
+      sourceControlManager: {
+        repositories: [repoA, repoB],
+        getRepositoryFromUri: (uri: Uri) =>
+          uri.fsPath.includes("repo-b") ? repoB : null
+      },
+      _onDidChangeTreeData: { fire }
+    };
+    const handler = (RepoLogProvider.prototype as any).onActiveEditorChanged;
+    const previousEditor = window.activeTextEditor;
+    const withProgress = window.withProgress as any;
+    const previousProgress = withProgress.getMockImplementation();
+    withProgress.mockImplementation(() => lookup);
+
+    try {
+      (window as any).activeTextEditor = {
+        document: { uri: Uri.file("/repo-b/file.ts") }
+      };
+      const navigation = RepoLogProvider.prototype.goToRevision.call(
+        mockThis,
+        50
+      );
+
+      const target = makeEntry("50");
+      cachedB.entries.push(target);
+      cachedB.revisionSet.add("50");
+      (window as any).activeTextEditor = undefined;
+      handler.call(mockThis, undefined);
+      releaseLookup(true);
+      await navigation;
+
+      assert.strictEqual(reveal.mock.calls.length, 1);
+    } finally {
+      releaseLookup(false);
       withProgress.mockImplementation(previousProgress);
       (window as any).activeTextEditor = previousEditor;
     }

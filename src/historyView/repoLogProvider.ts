@@ -70,7 +70,8 @@ function getSelectedRepository(
     SourceControlManager,
     "repositories" | "getRepositoryFromUri"
   >,
-  uri: Uri | undefined = window.activeTextEditor?.document.uri
+  uri: Uri | undefined,
+  selectedOwner?: IRemoteRepository
 ): IRemoteRepository | undefined {
   const repositories = sourceControlManager.repositories;
   const resolve = sourceControlManager.getRepositoryFromUri;
@@ -78,7 +79,11 @@ function getSelectedRepository(
     uri && typeof resolve === "function"
       ? resolve.call(sourceControlManager, uri)
       : undefined;
-  return activeRepository ?? repositories[0];
+  if (activeRepository) return activeRepository;
+
+  // Panels and unowned editors do not replace the rendered repository.
+  const retainedOwner = repositories.find(repo => repo === selectedOwner);
+  return retainedOwner ?? repositories[0];
 }
 
 export class RepoLogProvider
@@ -135,7 +140,11 @@ export class RepoLogProvider
       if (maybeItem.parent) return this.getCached(maybeItem.parent);
     }
 
-    const repository = getSelectedRepository(this.sourceControlManager);
+    const repository = getSelectedRepository(
+      this.sourceControlManager,
+      window.activeTextEditor?.document.uri,
+      this.selectedOwner
+    );
     if (!repository) return undefined;
 
     const cached = this.logCache.get(repository);
@@ -602,7 +611,8 @@ export class RepoLogProvider
   private onActiveEditorChanged(editor?: TextEditor): void {
     const owner = getSelectedRepository(
       this.sourceControlManager,
-      editor?.document.uri
+      editor?.document.uri,
+      this.selectedOwner
     );
     if (owner === this.selectedOwner) return;
     this.selectedOwner = owner;
@@ -1052,7 +1062,11 @@ export class RepoLogProvider
       );
       if (
         this.logCache.get(target.repo) !== target ||
-        getSelectedRepository(this.sourceControlManager) !== target.repo
+        getSelectedRepository(
+          this.sourceControlManager,
+          window.activeTextEditor?.document.uri,
+          this.selectedOwner
+        ) !== target.repo
       ) {
         return;
       }
@@ -1314,7 +1328,12 @@ export class RepoLogProvider
       // Show commits directly at root level (skip repo folder)
       const cached = this.getCached();
       this.selectedOwner =
-        cached?.repo ?? getSelectedRepository(this.sourceControlManager);
+        cached?.repo ??
+        getSelectedRepository(
+          this.sourceControlManager,
+          window.activeTextEditor?.document.uri,
+          this.selectedOwner
+        );
       // Return empty array if no repositories in cache yet
       if (!cached) {
         return [];
