@@ -15,8 +15,9 @@ suite("BlameStatusBar E2E Tests", () => {
   setup(() => {
     sandbox = sinon.createSandbox();
     mockSourceControlManager = sandbox.createStubInstance(SourceControlManager);
-    // Real getter semantics: repositories maps over openRepositories
-    (mockSourceControlManager as any).openRepositories = [];
+    Object.defineProperty(mockSourceControlManager, "repositories", {
+      value: []
+    });
   });
 
   teardown(() => {

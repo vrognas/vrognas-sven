@@ -129,7 +129,7 @@ suite("Blame review fixes", () => {
       isInsideUnversionedOrIgnored: sandbox.stub().returns(undefined)
     };
     const scm = sandbox.createStubInstance(SourceControlManager);
-    (scm as any).openRepositories = [];
+    Object.defineProperty(scm, "repositories", { value: [] });
     scm.getRepositoryFromUri.returns(mockRepo as any);
 
     const statusBar = new BlameStatusBar(scm as any);

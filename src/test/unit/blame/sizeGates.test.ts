@@ -66,7 +66,7 @@ suite("Blame size gates", () => {
     blameStateManager.setBlameEnabled(testUri, true);
     const mockRepo = makeMockRepo(sandbox);
     const scm = sandbox.createStubInstance(SourceControlManager);
-    (scm as any).openRepositories = [];
+    Object.defineProperty(scm, "repositories", { value: [] });
     scm.getRepositoryFromUri.returns(mockRepo as any);
 
     statusBar = new BlameStatusBar(scm as any);
@@ -87,7 +87,7 @@ suite("Blame size gates", () => {
     blameStateManager.setBlameEnabled(testUri, true);
     const mockRepo = makeMockRepo(sandbox);
     const scm = sandbox.createStubInstance(SourceControlManager);
-    (scm as any).openRepositories = [];
+    Object.defineProperty(scm, "repositories", { value: [] });
     scm.getRepositoryFromUri.returns(mockRepo as any);
 
     statusBar = new BlameStatusBar(scm as any);
@@ -108,7 +108,7 @@ suite("Blame size gates", () => {
     blameStateManager.setBlameEnabled(testUri, true);
     const mockRepo = makeMockRepo(sandbox);
     const scm = sandbox.createStubInstance(SourceControlManager);
-    (scm as any).openRepositories = [];
+    Object.defineProperty(scm, "repositories", { value: [] });
     scm.getRepositoryFromUri.returns(mockRepo as any);
 
     statusBar = new BlameStatusBar(scm as any);
@@ -135,7 +135,7 @@ suite("Blame size gates", () => {
     blameStateManager.setBlameEnabled(testUri, true);
     const mockRepo = makeMockRepo(sandbox);
     const scm = sandbox.createStubInstance(SourceControlManager);
-    (scm as any).openRepositories = [];
+    Object.defineProperty(scm, "repositories", { value: [] });
     scm.getRepositoryFromUri.returns(mockRepo as any);
 
     statusBar = new BlameStatusBar(scm as any);

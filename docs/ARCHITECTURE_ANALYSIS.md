@@ -164,6 +164,11 @@ Per-file blame tracking with:
 
 ### Lifecycle and Ownership
 
+- `RepositoryRegistry` owns live handles, exclusions, hint compatibility, and
+  deepest-root resolution. Status lookup is exclusion-aware; URI ownership is
+  pure descendant matching so opened or parent-owned externals remain visible.
+  `SourceControlManager` retains discovery, topology fencing, events, and close
+  sequencing.
 - `IOpenRepository.dispose()` is the sole repository close path. It is
   idempotent and owns manager removal, excluded-path cleanup, repository
   disposal, and the close event. Workspace-folder removal closes every opened

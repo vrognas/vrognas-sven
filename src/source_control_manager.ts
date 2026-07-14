@@ -24,6 +24,7 @@ import { readdir, stat } from "./fs";
 import { configuration } from "./helpers/configuration";
 import { RemoteRepository } from "./remoteRepository";
 import { Repository } from "./repository";
+import { RepositoryRegistry } from "./repositoryRegistry";
 import { Svn, svnErrorCodes } from "./svn";
 import SvnError from "./svnError";
 import { logError } from "./util/errorLogger";
@@ -59,7 +60,7 @@ export class SourceControlManager implements IDisposable {
   public readonly onDidChangeStatusRepository: Event<Repository> =
     this._onDidChangeStatusRepository.event;
 
-  public openRepositories: IOpenRepository[] = [];
+  private readonly repositoryRegistry = new RepositoryRegistry();
   private disposables: Disposable[] = [];
   private possibleSvnRepositoryPaths = new Map<string, number>();
   private pendingOpenPaths = new Set<string>();
@@ -67,8 +68,6 @@ export class SourceControlManager implements IDisposable {
   private topologyGeneration = 0;
   private ignoreList: string[] = [];
   private maxDepth: number = 0;
-  private excludedPathsCache = new Map<string, Set<string>>(); // Phase 15 perf fix
-
   private configurationChangeDisposable: Disposable;
 
   private _onDidChangeState = new EventEmitter<State>();
@@ -94,8 +93,12 @@ export class SourceControlManager implements IDisposable {
     ) as unknown as Promise<void>;
   }
 
+  get openRepositories(): readonly IOpenRepository[] {
+    return this.repositoryRegistry.openRepositories;
+  }
+
   get repositories(): Repository[] {
-    return this.openRepositories.map(r => r.repository);
+    return this.repositoryRegistry.repositories;
   }
 
   get svn(): Svn {
@@ -130,14 +133,6 @@ export class SourceControlManager implements IDisposable {
     // added later without call-site churn
     manager.enable();
     return Promise.resolve(manager);
-  }
-
-  public openRepositoriesSorted(): IOpenRepository[] {
-    // Sort by path length (First external and ignored over root)
-    return [...this.openRepositories].sort(
-      (a, b) =>
-        b.repository.workspaceRoot.length - a.repository.workspaceRoot.length
-    );
   }
 
   private onDidChangeConfiguration(): void {
@@ -248,8 +243,7 @@ export class SourceControlManager implements IDisposable {
     for (const repository of [...this.openRepositories]) {
       runTeardown("Failed to close SVN repository", () => repository.dispose());
     }
-    this.openRepositories = [];
-    this.excludedPathsCache.clear();
+    this.repositoryRegistry.clear();
 
     this.possibleSvnRepositoryPaths.clear();
     this.pendingOpenPaths.clear();
@@ -420,92 +414,18 @@ export class SourceControlManager implements IDisposable {
   }
 
   public getRepository(hint: unknown): Repository | null {
-    const liveRepository = this.getOpenRepository(hint);
-    if (liveRepository && liveRepository.repository) {
-      return liveRepository.repository;
-    }
-
-    return null;
+    return this.repositoryRegistry.resolveHint(hint)?.repository ?? null;
   }
 
   public getOpenRepository(hint: unknown): IOpenRepository | undefined {
-    if (!hint) {
-      return undefined;
-    }
-
-    if (hint instanceof Repository) {
-      return this.openRepositories.find(r => r.repository === hint);
-    }
-
-    if (
-      typeof hint === "object" &&
-      hint !== null &&
-      "repository" in hint &&
-      hint.repository instanceof Repository
-    ) {
-      const hintWithRepo = hint as { repository: Repository };
-      return this.openRepositories.find(
-        r => r.repository === hintWithRepo.repository
-      );
-    }
-
-    if (typeof hint === "string") {
-      hint = Uri.file(hint);
-    }
-
-    if (hint instanceof Uri) {
-      return this.openRepositoriesSorted().find(liveRepository => {
-        if (
-          !isDescendant(liveRepository.repository.workspaceRoot, hint.fsPath)
-        ) {
-          return false;
-        }
-
-        // Phase 15 perf fix - O(n×m) → O(n×k) with cached Set lookup
-        const excludedPaths = this.excludedPathsCache.get(
-          liveRepository.repository.workspaceRoot
-        );
-        if (excludedPaths) {
-          for (const excluded of excludedPaths) {
-            if (isDescendant(excluded, hint.fsPath)) {
-              return false;
-            }
-          }
-        }
-
-        return true;
-      });
-    }
-
-    for (const liveRepository of this.openRepositories) {
-      const repository = liveRepository.repository;
-
-      if (hint === repository.sourceControl) {
-        return liveRepository;
-      }
-
-      if (hint === repository.changes) {
-        return liveRepository;
-      }
-    }
-
-    return undefined;
+    return this.repositoryRegistry.resolveHint(hint);
   }
 
   public getRepositoryFromUri(uri: Uri): Repository | null {
     // Phase 9.3 perf fix - use path descendant check instead of expensive info() call
     // Previously: Sequential info() SVN commands (network/IO bound) on each repo
     // Now: O(n) path checks only (8% users, changelist ops 50-300ms → <50ms)
-    for (const liveRepository of this.openRepositoriesSorted()) {
-      const repository = liveRepository.repository;
-
-      // Fast path check - descendant path match
-      if (isDescendant(repository.workspaceRoot, uri.fsPath)) {
-        return repository;
-      }
-    }
-
-    return null;
+    return this.repositoryRegistry.resolveDescendantUri(uri);
   }
 
   private open(repository: Repository): void {
@@ -541,7 +461,7 @@ export class SourceControlManager implements IDisposable {
       for (const ign of repository.ignored) {
         excluded.add(ign.resourceUri.fsPath);
       }
-      this.excludedPathsCache.set(repository.workspaceRoot, excluded);
+      this.repositoryRegistry.setExclusions(repository, excluded);
     };
 
     let disposed = false;
@@ -553,10 +473,7 @@ export class SourceControlManager implements IDisposable {
         "Failed to dispose repository listener"
       );
 
-      this.openRepositories = this.openRepositories.filter(
-        e => e !== openRepository
-      );
-      this.excludedPathsCache.delete(repository.workspaceRoot); // Phase 15 perf fix
+      this.repositoryRegistry.remove(openRepository);
       runTeardown("Failed to dispose repository", () => repository.dispose());
       runTeardown("Failed to notify repository close", () =>
         this._onDidCloseRepository.fire(repository)
@@ -578,7 +495,7 @@ export class SourceControlManager implements IDisposable {
       this.scanExternals(repository);
       this.scanIgnored(repository);
 
-      this.openRepositories.push(openRepository);
+      this.repositoryRegistry.add(openRepository);
       this._onDidOpenRepository.fire(repository);
 
       // Prompt walkthrough on first repository open (P0.3)
@@ -589,6 +506,7 @@ export class SourceControlManager implements IDisposable {
       // Cleanup on failure to prevent resource leaks
       // Repository included — onDidOpenRepository didn't fire so dispose closure
       // (which fires onDidCloseRepository) is not appropriate here.
+      this.repositoryRegistry.remove(openRepository);
       const failureDisposables: { dispose(): void }[] = [
         disappearListener,
         ...localDisposables,

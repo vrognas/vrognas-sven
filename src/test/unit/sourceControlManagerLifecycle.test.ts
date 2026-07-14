@@ -33,18 +33,17 @@ suite("SourceControlManager workspace lifecycle", () => {
       workspaceRoot: root.fsPath,
       dispose: sandbox.spy()
     };
+    const registry = (manager as any).repositoryRegistry;
     const handleDispose = sandbox.spy(() => {
       repository.dispose();
-      manager.openRepositories = manager.openRepositories.filter(
-        candidate => candidate !== handle
-      );
+      registry.remove(handle);
       (manager as any)._onDidCloseRepository.fire(repository);
     });
     const handle: IOpenRepository = {
       repository: repository as never,
       dispose: handleDispose
     };
-    manager.openRepositories = [handle];
+    registry.add(handle);
 
     return { manager, repository, handleDispose };
   }
@@ -95,7 +94,7 @@ suite("SourceControlManager workspace lifecycle", () => {
       },
       dispose: nestedDispose
     };
-    manager.openRepositories.push(nested as never);
+    (manager as any).repositoryRegistry.add(nested);
     sandbox.stub(workspace, "workspaceFolders").value([]);
 
     (manager as any).onDidChangeWorkspaceFolders({
@@ -194,7 +193,7 @@ suite("SourceControlManager workspace lifecycle", () => {
     const failedDispose = sandbox.stub().throws(new Error("close failed"));
     const remainingDispose = sandbox.spy();
     const remainingResourceDispose = sandbox.spy();
-    manager.openRepositories = [
+    const openRepositories = [
       {
         repository: { workspaceRoot: "/workspace/failed" },
         dispose: failedDispose
@@ -203,11 +202,15 @@ suite("SourceControlManager workspace lifecycle", () => {
         repository: { workspaceRoot: "/workspace/remaining" },
         dispose: remainingDispose
       }
-    ] as never;
+    ];
+    for (const repository of openRepositories) {
+      (manager as any).repositoryRegistry.add(repository);
+    }
     (manager as any).disposables = [{ dispose: remainingResourceDispose }];
     (manager as any).possibleSvnRepositoryPaths.set("/workspace/pending", 1);
-    (manager as any).excludedPathsCache.set(
-      "/workspace/failed",
+    const registry = (manager as any).repositoryRegistry;
+    registry.setExclusions(
+      manager.openRepositories[0]!.repository,
       new Set(["/workspace/failed/external"])
     );
 
@@ -222,7 +225,7 @@ suite("SourceControlManager workspace lifecycle", () => {
     assert.strictEqual(remainingResourceDispose.callCount, 1);
     assert.strictEqual(manager.openRepositories.length, 0);
     assert.strictEqual((manager as any).possibleSvnRepositoryPaths.size, 0);
-    assert.strictEqual((manager as any).excludedPathsCache.size, 0);
+    assert.strictEqual(registry.exclusions.size, 0);
   });
 
   test("repository close deregisters after its inner dispose throws", () => {
@@ -253,5 +256,65 @@ suite("SourceControlManager workspace lifecycle", () => {
 
     assert.strictEqual(manager.openRepositories.length, 0);
     assert.deepStrictEqual(closed, [repository]);
+  });
+
+  test("repository events observe completed registry transitions", () => {
+    const event = () => ({ dispose: sandbox.spy() });
+    const repository = {
+      workspaceRoot: "/workspace/repository",
+      statusExternal: [],
+      ignored: [],
+      onDidChangeState: event,
+      onDidChangeRepository: event,
+      onDidChangeStatus: event,
+      dispose: sandbox.spy()
+    };
+    const manager = new SourceControlManager(
+      {} as never,
+      { globalState: { get: () => true } } as never
+    );
+    managers.push(manager);
+    const opened: boolean[] = [];
+    const closed: boolean[] = [];
+    manager.onDidOpenRepository(value =>
+      opened.push(manager.repositories.includes(value))
+    );
+    manager.onDidCloseRepository(value =>
+      closed.push(manager.repositories.includes(value))
+    );
+
+    (manager as any).open(repository);
+    const live = manager.openRepositories[0]!;
+    live.dispose();
+    live.dispose();
+
+    assert.deepStrictEqual(opened, [true]);
+    assert.deepStrictEqual(closed, [false]);
+  });
+
+  test("failed open removes provisional registry state", () => {
+    const event = () => ({ dispose: sandbox.spy() });
+    const repository = {
+      workspaceRoot: "/workspace/repository",
+      statusExternal: [{ path: "external" }],
+      ignored: [],
+      onDidChangeState: event,
+      onDidChangeRepository: event,
+      onDidChangeStatus: event,
+      dispose: sandbox.spy()
+    };
+    const manager = new SourceControlManager(
+      {} as never,
+      { globalState: { get: () => true } } as never
+    );
+    managers.push(manager);
+    sandbox.stub(manager as any, "scanExternals").throws(new Error("scan"));
+
+    assert.throws(() => (manager as any).open(repository));
+
+    const registry = (manager as any).repositoryRegistry;
+    assert.strictEqual(registry.openRepositories.length, 0);
+    assert.strictEqual(registry.exclusions.size, 0);
+    assert.strictEqual(repository.dispose.callCount, 1);
   });
 });

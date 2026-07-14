@@ -32,7 +32,7 @@ suite("BlameStatusBar - initial status crawl", () => {
       blame: sandbox.stub().resolves(blame)
     };
     const scm = sandbox.createStubInstance(SourceControlManager);
-    (scm as any).openRepositories = [];
+    Object.defineProperty(scm, "repositories", { value: [] });
     scm.getRepositoryFromUri.returns(repo as any);
 
     statusBar = new BlameStatusBar(scm as any);
@@ -61,7 +61,7 @@ suite("BlameStatusBar - initial status crawl", () => {
       blame: sandbox.stub().resolves(blame)
     };
     const scm = sandbox.createStubInstance(SourceControlManager);
-    (scm as any).openRepositories = [];
+    Object.defineProperty(scm, "repositories", { value: [] });
     scm.getRepository.returns(null);
     scm.getRepositoryFromUri.returns(repo as any);
 

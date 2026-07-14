@@ -5,6 +5,16 @@
 
 ---
 
+### 114. Repository Ownership Needs One Registry, Two Resolvers
+
+**Lesson**: Registration, deepest-root ordering, exclusions, and hint lookup lived in one manager beside discovery. The duplicate URI scans looked interchangeable although status lookup excludes externals and blame ownership must include them.
+
+**Fix**: Extract state and resolution into one registry with explicit exclusion-aware and pure-descendant APIs. Keep discovery, events, and close sequencing in the manager.
+
+**Rule**: Centralize ownership data; preserve distinct lookup semantics at named boundaries.
+
+---
+
 ### 113. Teardown Must Attempt Every Owned Resource
 
 **Lesson**: Repeated cleanup loops needed identical failure isolation. A throw from one listener could otherwise skip later resources and lifecycle notifications.
