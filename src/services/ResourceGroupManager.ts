@@ -2,10 +2,11 @@
 // Copyright (c) 2025-present Viktor Rognas
 // Licensed under MIT License
 
-import { Disposable, SourceControl, Uri } from "vscode";
+import { Uri } from "vscode";
+import type { Disposable, SourceControl } from "vscode";
 import { ISvnResourceGroup, LockStatus, Status } from "../common/types";
 import { Resource } from "../resource";
-import { StatusResult } from "./StatusService";
+import type { StatusResult } from "./StatusService";
 import { StagingService, STAGING_CHANGELIST } from "./stagingService";
 import { normalizePath, toDisposable } from "../util";
 import { matchAll } from "../util/globMatch";
@@ -48,73 +49,8 @@ export type ResourceGroupUpdateData = {
 
 /**
  * Manages VS Code source control resource groups.
- * Extracted from Repository.updateModelState() (lines 463-552).
- *
- * Responsibilities:
- * - Create/dispose resource groups
- * - Update resource states from StatusResult
- * - Manage dynamic changelist groups
- * - Handle group ordering (recreate when needed)
- * - Calculate source control count
- *
- * Does NOT:
- * - Parse SVN status (StatusService concern)
- * - Execute SVN commands (Repository concern)
- * - Emit status events (Repository concern)
  */
-export interface IResourceGroupManager {
-  /**
-   * Update all resource groups from status result
-   */
-  updateGroups(data: ResourceGroupUpdateData): number;
-
-  /**
-   * Find resource by URI across all groups
-   */
-  getResourceFromFile(uri: string | Uri): Resource | undefined;
-
-  /**
-   * Check if a file path is inside an unversioned or ignored FOLDER.
-   * Used when getResourceFromFile() returns undefined.
-   */
-  isInsideUnversionedOrIgnored(filePath: string): Status | undefined;
-
-  /**
-   * Get flat resource map for batch operations (Phase 21.A perf)
-   * Returns map of file paths (as strings) to resources
-   */
-  getResourceMap(): Map<string, Resource>;
-
-  /**
-   * Access to static groups
-   */
-  readonly staged: ISvnResourceGroup;
-  readonly changes: ISvnResourceGroup;
-  readonly conflicts: ISvnResourceGroup;
-  readonly unversioned: ISvnResourceGroup;
-  readonly ignored: ISvnResourceGroup;
-  readonly changelists: ReadonlyMap<string, ISvnResourceGroup>;
-
-  /**
-   * Remote changes group (may be undefined if not enabled)
-   */
-  readonly remoteChanges: ISvnResourceGroup | undefined;
-
-  /**
-   * Staging service for managing staged files
-   */
-  readonly staging: StagingService;
-
-  /**
-   * Dispose all managed groups
-   */
-  dispose(): void;
-}
-
-/**
- * Implementation of resource group manager
- */
-export class ResourceGroupManager implements IResourceGroupManager {
+export class ResourceGroupManager {
   private _staged: ISvnResourceGroup;
   private _changes: ISvnResourceGroup;
   private _conflicts: ISvnResourceGroup;

@@ -25,56 +25,8 @@ export type RemoteChangeServiceOptions = {
 
 /**
  * Service for polling remote SVN changes at configurable intervals.
- * Extracted from Repository (lines 275-318, 387-401).
- *
- * Responsibilities:
- * - Manage polling interval lifecycle
- * - Trigger status checks at configured frequency
- * - Handle config changes (restart with new frequency)
- * - Safe cleanup on dispose (no timer leaks)
- *
- * Does NOT:
- * - Execute SVN commands (Repository concern)
- * - Parse status (StatusService concern)
- * - Update UI (Repository concern)
  */
-export interface IRemoteChangeService {
-  /**
-   * Start polling for remote changes.
-   * Creates interval based on config.checkFrequencySeconds.
-   * Does nothing if frequency is 0 (disabled).
-   */
-  start(): void;
-
-  /**
-   * Stop polling and clear interval.
-   * Safe to call multiple times.
-   */
-  stop(): void;
-
-  /**
-   * Restart polling with current config.
-   * Equivalent to stop() then start().
-   * Useful when config changes.
-   */
-  restart(): void;
-
-  /**
-   * Check if polling is currently active.
-   */
-  readonly isRunning: boolean;
-
-  /**
-   * Dispose service and cleanup all resources.
-   * After disposal, service cannot be restarted.
-   */
-  dispose(): void;
-}
-
-/**
- * Implementation of remote change polling service
- */
-export class RemoteChangeService implements IRemoteChangeService {
+export class RemoteChangeService {
   private interval?: NodeJS.Timeout;
   private disposed: boolean = false;
   private readonly isFocused: () => boolean;

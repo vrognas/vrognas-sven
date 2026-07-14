@@ -5,6 +5,16 @@
 
 ---
 
+### 117. Interfaces Need a Real Boundary
+
+**Lesson**: Three service interfaces duplicated their sole concrete classes in the same files. They added declarations and runtime imports without enabling substitution.
+
+**Fix**: Use the concrete classes directly and mark type-only dependencies explicitly.
+
+**Rule**: Add an interface when multiple implementations or a consumed boundary exists, not as a class shadow.
+
+---
+
 ### 116. A Map Can Own Both Cache Values and LRU Order
 
 **Lesson**: Blame kept a second map plus a monotonic counter solely to find the least-recently-used key, making eviction O(n) and duplicating lifecycle cleanup.

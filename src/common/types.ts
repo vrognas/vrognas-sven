@@ -2,11 +2,15 @@
 // Copyright (c) 2025-present Viktor Rognas
 // Licensed under MIT License
 
-import { SpawnOptions } from "child_process";
-import { CancellationToken } from "vscode";
-import { Disposable, SourceControlResourceGroup, Uri } from "vscode";
-import { Repository } from "../repository";
-import { Resource } from "../resource";
+import type { SpawnOptions } from "child_process";
+import type {
+  CancellationToken,
+  Disposable,
+  SourceControlResourceGroup,
+  Uri
+} from "vscode";
+import type { Repository } from "../repository";
+import type { Resource } from "../resource";
 
 export interface IBranchItem {
   name: string;

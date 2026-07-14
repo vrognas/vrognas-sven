@@ -65,3 +65,4 @@
 - Preserve generic SVN error codes before formatting stderr; prefer errors over warnings.
 - Expected SVN absence uses a structured error code; operational failures never become empty cache results.
 - Process boundaries clone caller-owned arguments and options before adding defaults, authentication, or transport metadata.
+- Do not mirror a sole concrete service with a same-file interface; add one only for multiple implementations or a consumed boundary.

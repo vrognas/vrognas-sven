@@ -3,11 +3,11 @@
 // Licensed under MIT License
 
 import { Uri } from "vscode";
-import { ISvnInfo, ISvnLogEntry } from "./common/types";
-import { IHistoryFilter } from "./historyView/historyFilter";
+import type { ISvnInfo, ISvnLogEntry } from "./common/types";
+import type { IHistoryFilter } from "./historyView/historyFilter";
 import { PathNormalizer } from "./pathNormalizer";
-import { Svn } from "./svn";
-import { Repository as BaseRepository } from "./svnRepository";
+import type { Svn } from "./svn";
+import type { Repository as BaseRepository } from "./svnRepository";
 
 export interface IRemoteRepository {
   branchRoot: Uri;

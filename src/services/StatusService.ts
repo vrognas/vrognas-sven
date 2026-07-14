@@ -2,7 +2,8 @@
 // Copyright (c) 2025-present Viktor Rognas
 // Licensed under MIT License
 
-import { Disposable, Uri, workspace } from "vscode";
+import { Uri, workspace } from "vscode";
+import type { Disposable } from "vscode";
 import {
   IFileStatus,
   LockStatus,
@@ -13,7 +14,7 @@ import {
 import { configuration } from "../helpers/configuration";
 import { stat } from "../fs";
 import { Resource } from "../resource";
-import { Repository as BaseRepository } from "../svnRepository";
+import type { Repository as BaseRepository } from "../svnRepository";
 import { isDescendant } from "../util";
 import { chunkArray } from "../util/batchOperations";
 import { matchAll } from "../util/globMatch";
@@ -64,35 +65,9 @@ type StatusConfig = {
 };
 
 /**
- * Service responsible for status parsing and resource categorization.
- * Extracts logic from Repository.updateModelState() (lines 451-711).
- *
- * Responsibilities:
- * - Execute SVN status command
- * - Parse status results
- * - Categorize resources into groups
- * - Apply filtering rules (ignore patterns, exclusions)
- * - Handle externals and remote changes
- *
- * Does NOT:
- * - Manage VS Code resource groups (UI concern)
- * - Emit events (Repository concern)
- * - Update status bar (UI concern)
- * - Handle authentication (Repository concern)
+ * Parses and categorizes repository status.
  */
-export interface IStatusService {
-  /**
-   * Update repository status and categorize resources
-   * @param options Options including whether to check remote changes
-   * @returns Categorized resources and metadata
-   */
-  updateStatus(options: StatusUpdateOptions): Promise<StatusResult>;
-}
-
-/**
- * Implementation of status service
- */
-export class StatusService implements IStatusService {
+export class StatusService {
   private _configCache: StatusConfig | undefined;
   private readonly _configChangeDisposable: Disposable;
 

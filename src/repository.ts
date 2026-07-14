@@ -92,11 +92,11 @@ import { configuration } from "./helpers/configuration";
 import OperationsImpl from "./operationsImpl";
 import { PathNormalizer } from "./pathNormalizer";
 import { parseStatusXml } from "./parser/statusParser";
-import { IRemoteRepository } from "./remoteRepository";
+import type { IRemoteRepository } from "./remoteRepository";
 import { Resource } from "./resource";
 import { StatusBarCommands } from "./statusbar/statusBarCommands";
 import { svnErrorCodes } from "./svn";
-import { Repository as BaseRepository } from "./svnRepository";
+import type { Repository as BaseRepository } from "./svnRepository";
 import { toSvnUri } from "./uri";
 import {
   BLAME_INVALIDATING_OPERATIONS,
@@ -116,7 +116,7 @@ import {
 } from "./util";
 import { logError } from "./util/errorLogger";
 import { match } from "./util/globMatch";
-import { IHistoryFilter } from "./historyView/historyFilter";
+import type { IHistoryFilter } from "./historyView/historyFilter";
 import { RepositoryFilesWatcher } from "./watchers/repositoryFilesWatcher";
 
 function ownsPath(workspaceRoot: string, filePath: string): boolean {
