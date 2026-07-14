@@ -2,14 +2,16 @@
 // Copyright (c) 2025-present Viktor Rognas
 // Licensed under MIT License
 
-import { QuickPickItem } from "vscode";
-import { IBranchItem } from "../common/types";
-import { ISvnListItem } from "../common/types";
+import type { QuickPickItem } from "vscode";
+import type { IBranchItem, ISvnListItem } from "../common/types";
 import { memoize } from "../decorators";
-import { getBranchName } from "../helpers/branch";
+import { getBranchName } from "../helpers/branchName";
 
 export default class FolderItem implements QuickPickItem {
-  constructor(protected dir: ISvnListItem, protected parent?: string) {}
+  constructor(
+    protected dir: ISvnListItem,
+    protected parent?: string
+  ) {}
 
   get label(): string {
     if (this.branch) {

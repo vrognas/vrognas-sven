@@ -3,40 +3,16 @@
 // Licensed under MIT License
 
 import { ProgressLocation, window } from "vscode";
-import { IBranchItem, SvnKindType } from "../common/types";
+import { SvnKindType } from "../common/types";
+import type { IBranchItem } from "../common/types";
 import FolderItem from "../quickPickItems/folderItem";
 import NewFolderItem from "../quickPickItems/newFolderItem";
 import ParentFolderItem from "../quickPickItems/parentFolderItem";
-import { Repository } from "../repository";
+import type { Repository } from "../repository";
+import { getBranchName } from "./branchName";
 import { configuration } from "./configuration";
 
-export function getBranchName(folder: string): IBranchItem | undefined {
-  const confs = [
-    "layout.trunkRegex",
-    "layout.branchesRegex",
-    "layout.tagsRegex"
-  ];
-
-  for (const conf of confs) {
-    const layout = configuration.get<string>(conf);
-    if (!layout) {
-      continue;
-    }
-    const group = configuration.get<number>(`${conf}Name`, 1) + 2;
-
-    const regex = new RegExp(`(^|/)(${layout})$`);
-
-    const matches = folder.match(regex);
-    if (matches && matches[2] && matches[group]) {
-      return {
-        name: matches[group],
-        path: matches[2]
-      };
-    }
-  }
-
-  return;
-}
+export { getBranchName };
 
 export async function selectBranch(
   repository: Repository,

@@ -67,6 +67,10 @@ Services expose concrete classes until a second implementation or consumed
 boundary requires an interface. Type-only dependencies stay erased to reduce
 runtime coupling.
 
+Branch-name parsing lives in a dependency-light helper below branch workflows
+and quick-pick items. The workflow module re-exports it for compatibility
+without recreating the UI import cycle.
+
 Property reads use one raw-text XML parser profile. It preserves outer and
 multiline text, decodes XML/base64 values, accepts rooted/root-stripped shapes,
 and retains empty-property presence. Recursive `propget` absolute targets are

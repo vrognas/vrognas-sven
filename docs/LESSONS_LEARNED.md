@@ -5,6 +5,16 @@
 
 ---
 
+### 118. Shared Pure Logic Belongs Below Its Consumers
+
+**Lesson**: `FolderItem` imported branch-name logic from a workflow module that also imported `FolderItem`, creating a runtime cycle.
+
+**Fix**: Move the pure helper to a dependency-light leaf and re-export it from the old module for API compatibility.
+
+**Rule**: When two UI modules share pure logic, place it below both; keep compatibility at the former entry point.
+
+---
+
 ### 117. Interfaces Need a Real Boundary
 
 **Lesson**: Three service interfaces duplicated their sole concrete classes in the same files. They added declarations and runtime imports without enabling substitution.

@@ -66,3 +66,4 @@
 - Expected SVN absence uses a structured error code; operational failures never become empty cache results.
 - Process boundaries clone caller-owned arguments and options before adding defaults, authentication, or transport metadata.
 - Do not mirror a sole concrete service with a same-file interface; add one only for multiple implementations or a consumed boundary.
+- Shared pure helpers sit below all consumers; preserve old imports with a re-export, not a runtime cycle.
