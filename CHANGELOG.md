@@ -7,6 +7,17 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.105] - 2026-07-14
+
+Fix error propagation, multi-root selection, and lifecycle races.
+
+### Fixed
+
+- **Missing historical files render as an empty diff side.** Buffered SVN failures retain unclassified error codes, including `E160013` and `E200009`.
+- **Repository history survives panel focus.** Output, SCM, Settings, and unowned editors retain the live rendered repository; owned editors still switch it.
+- **Credential invalidation cannot refill a stale TTL cache.** New readers detach from invalidated in-flight reads, and generation checks fence stale publication without deadlocking queued writes.
+- **Manager teardown completes after individual failures.** Repository ownership, listeners, caches, close events, and remaining resources clean up independently.
+
 ## [0.2.104] - 2026-07-14
 
 Fix shared-state ownership and teardown regressions.

@@ -1,6 +1,6 @@
 # SVN Extension Architecture
 
-**Version**: 0.2.104
+**Version**: 0.2.105
 **Updated**: 2026-07-14
 
 ---
@@ -13,7 +13,7 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 
 - ~34,300 source lines (non-test src/\*_/_.ts)
 - 104 contributed commands, 80 settings
-- 2172 tests
+- 2180 tests
 - Targets: vscode ^1.109.0, positron ^2026.04.0
 
 ---
@@ -146,6 +146,8 @@ Per-file blame tracking with:
   idempotent and owns manager removal, excluded-path cleanup, repository
   disposal, and the close event. Workspace-folder removal closes every opened
   repository beneath the removed root using path-aware descendant checks.
+  Listener and repository failures are logged independently; deregistration,
+  close notification, remaining repositories, and manager resources still run.
   Removed handles close before replacement roots are evaluated. Async discovery
   checks manager liveness and workspace topology after each await; late opened
   base repositories clear their caches instead of registering. Debounced scans
@@ -156,11 +158,17 @@ Per-file blame tracking with:
   one scope and releases them in `finally` on success, failure, timeout, or
   cancellation. Buffered success stays binary; only failure construction
   decodes stdout, and repository `cat` delegates to that single error policy.
+  Auth and curated codes retain priority, then the first generic SVN error (or
+  warning when no error exists) is preserved for filesystem classification.
 - Extension-stored credentials use one `CredentialStore` per `SecretStorage`;
   reads deduplicate and writes serialize by server key across repositories.
+  Per-key generations detach invalidated reads and fence cache/write publication
+  without forcing stale promises through writer-dependent retry paths.
 - The flat repository-history view selects the active editor's owner, falls
-  back to the first opened repository, keys caches by local repository identity,
-  and retains every interactive or synthetic item's provenance in a `WeakMap`.
+  back to the live rendered owner for panels/unowned editors, then uses the
+  first opened repository only for initialization. It keys caches by local
+  repository identity and retains every interactive or synthetic item's
+  provenance in a `WeakMap`.
   Cache reuse also requires the current remote target URL, commit IDs include
   local owner identity, and async navigation revalidates the displayed owner.
   Owner changes invalidate the root; same-owner tab switches do not. Hidden

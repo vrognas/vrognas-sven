@@ -1,7 +1,17 @@
 # Lessons Learned
 
-**Version**: 0.2.104
+**Version**: 0.2.105
 **Updated**: 2026-07-14
+
+---
+
+### 105. Invalidation Must Not Make an Old Read Wait on Its Writer
+
+**Lesson**: Retrying an invalidated credential read inside its own promise looked stronger than merely blocking its cache write. It deadlocked when a queued save already awaited that promise: the read retried through `load()`, `load()` awaited the save, and the save awaited the read.
+
+**Fix**: Tag reads by key generation, detach them on invalidation, and conditionally publish only when the generation still matches. Existing waiters may finish once with their original result; later callers start or join a fresh read.
+
+**Rule**: Cache invalidation fences publication and future joining, not old-promise control flow. Never recursively retry a stale read when serialized writers may await it.
 
 ---
 
