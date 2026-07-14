@@ -201,7 +201,7 @@ function getSvnErrorCode(stderr: string): string | undefined {
     }
   }
 
-  return void 0;
+  return stderr.match(/\b([EW]\d{6})\b/)?.[1];
 }
 
 export function cpErrorHandler(

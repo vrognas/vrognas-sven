@@ -65,6 +65,21 @@ suite("Svn process lifecycle", () => {
     );
   });
 
+  test("execBuffer preserves unclassified SVN error codes", async () => {
+    for (const code of ["E160013", "E200009"]) {
+      emitResult(1, "", "svn: " + code + ": cat target not found");
+
+      await assert.rejects(
+        svn.execBuffer("/repo", ["cat", "missing.txt"], { log: false }),
+        (error: unknown) => {
+          assert.ok(error instanceof SvnError);
+          assert.strictEqual(error.svnErrorCode, code);
+          return true;
+        }
+      );
+    }
+  });
+
   test("successful execBuffer does not decode stdout", async () => {
     const payload = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
     const toStringSpy = sinon.spy(Buffer.prototype, "toString");
