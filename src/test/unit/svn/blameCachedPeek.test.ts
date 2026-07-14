@@ -1,4 +1,6 @@
 import * as assert from "assert";
+import { vi } from "vitest";
+import * as util from "../../../util";
 import { makeFakeSvnRepo, BLAME_XML } from "./helpers/fakeSvnRepository";
 
 suite("svnRepository.blameCached / getInfoCached (lock-free peeks)", () => {
@@ -60,6 +62,36 @@ suite("svnRepository.blameCached / getInfoCached (lock-free peeks)", () => {
       undefined,
       "cold info peek is a miss"
     );
+  });
+
+  test("getInfo cache preserves case on case-sensitive platforms", async () => {
+    const normalize = vi
+      .spyOn(util, "normalizePath")
+      .mockImplementation(file => file.replace(/[\\/]/g, "/"));
+    try {
+      const { repo } = await makeFakeSvnRepo();
+      delete (repo as Record<string, unknown>).getInfo;
+
+      let execCount = 0;
+      repo.exec = async (args: string[]) => {
+        execCount++;
+        const revision = args.at(-1)?.includes("A.ts") ? "10" : "20";
+        return {
+          stdout: `<?xml version="1.0"?><info><entry revision="${revision}"><url>u</url><relative-url>^/f</relative-url><repository><root>r</root><uuid>x</uuid></repository><wc-info><wcroot-abspath>/w</wcroot-abspath></wc-info></entry></info>`
+        };
+      };
+
+      const upper = await repo.getInfo("/wc/A.ts");
+      const lower = await repo.getInfo("/wc/a.ts");
+
+      assert.strictEqual(execCount, 2);
+      assert.strictEqual(upper.revision, "10");
+      assert.strictEqual(lower.revision, "20");
+      assert.strictEqual(repo.getInfoCached("/wc/A.ts")?.revision, "10");
+      assert.strictEqual(repo.getInfoCached("/wc/a.ts")?.revision, "20");
+    } finally {
+      normalize.mockRestore();
+    }
   });
 
   // Sanity: the fake still parses blame XML (guards the helper).

@@ -39,6 +39,7 @@
 - Coalesce active renders per repository; keep repositories concurrent and URI/editor timers lossless.
 - Message-dependent render caches track exact scoped revision dependencies; do not use a global or repo-wide persistent epoch.
 - Lock-free cache peeks must use the fully resolved canonical key; unresolved BASE is a miss.
+- Filesystem cache keys preserve platform case semantics; fetch, peek, and invalidation share one key builder.
 - BASE cache generations start before async info resolution and fence every info/namespace/result write; clearing mid-resolution forces a live retry, while disposal aborts reads and downstream status/topology work.
 - URI-scoped blame consumers use descendant ownership resolution; exclusion-aware status lookup hides svn:externals.
 - Oversized quadratic diffs: dense LCS, dense-compatible linear-space LCS, bounded exact low-edit band, resource-budgeted exact match-sparse LCS, then non-crossing anchors; exact sparse context maps internal rewrites, while one-sided edges stay conservative.

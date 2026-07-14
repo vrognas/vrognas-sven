@@ -700,9 +700,13 @@ export class Repository {
     return unwrap(this._info);
   }
 
+  private infoCacheKey(file: string = "", revision?: string): string {
+    const normalizedFile = file ? normalizePath(file) : "";
+    return revision ? `${normalizedFile}@${revision}` : normalizedFile;
+  }
+
   public resetInfoCache(file: string = ""): void {
-    const cacheKey = file ? fixPathSeparator(file).toLowerCase() : "";
-    this._infoCache.delete(cacheKey);
+    this._infoCache.delete(this.infoCacheKey(file));
     this._infoGeneration++;
   }
 
@@ -757,10 +761,7 @@ export class Repository {
     // Fast-path cache check OUTSIDE @sequentialize so concurrent callers for
     // a path that's already cached don't queue behind an unrelated in-flight
     // info fetch. Cache miss falls through to the sequentialized fetch.
-    const normalizedFile = file ? fixPathSeparator(file).toLowerCase() : "";
-    const cacheKey = revision
-      ? `${normalizedFile}@${revision}`
-      : normalizedFile;
+    const cacheKey = this.infoCacheKey(file, revision);
 
     if (!skipCache && this._infoCache.has(cacheKey)) {
       const cached = this._infoCache.get(cacheKey);
@@ -786,10 +787,7 @@ export class Repository {
     file: string = "",
     revision?: string
   ): ISvnInfo | undefined {
-    const normalizedFile = file ? fixPathSeparator(file).toLowerCase() : "";
-    const cacheKey = revision
-      ? `${normalizedFile}@${revision}`
-      : normalizedFile;
+    const cacheKey = this.infoCacheKey(file, revision);
     const cached = this._infoCache.get(cacheKey);
     return cached === null || cached === undefined ? undefined : cached;
   }

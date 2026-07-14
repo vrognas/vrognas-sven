@@ -5,6 +5,16 @@
 
 ---
 
+### 106. Cache Keys Must Preserve Filesystem Case Semantics
+
+**Lesson**: Info fetch, peek, and invalidation independently lowercased paths. That matched Windows but merged distinct `A.ts` and `a.ts` entries on case-sensitive filesystems, allowing a warm hit to return the other file's metadata.
+
+**Fix**: Build all info-cache keys through one platform-aware normalizer shared by fetch, peek, and invalidation.
+
+**Rule**: Filesystem cache keys follow platform case rules. Every access path uses the same key builder.
+
+---
+
 ### 105. Invalidation Must Not Make an Old Read Wait on Its Writer
 
 **Lesson**: Retrying an invalidated credential read inside its own promise looked stronger than merely blocking its cache write. It deadlocked when a queued save already awaited that promise: the read retried through `load()`, `load()` awaited the save, and the save awaited the read.
