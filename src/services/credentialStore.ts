@@ -7,6 +7,11 @@ type CacheEntry = {
   readonly expiry: number;
 };
 
+type ReadEntry = {
+  readonly generation: number;
+  readonly promise: Promise<IStoredAuth[]>;
+};
+
 /** Shared SecretStorage access, serialized per server credential key. */
 export class CredentialStore {
   private static readonly instances = new WeakMap<
@@ -14,8 +19,9 @@ export class CredentialStore {
     CredentialStore
   >();
   private readonly cache = new Map<string, CacheEntry>();
-  private readonly reads = new Map<string, Promise<IStoredAuth[]>>();
+  private readonly reads = new Map<string, ReadEntry>();
   private readonly writes = new Map<string, Promise<void>>();
+  private readonly generations = new Map<string, number>();
 
   static for(secrets: SecretStorage): CredentialStore {
     let store = this.instances.get(secrets);
@@ -61,25 +67,33 @@ export class CredentialStore {
     }
   }
 
+  private generation(key: string): number {
+    return this.generations.get(key) ?? 0;
+  }
+
   async load(key: string): Promise<IStoredAuth[]> {
     await this.waitForWrite(key);
     const cached = this.cache.get(key);
     if (cached && Date.now() < cached.expiry) {
       return cached.accounts.map(account => ({ ...account }));
     }
+    const generation = this.generation(key);
     const current = this.reads.get(key);
-    if (current) {
-      return current.then(accounts =>
+    if (current?.generation === generation) {
+      return current.promise.then(accounts =>
         accounts.map(account => ({ ...account }))
       );
     }
+    if (current) this.reads.delete(key);
 
-    const read = this.readUncached(key)
+    const read: Promise<IStoredAuth[]> = this.readUncached(key)
       .then(accounts => {
-        this.cache.set(key, {
-          accounts: accounts.map(account => ({ ...account })),
-          expiry: Date.now() + this.ttlMs
-        });
+        if (this.generation(key) === generation) {
+          this.cache.set(key, {
+            accounts: accounts.map(account => ({ ...account })),
+            expiry: Date.now() + this.ttlMs
+          });
+        }
         return accounts;
       })
       .catch(error => {
@@ -87,9 +101,12 @@ export class CredentialStore {
         return [];
       })
       .finally(() => {
-        if (this.reads.get(key) === read) this.reads.delete(key);
+        if (this.reads.get(key)?.promise === read) this.reads.delete(key);
       });
-    this.reads.set(key, read);
+    const entry: ReadEntry = { generation, promise: read };
+    if (this.generation(key) === generation) {
+      this.reads.set(key, entry);
+    }
     return read;
   }
 
@@ -105,8 +122,9 @@ export class CredentialStore {
   }
 
   saveAccount(key: string, account: IStoredAuth): Promise<void> {
+    const generation = this.generation(key);
     return this.enqueue(key, async () => {
-      await this.reads.get(key)?.catch(() => undefined);
+      await this.reads.get(key)?.promise.catch(() => undefined);
       const accounts = await this.readUncached(key);
       const index = accounts.findIndex(
         value => value.account === account.account
@@ -114,22 +132,26 @@ export class CredentialStore {
       if (index >= 0) accounts[index] = { ...account };
       else accounts.push({ ...account });
       await this.secrets.store(key, JSON.stringify(accounts));
-      this.cache.set(key, {
-        accounts: accounts.map(value => ({ ...value })),
-        expiry: Date.now() + this.ttlMs
-      });
+      if (this.generation(key) === generation) {
+        this.cache.set(key, {
+          accounts: accounts.map(value => ({ ...value })),
+          expiry: Date.now() + this.ttlMs
+        });
+      }
     });
   }
 
   delete(key: string): Promise<void> {
     return this.enqueue(key, async () => {
-      await this.reads.get(key)?.catch(() => undefined);
+      await this.reads.get(key)?.promise.catch(() => undefined);
       await this.secrets.delete(key);
       this.cache.delete(key);
     });
   }
 
   invalidate(key: string): void {
+    this.generations.set(key, this.generation(key) + 1);
     this.cache.delete(key);
+    this.reads.delete(key);
   }
 }

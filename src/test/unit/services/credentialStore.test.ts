@@ -72,4 +72,85 @@ suite("CredentialStore", () => {
 
     assert.deepStrictEqual(await store.load("server"), []);
   });
+
+  test("invalidate fences an in-flight read from the cache", async () => {
+    const staleSecret = JSON.stringify([{ account: "alice", password: "old" }]);
+    const freshSecret = JSON.stringify([{ account: "alice", password: "new" }]);
+    let reads = 0;
+    let resolveFirst: ((value: string | undefined) => void) | undefined;
+    const secrets = {
+      get(): Promise<string | undefined> {
+        reads++;
+        if (reads === 1) {
+          return new Promise(resolve => {
+            resolveFirst = resolve;
+          });
+        }
+        return Promise.resolve(freshSecret);
+      },
+      store: async () => undefined,
+      delete: async () => undefined
+    };
+    const store = new CredentialStore(secrets as never);
+
+    const staleLoad = store.load("server");
+    for (let i = 0; i < 10 && !resolveFirst; i++) {
+      await Promise.resolve();
+    }
+    assert.ok(resolveFirst, "first storage read must be pending");
+    store.invalidate("server");
+    const freshLoad = store.load("server");
+    resolveFirst(staleSecret);
+
+    assert.deepStrictEqual(await staleLoad, [
+      { account: "alice", password: "old" }
+    ]);
+    const expected = [{ account: "alice", password: "new" }];
+    assert.deepStrictEqual(await freshLoad, expected);
+    assert.deepStrictEqual(await store.load("server"), expected);
+    assert.strictEqual(reads, 2);
+  });
+
+  test("invalidate cannot deadlock a save waiting on the old read", async () => {
+    let reads = 0;
+    let resolveFirst: ((value: string | undefined) => void) | undefined;
+    const secrets = {
+      get(): Promise<string | undefined> {
+        reads++;
+        if (reads === 1) {
+          return new Promise(resolve => {
+            resolveFirst = resolve;
+          });
+        }
+        return Promise.resolve("[]");
+      },
+      store: async () => undefined,
+      delete: async () => undefined
+    };
+    const store = new CredentialStore(secrets as never);
+    const pendingLoad = store.load("server");
+    for (let i = 0; i < 10 && !resolveFirst; i++) {
+      await Promise.resolve();
+    }
+    assert.ok(resolveFirst, "first storage read must be pending");
+
+    const pendingSave = store.saveAccount("server", {
+      account: "alice",
+      password: "new"
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    store.invalidate("server");
+    let settled = false;
+    void Promise.all([pendingLoad, pendingSave]).then(() => {
+      settled = true;
+    });
+    resolveFirst("[]");
+    for (let i = 0; i < 20 && !settled; i++) {
+      await Promise.resolve();
+    }
+
+    assert.strictEqual(settled, true);
+    assert.strictEqual(reads, 2);
+  });
 });
