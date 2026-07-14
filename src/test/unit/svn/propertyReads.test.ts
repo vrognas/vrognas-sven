@@ -1,4 +1,5 @@
 import * as assert from "assert";
+import * as path from "path";
 import { Repository as SvnRepository } from "../../../svnRepository";
 import SvnError from "../../../svnError";
 
@@ -25,6 +26,7 @@ suite("svnRepository property read errors", () => {
       await repository.getAllPropertyValues("svn:eol-style"),
       new Map()
     );
+    assert.deepStrictEqual(await repository.getAllIgnorePatterns(), new Map());
   });
 
   test("single and recursive reads propagate operational errors", async () => {
@@ -42,6 +44,7 @@ suite("svnRepository property read errors", () => {
       repository.getAllPropertyValues("svn:eol-style"),
       error => error === failure
     );
+    assert.deepStrictEqual(await repository.getAllIgnorePatterns(), new Map());
   });
 
   test("batched property reads propagate operational errors", async () => {
@@ -54,6 +57,76 @@ suite("svnRepository property read errors", () => {
     await assert.rejects(
       repository.getAllProperties(),
       error => error === failure
+    );
+  });
+
+  test("recursive property APIs share XML commands and parsing", async () => {
+    const calls: string[][] = [];
+    const repository: any = Object.create(SvnRepository.prototype);
+    repository.validatePath = (value: string) => value;
+    repository.exec = async (args: string[]) => {
+      calls.push(args);
+      return {
+        exitCode: 0,
+        stderr: "",
+        stdout: `<properties>
+  <target path="src/file.txt">
+    <property name="svn:needs-lock"/>
+    <property name="svn:eol-style">LF</property>
+    <property name="svn:mime-type">text/plain</property>
+  </target>
+  <target path="build">
+    <property name="svn:ignore">dist\n*.tmp</property>
+  </target>
+</properties>`
+      };
+    };
+
+    assert.deepStrictEqual(
+      await repository.getAllPropertyValues("svn:eol-style"),
+      new Map([["src/file.txt", "LF"]])
+    );
+    const all = await repository.getAllProperties();
+    assert.deepStrictEqual(all.needsLock, new Set(["src/file.txt"]));
+    assert.deepStrictEqual(all.eolStyle, new Map([["src/file.txt", "LF"]]));
+    assert.deepStrictEqual(
+      all.mimeType,
+      new Map([["src/file.txt", "text/plain"]])
+    );
+    assert.deepStrictEqual(
+      await repository.getAllIgnorePatterns(),
+      new Map([["build", ["dist", "*.tmp"]]])
+    );
+    assert.deepStrictEqual(await repository.getPropertyList("src/file.txt"), [
+      "svn:needs-lock",
+      "svn:eol-style",
+      "svn:mime-type",
+      "svn:ignore"
+    ]);
+    assert.deepStrictEqual(calls, [
+      ["propget", "svn:eol-style", "-R", "--xml", "."],
+      ["proplist", "-R", "-v", "--xml", "."],
+      ["propget", "svn:ignore", "-R", "--xml", "."],
+      ["proplist", "--xml", "src/file.txt"]
+    ]);
+  });
+
+  test("recursive propget keeps its relative-path contract", async () => {
+    const workspaceRoot = path.join(path.parse(process.cwd()).root, "wc");
+    const absoluteTarget = path
+      .join(workspaceRoot, "src", "file.txt")
+      .replace(/\\/g, "/");
+    const repository: any = Object.create(SvnRepository.prototype);
+    repository.workspaceRoot = workspaceRoot;
+    repository.exec = async () => ({
+      exitCode: 0,
+      stderr: "",
+      stdout: `<properties><target path="${absoluteTarget}"><property name="svn:eol-style">LF</property></target></properties>`
+    });
+
+    assert.deepStrictEqual(
+      await repository.getAllPropertyValues("svn:eol-style"),
+      new Map([[path.join("src", "file.txt"), "LF"]])
     );
   });
 });

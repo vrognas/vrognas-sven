@@ -58,6 +58,7 @@ import { matchAll } from "./util/globMatch";
 import { LRUCache } from "./util/lruCache";
 import { withCachedInFlight } from "./util/withCachedInFlight";
 import { parseDiffXml } from "./parser/diffParser";
+import { parseSvnPropertiesXml, propertyValues } from "./parser/propertyParser";
 import {
   validateChangelist,
   validateAcceptAction,
@@ -461,31 +462,20 @@ export class Repository {
     name: string
   ): Promise<Map<string, string>> {
     try {
-      const result = await this.exec(["propget", name, "-R", "."]);
-      return this.parsePropertyListOutput(result.stdout);
+      const result = await this.exec(["propget", name, "-R", "--xml", "."]);
+      const values = propertyValues(parseSvnPropertiesXml(result.stdout), name);
+      return new Map(
+        [...values].map(([target, value]) => [
+          path.isAbsolute(fixPathSeparator(target))
+            ? this.relativize(target)
+            : target,
+          value
+        ])
+      );
     } catch (error) {
       if (isMissingPropertyError(error)) return new Map();
       throw error;
     }
-  }
-
-  /**
-   * Parse "path - value" format from propget -R output.
-   */
-  private parsePropertyListOutput(stdout: string): Map<string, string> {
-    const files = new Map<string, string>();
-    for (const line of stdout.split("\n")) {
-      const trimmed = line.trim();
-      if (trimmed && trimmed.includes(" - ")) {
-        const lastDash = trimmed.lastIndexOf(" - ");
-        const path = trimmed.substring(0, lastDash).trim();
-        const value = trimmed.substring(lastDash + 3).trim();
-        if (path && value) {
-          files.set(path, value);
-        }
-      }
-    }
-    return files;
   }
 
   /**
@@ -503,44 +493,13 @@ export class Repository {
     eolStyle: Map<string, string>;
     mimeType: Map<string, string>;
   }> {
-    const needsLock = new Set<string>();
-    const eolStyle = new Map<string, string>();
-    const mimeType = new Map<string, string>();
-
-    const result = await this.exec(["proplist", "-R", "-v", "."]);
-    let currentPath = "";
-    let currentProp = "";
-
-    for (const line of result.stdout.split("\n")) {
-      const pathMatch = line.match(/^Properties on '(.+)':$/);
-      if (pathMatch?.[1]) {
-        currentPath = pathMatch[1];
-        currentProp = "";
-        continue;
-      }
-
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-
-      // Property name lines are indented with 2 spaces, values with 4+
-      if (line.startsWith("    ") && currentProp && currentPath) {
-        // Value line
-        const value = trimmed;
-        if (currentProp === "svn:needs-lock") {
-          needsLock.add(currentPath);
-        } else if (currentProp === "svn:eol-style") {
-          eolStyle.set(currentPath, value);
-        } else if (currentProp === "svn:mime-type") {
-          mimeType.set(currentPath, value);
-        }
-        currentProp = "";
-      } else if (line.startsWith("  ") && !line.startsWith("    ")) {
-        // Property name line
-        currentProp = trimmed;
-      }
-    }
-
-    return { needsLock, eolStyle, mimeType };
+    const result = await this.exec(["proplist", "-R", "-v", "--xml", "."]);
+    const entries = parseSvnPropertiesXml(result.stdout);
+    return {
+      needsLock: new Set(propertyValues(entries, "svn:needs-lock").keys()),
+      eolStyle: propertyValues(entries, "svn:eol-style"),
+      mimeType: propertyValues(entries, "svn:mime-type")
+    };
   }
 
   /**
@@ -2503,54 +2462,15 @@ export class Repository {
     const result = new Map<string, string[]>();
 
     try {
-      const execResult = await this.exec([
-        "propget",
-        "svn:ignore",
-        "-R",
-        "--xml",
-        fixPegRevision(".")
-      ]);
-      const output = execResult.stdout;
-
-      if (!output || output.trim().length === 0) {
-        return result;
-      }
-
-      // Parse XML output format:
-      // <properties>
-      //   <target path="dir1">
-      //     <property name="svn:ignore">pattern1\npattern2</property>
-      //   </target>
-      // </properties>
-      const { XmlParserAdapter } = await import("./parser/xmlParserAdapter");
-      const parsed = XmlParserAdapter.parse(output, {
-        mergeAttrs: true,
-        explicitRoot: false,
-        explicitArray: false,
-        camelcase: true
-      });
-
-      // Handle single target vs multiple targets
-      const targets = parsed?.target
-        ? Array.isArray(parsed.target)
-          ? parsed.target
-          : [parsed.target]
-        : [];
-
-      for (const target of targets) {
-        const targetPath = target?.path || ".";
-        const property = target?.property;
-        if (property) {
-          // Property value contains newline-separated patterns
-          const propValue =
-            typeof property === "string" ? property : property?._ || "";
-          const patterns = propValue
-            .split(/\r?\n/)
-            .map((p: string) => p.trim())
-            .filter((p: string) => p.length > 0);
-          if (patterns.length > 0) {
-            result.set(targetPath, patterns);
-          }
+      for (const [targetPath, value] of await this.getAllPropertyValues(
+        "svn:ignore"
+      )) {
+        const patterns = value
+          .split(/\r?\n/)
+          .map(pattern => pattern.trim())
+          .filter(pattern => pattern.length > 0);
+        if (patterns.length > 0) {
+          result.set(targetPath, patterns);
         }
       }
     } catch (error) {
@@ -2755,16 +2675,8 @@ export class Repository {
   public async getPropertyList(filePath: string): Promise<string[]> {
     const normalized = this.validatePath(filePath);
     try {
-      const result = await this.exec(["proplist", normalized]);
-      const props: string[] = [];
-      // Output format: "Properties on 'file.txt':" followed by property names
-      for (const line of result.stdout.split("\n")) {
-        const trimmed = line.trim();
-        if (trimmed && !trimmed.startsWith("Properties on")) {
-          props.push(trimmed);
-        }
-      }
-      return props;
+      const result = await this.exec(["proplist", "--xml", normalized]);
+      return parseSvnPropertiesXml(result.stdout).map(entry => entry.name);
     } catch {
       return [];
     }

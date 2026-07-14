@@ -63,6 +63,11 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 5. **Adapter**: XML parser abstraction, file watching, URI schemes
 6. **Repository**: Data access abstraction per repo
 
+Property reads use one raw-text XML parser profile. It preserves outer and
+multiline text, decodes XML/base64 values, accepts rooted/root-stripped shapes,
+and retains empty-property presence. Recursive `propget` absolute targets are
+converted back to its public relative-path contract.
+
 ---
 
 ## Key Subsystems

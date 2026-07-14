@@ -36,6 +36,7 @@ interface ParseOptions {
   explicitArray?: boolean;
   explicitRoot?: boolean;
   camelcase?: boolean;
+  preserveText?: boolean;
 }
 
 /**
@@ -94,40 +95,44 @@ export class XmlParserAdapter {
    * SVN result (status refreshes, blames, logs all hit this hot path).
    */
   private static fxpParser?: XMLParser;
-  private static getFxpParser(): XMLParser {
-    if (!this.fxpParser) {
-      this.fxpParser = new XMLParser({
-        ignoreAttributes: false,
-        attributeNamePrefix: "@_",
-        textNodeName: "_",
-        ignoreDeclaration: true,
-        trimValues: true,
-        parseAttributeValue: false,
-        parseTagValue: true,
-        processEntities: false, // XXE protection
-        allowBooleanAttributes: true,
-        cdataPropName: "__cdata", // Handle CDATA sections
-        htmlEntities: true, // Decode HTML entities
-        removeNSPrefix: true, // Remove namespace prefixes
-        numberParseOptions: {
-          hex: false,
-          leadingZeros: false,
-          skipLike: /./ // Don't parse any numbers, keep as strings
-        },
-        stopNodes: [], // Parse all nodes
-        unpairedTags: [], // No unpaired tags expected
-        alwaysCreateTextNode: false,
-        commentPropName: false, // Ignore comments
-        isArray: () => false, // Single elements not wrapped in arrays
-        tagValueProcessor: (_tagName: string, tagValue: string) => tagValue,
-        attributeValueProcessor: (_attrName: string, attrValue: string) =>
-          attrValue,
-        // Disable strict XML validation to match xml2js permissiveness
-        ignorePiTags: true, // Ignore PI tags
-        preserveOrder: false // Don't preserve order
-      });
-    }
-    return this.fxpParser;
+  private static preservedTextParser?: XMLParser;
+  private static getFxpParser(preserveText = false): XMLParser {
+    const cached = preserveText ? this.preservedTextParser : this.fxpParser;
+    if (cached) return cached;
+
+    const parser = new XMLParser({
+      ignoreAttributes: false,
+      attributeNamePrefix: "@_",
+      textNodeName: "_",
+      ignoreDeclaration: true,
+      trimValues: !preserveText,
+      parseAttributeValue: false,
+      parseTagValue: !preserveText,
+      processEntities: false, // XXE protection
+      allowBooleanAttributes: true,
+      cdataPropName: "__cdata", // Handle CDATA sections
+      htmlEntities: true, // Decode HTML entities
+      removeNSPrefix: true, // Remove namespace prefixes
+      numberParseOptions: {
+        hex: false,
+        leadingZeros: false,
+        skipLike: /./ // Don't parse any numbers, keep as strings
+      },
+      stopNodes: [], // Parse all nodes
+      unpairedTags: [], // No unpaired tags expected
+      alwaysCreateTextNode: false,
+      commentPropName: false, // Ignore comments
+      isArray: () => false, // Single elements not wrapped in arrays
+      tagValueProcessor: (_tagName: string, tagValue: string) => tagValue,
+      attributeValueProcessor: (_attrName: string, attrValue: string) =>
+        attrValue,
+      // Disable strict XML validation to match xml2js permissiveness
+      ignorePiTags: true, // Ignore PI tags
+      preserveOrder: false // Don't preserve order
+    });
+    if (preserveText) this.preservedTextParser = parser;
+    else this.fxpParser = parser;
+    return parser;
   }
 
   /**
@@ -274,7 +279,7 @@ export class XmlParserAdapter {
     // Sanitize XML to remove invalid characters
     const sanitizedXml = this.sanitizeXml(xml);
 
-    let result = this.getFxpParser().parse(sanitizedXml);
+    let result = this.getFxpParser(options.preserveText).parse(sanitizedXml);
 
     // Strip root element first if explicitRoot: false (before other transforms)
     if (options.explicitRoot === false) {

@@ -43,6 +43,7 @@
 - Filesystem cache keys preserve platform case semantics; fetch, peek, and invalidation share one key builder.
 - BASE cache generations start before async info resolution and fence every info/namespace/result write; clearing mid-resolution forces a live retry, while disposal aborts reads and downstream status/topology work.
 - One repository registry owns handles, exclusions, and hints; URI-scoped blame uses descendant resolution while status lookup remains exclusion-aware.
+- Property XML parsing preserves raw text, empty presence, entities, and base64; recursive propget normalizes only absolute targets back to relative paths.
 - Oversized quadratic diffs: dense LCS, dense-compatible linear-space LCS, bounded exact low-edit band, resource-budgeted exact match-sparse LCS, then non-crossing anchors; exact sparse context maps internal rewrites, while one-sided edges stay conservative.
 - Diff resource gates count the resource each algorithm consumes: dense storage includes boundary cells; linear-space work counts only real line pairs.
 - Linear-space diffs store the shorter-axis row; transposition must mirror tie direction and swap emitted coordinates.

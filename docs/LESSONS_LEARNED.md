@@ -5,6 +5,16 @@
 
 ---
 
+### 115. Structured CLI Output Still Has Command-Specific Semantics
+
+**Lesson**: Four property readers duplicated indentation/delimiter parsing. XML removed that ambiguity, but live SVN showed recursive `propget --xml` returns absolute targets while its text mode returned relative paths.
+
+**Fix**: Share one fidelity-preserving property XML parser for entities, empty values, multiline text, and base64. Normalize only absolute recursive-propget targets back to the existing relative contract.
+
+**Rule**: Prefer structured output, then verify real command shapes and path semantics before replacing text protocols.
+
+---
+
 ### 114. Repository Ownership Needs One Registry, Two Resolvers
 
 **Lesson**: Registration, deepest-root ordering, exclusions, and hint lookup lived in one manager beside discovery. The duplicate URI scans looked interchangeable although status lookup excludes externals and blame ownership must include them.
