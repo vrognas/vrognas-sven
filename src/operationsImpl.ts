@@ -3,7 +3,7 @@
 // Licensed under MIT License
 
 import { IOperations, Operation } from "./common/types";
-import { isReadOnly } from "./util";
+import { isReadOnly } from "./operationPolicy";
 
 export default class OperationsImpl implements IOperations {
   private operations = new Map<Operation, number>();

@@ -18,7 +18,7 @@ import {
 import { cancelDebounce, debounce } from "../decorators";
 import { classifyBlameError } from "./classifyBlameError";
 import { ISvnBlameLine, Operation, Status } from "../common/types";
-import { BLAME_INVALIDATING_OPERATIONS } from "../util";
+import { BLAME_INVALIDATING_OPERATIONS } from "../operationPolicy";
 import { Repository } from "../repository";
 import { SourceControlManager } from "../source_control_manager";
 import { blameConfiguration } from "./blameConfiguration";

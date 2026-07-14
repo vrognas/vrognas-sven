@@ -45,7 +45,7 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 | Layer    | Files                                                                                 |
 | -------- | ------------------------------------------------------------------------------------- |
 | Entry    | extension.ts, source_control_manager.ts                                               |
-| Core     | repository.ts, svnRepository.ts, svn.ts                                               |
+| Core     | repository.ts, operationPolicy.ts, svnRepository.ts, svn.ts                           |
 | Services | StatusService.ts, ResourceGroupManager.ts, RemoteChangeService.ts, credentialStore.ts |
 | Commands | command.ts (base), commands/\*.ts (73 files)                                          |
 | Parsing  | statusParser.ts, logParser.ts, infoParser.ts, blameParser.ts                          |
@@ -71,6 +71,13 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 - `Svn.exec()` and `execBuffer()` treat caller arguments and options as
   immutable. `executeProcess()` owns local copies for cwd, authentication, and
   non-interactive flags.
+
+### Operation Execution Policy
+
+- `operationPolicy.ts` exhaustively maps every `Operation` to core refresh,
+  progress, BASE invalidation, lock, watcher, and failure-recovery behavior.
+- `Repository.run()` consumes that policy. Per-call external impact remains
+  dynamic, and UI-only operation groups remain local to their views.
 
 ### Blame System
 
@@ -246,7 +253,7 @@ External: vscode, @posit-dev/positron
 1. Clean separation of concerns (services extracted)
 2. Type-safe (strict TypeScript, minimal `any`)
 3. Performance optimized (all P0/P1 fixed)
-4. Comprehensive testing (2172 tests)
+4. Comprehensive testing (2194 tests)
 5. Security hardened (sanitization, stdin passwords)
 6. Multi-repo support (independent operation queues)
 

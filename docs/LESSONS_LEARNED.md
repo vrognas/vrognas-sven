@@ -5,6 +5,16 @@
 
 ---
 
+### 111. Operation Semantics Need One Exhaustive Policy
+
+**Lesson**: Read-only, refresh, progress, BASE invalidation, lock status, watcher suppression, and failure recovery were separate operation lists. Adding or reclassifying one operation could update only some consumers.
+
+**Fix**: Define every `Operation` once in an exhaustive typed policy, derive compatibility sets from it, and keep per-invocation external scope plus UI-only groups separate.
+
+**Rule**: Cross-cutting enum behavior belongs in one exhaustive matrix; dynamic context stays at the call site.
+
+---
+
 ### 110. Process Wrappers Do Not Own Caller Inputs
 
 **Lesson**: SVN execution appended auth flags to the caller's argument array, added cwd to its options, and deleted its encoding. Reusing either object silently changed later commands.

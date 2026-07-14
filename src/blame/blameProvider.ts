@@ -34,11 +34,8 @@ import { logError } from "../util/errorLogger";
 import { classifyBlameError, BlameErrorKind } from "./classifyBlameError";
 import { buildBlameHover } from "./blameHover";
 import { Operation, Status } from "../common/types";
-import {
-  BLAME_INVALIDATING_OPERATIONS,
-  isDescendant,
-  pathEquals
-} from "../util";
+import { BLAME_INVALIDATING_OPERATIONS } from "../operationPolicy";
+import { isDescendant, pathEquals } from "../util";
 import {
   computeLineMapping,
   LineMapping,

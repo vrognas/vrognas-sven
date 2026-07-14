@@ -99,18 +99,19 @@ import { svnErrorCodes } from "./svn";
 import { Repository as BaseRepository } from "./svnRepository";
 import { toSvnUri } from "./uri";
 import {
+  BLAME_INVALIDATING_OPERATIONS,
+  WATCHER_SUPPRESSING_OPERATIONS,
+  getOperationPolicy
+} from "./operationPolicy";
+import {
   anyEvent,
   dispose,
   eventToPromise,
   filterEvent,
-  BLAME_INVALIDATING_OPERATIONS,
-  FORCE_REFRESH_OPERATIONS,
   getSvnDir,
   isDescendant,
-  isReadOnly,
   normalizePath,
   processConcurrently,
-  shouldFetchLockStatus,
   timeout
 } from "./util";
 import { logError } from "./util/errorLogger";
@@ -120,22 +121,6 @@ import { RepositoryFilesWatcher } from "./watchers/repositoryFilesWatcher";
 
 function ownsPath(workspaceRoot: string, filePath: string): boolean {
   return isDescendant(workspaceRoot, filePath);
-}
-
-function shouldShowProgress(operation: Operation): boolean {
-  switch (operation) {
-    case Operation.CurrentBranch:
-    case Operation.Show:
-    case Operation.Info:
-    // Blame and List are background reads fired by cursor movement and
-    // quickdiff stats - flashing the SCM spinner for them reads as
-    // "extension permanently busy"
-    case Operation.Blame:
-    case Operation.List:
-      return false;
-    default:
-      return true;
-  }
 }
 
 /**
@@ -1170,12 +1155,10 @@ export class Repository implements IRemoteRepository {
 
     // Skip watcher during bulk operations to reduce CPU spikes
     // These operations trigger many file changes but refresh when complete
-    if (
-      this.operations.isRunning(Operation.Update) ||
-      this.operations.isRunning(Operation.SwitchBranch) ||
-      this.operations.isRunning(Operation.Merge)
-    ) {
-      return;
+    for (const operation of WATCHER_SUPPRESSING_OPERATIONS) {
+      if (this.operations.isRunning(operation)) {
+        return;
+      }
     }
 
     // Check grace period after force refresh (Update, Commit, etc.)
@@ -2570,6 +2553,7 @@ export class Repository implements IRemoteRepository {
       throw new Error("Repository not initialized");
     }
 
+    const policy = getOperationPolicy(operation);
     const externalImpact = normalizeExternalImpact(
       this.workspaceRoot,
       options.externalImpact
@@ -2584,7 +2568,7 @@ export class Repository implements IRemoteRepository {
       this._onRunOperation.fire(operation);
 
       // Determine forceRefresh BEFORE operation to set grace period early
-      const forceRefresh = FORCE_REFRESH_OPERATIONS.has(operation);
+      const forceRefresh = policy.refresh === "force";
 
       // Set grace period BEFORE operation runs to block file watcher events
       // that fire during .svn directory changes from lock/unlock/commit/etc.
@@ -2652,18 +2636,13 @@ export class Repository implements IRemoteRepository {
         // wiped that fresh entry, forcing a redundant info re-exec on the
         // next getInfo. Also runs before onDidRunOperation fires so
         // subscribers see a clean cache.
-        if (BLAME_INVALIDATING_OPERATIONS.has(operation)) {
+        if (policy.invalidatesBase) {
           clearMutationCaches();
         }
 
-        const checkRemote = operation === Operation.StatusRemote;
+        const checkRemote = policy.refresh === "remote";
 
-        // Only fetch lock status (--show-updates) when needed.
-        // Regular status refreshes (file watcher) stay local-only for speed.
-        // Lock badges refresh during remote polling and after lock/unlock.
-        const fetchLockStatus = shouldFetchLockStatus(operation);
-
-        if (!isReadOnly(operation)) {
+        if (policy.refresh !== "none") {
           // StatusRemote forces the refresh: the poll already gated the
           // decision, so the 1s model cache must not swallow the fetch
           // (it would mark the lock sweep done with zero lock data)
@@ -2674,8 +2653,8 @@ export class Repository implements IRemoteRepository {
             checkRemote,
             forceRefresh ||
               forceExternalMetadataRefresh ||
-              operation === Operation.StatusRemote,
-            fetchLockStatus
+              policy.refresh === "remote",
+            policy.fetchLockStatus
           );
         }
 
@@ -2684,7 +2663,7 @@ export class Repository implements IRemoteRepository {
         // A FAILED commit/update can still have partially mutated the WC -
         // same invalidation as the success path, before the recovery
         // status refresh below
-        if (BLAME_INVALIDATING_OPERATIONS.has(operation)) {
+        if (policy.invalidatesBase) {
           clearMutationCaches();
         }
 
@@ -2692,15 +2671,10 @@ export class Repository implements IRemoteRepository {
         // Refresh normal UI state; topology is captured separately below.
         if (
           externalImpact?.traverseExternals === true ||
-          operation === Operation.Lock ||
-          operation === Operation.Unlock
+          policy.refreshOnFailure
         ) {
           try {
-            await this.updateModelState(
-              false,
-              true,
-              shouldFetchLockStatus(operation)
-            );
+            await this.updateModelState(false, true, policy.fetchLockStatus);
           } catch {
             // Ignore status errors during error handling
           }
@@ -2743,7 +2717,7 @@ export class Repository implements IRemoteRepository {
       }
     };
 
-    return shouldShowProgress(operation)
+    return policy.showProgress
       ? window.withProgress(
           { location: ProgressLocation.SourceControl, cancellable: true },
           run

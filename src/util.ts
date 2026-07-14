@@ -4,8 +4,14 @@
 
 import * as path from "path";
 import { Event, commands } from "vscode";
-import { Operation } from "./common/types";
 import { exists, lstat, readdir, rmdir, unlink } from "./fs";
+
+export {
+  BLAME_INVALIDATING_OPERATIONS,
+  FORCE_REFRESH_OPERATIONS,
+  isReadOnly,
+  shouldFetchLockStatus
+} from "./operationPolicy";
 
 export interface IDisposable {
   dispose(): void;
@@ -233,86 +239,6 @@ export function validateSvnPath(filePath: string): string {
 
 export function timeout(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-export function isReadOnly(operation: Operation): boolean {
-  switch (operation) {
-    case Operation.Blame:
-    case Operation.Changes:
-    case Operation.CurrentBranch:
-    case Operation.Info:
-    case Operation.List:
-    case Operation.Log:
-    case Operation.Patch:
-    case Operation.Show:
-      return true;
-    default:
-      return false;
-  }
-}
-
-/**
- * Operations that modify `.svn/wc.db` and therefore need:
- *   - the watcher grace period set, to suppress reflex svn info/stat/proplist
- *     cascades from .svn lock-file events
- *   - forceRefresh=true on the post-op `updateModelState` so the model is
- *     re-read even if cached.
- *
- * Keep in sync with `isReadOnly` — every operation is in exactly one set
- * (read-only, force-refresh, or neither — neither = bulk ops like
- * SwitchBranch/Merge which handle their own grace via onFSChange skip).
- */
-export const FORCE_REFRESH_OPERATIONS: ReadonlySet<Operation> = new Set([
-  Operation.Commit,
-  Operation.Revert,
-  Operation.Add,
-  Operation.Remove,
-  Operation.Update,
-  Operation.Resolve,
-  Operation.AddChangelist,
-  Operation.RemoveChangelist,
-  Operation.Lock,
-  Operation.Unlock,
-  Operation.Ignore,
-  Operation.PropertyChange,
-  Operation.CleanUp
-]);
-
-/**
- * Operations after which BASE content may differ, so blame caches and
- * blame UI must refresh. Superset of FORCE_REFRESH_OPERATIONS: switch and
- * merge manage their own grace period but still change BASE.
- *
- * The SINGLE source of truth for "what invalidates blame" — consumers:
- *   - Repository.run() clears SvnRepository's blame caches
- *   - BlameProvider drops its version-keyed cache and re-renders
- *   - BlameStatusBar resets its same-line skip and refreshes
- * (SvnRepository.switchBranch/merge/rollbackToRevision also clear
- * directly in their finally blocks as the innermost guarantee.)
- */
-export const BLAME_INVALIDATING_OPERATIONS: ReadonlySet<Operation> = new Set([
-  ...FORCE_REFRESH_OPERATIONS,
-  Operation.SwitchBranch,
-  Operation.Merge,
-  // NewBranch runs `svn copy` then a real `svn switch` of the working copy
-  // (svnRepository.newBranch), so BASE changes just like SwitchBranch.
-  Operation.NewBranch
-]);
-
-/**
- * Whether an operation needs lock status (--show-updates) in its post-op status.
- * Only operations that interact with locks or check remote state need it.
- * Regular status refreshes (file watcher) stay local-only for performance.
- */
-export function shouldFetchLockStatus(operation: Operation | string): boolean {
-  switch (operation) {
-    case Operation.StatusRemote:
-    case Operation.Lock:
-    case Operation.Unlock:
-      return true;
-    default:
-      return false;
-  }
 }
 
 /**
