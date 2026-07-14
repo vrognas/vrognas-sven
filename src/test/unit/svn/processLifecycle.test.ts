@@ -80,6 +80,24 @@ suite("Svn process lifecycle", () => {
     }
   });
 
+  test("execBuffer prioritizes an error after a warning", async () => {
+    emitResult(
+      1,
+      "",
+      "svn: warning: W200005: target not found\n" +
+        "svn: E200009: Could not cat all targets"
+    );
+
+    await assert.rejects(
+      svn.execBuffer("/repo", ["cat", "missing.txt"], { log: false }),
+      (error: unknown) => {
+        assert.ok(error instanceof SvnError);
+        assert.strictEqual(error.svnErrorCode, "E200009");
+        return true;
+      }
+    );
+  });
+
   test("successful execBuffer does not decode stdout", async () => {
     const payload = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
     const toStringSpy = sinon.spy(Buffer.prototype, "toString");
