@@ -29,6 +29,23 @@ suite("svnRepository property read errors", () => {
     assert.deepStrictEqual(await repository.getAllIgnorePatterns(), new Map());
   });
 
+  test("W200017 remains absence when SVN also emits E200000", async () => {
+    const repository = failingRepository(
+      new SvnError({
+        svnErrorCode: "E200000",
+        stderr:
+          "svn: warning: W200017: Property 'svn:ignore' not found\n" +
+          "svn: E200000: A problem occurred; see other errors for details"
+      })
+    );
+
+    assert.strictEqual(await repository.getProperty("svn:ignore", "."), null);
+    assert.deepStrictEqual(
+      await repository.getAllPropertyValues("svn:ignore"),
+      new Map()
+    );
+  });
+
   test("single and recursive reads propagate operational errors", async () => {
     const failure = new SvnError({
       message: "offline",

@@ -70,11 +70,17 @@ import {
 const SVN_PROPERTY_NOT_FOUND = "W200017";
 
 function isMissingPropertyError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const svnError = error as {
+    svnErrorCode?: unknown;
+    stderr?: unknown;
+  };
   return (
-    typeof error === "object" &&
-    error !== null &&
-    (error as { svnErrorCode?: unknown }).svnErrorCode ===
-      SVN_PROPERTY_NOT_FOUND
+    svnError.svnErrorCode === SVN_PROPERTY_NOT_FOUND ||
+    (typeof svnError.stderr === "string" && /\bW200017\b/.test(svnError.stderr))
   );
 }
 

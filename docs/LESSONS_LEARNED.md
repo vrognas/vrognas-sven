@@ -5,6 +5,16 @@
 
 ---
 
+### 119. SVN Diagnostics Can Carry Multiple Codes
+
+**Lesson**: Missing properties emit `W200017` followed by summary `E200000`. Keeping only the preferred error code hid the actionable warning and broke absent-property reads.
+
+**Fix**: Match expected absence against the primary code or exact codes in raw stderr; unrelated failures still propagate.
+
+**Rule**: A preferred SVN code is not the complete diagnostic set.
+
+---
+
 ### 118. Shared Pure Logic Belongs Below Its Consumers
 
 **Lesson**: `FolderItem` imported branch-name logic from a workflow module that also imported `FolderItem`, creating a runtime cycle.
