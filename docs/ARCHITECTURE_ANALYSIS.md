@@ -1,6 +1,6 @@
 # SVN Extension Architecture
 
-**Version**: 0.2.105
+**Version**: 0.2.106
 **Updated**: 2026-07-14
 
 ---
@@ -11,9 +11,9 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 
 **Stats**:
 
-- ~34,300 source lines (non-test src/\*_/_.ts)
-- 104 contributed commands, 80 settings
-- 2180 tests
+- ~35,000 source lines (34,994 nonblank production TypeScript lines)
+- 107 contributed commands, 81 settings
+- 2218 tests
 - Targets: vscode ^1.109.0, positron ^2026.04.0
 
 ---
@@ -35,7 +35,7 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 │  SVN Execution (svn.ts)                         │
 │  Process spawn, encoding, auth management       │
 ├─────────────────────────────────────────────────┤
-│  Command Pattern (command.ts + ~72 subclasses)  │
+│  Command Pattern (command.ts + 76 subclasses)   │
 │  Repository resolution, diff/show infrastructure│
 └─────────────────────────────────────────────────┘
 ```
@@ -45,10 +45,10 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 | Layer    | Files                                                                                 |
 | -------- | ------------------------------------------------------------------------------------- |
 | Entry    | extension.ts, source_control_manager.ts                                               |
-| Core     | repository.ts, operationPolicy.ts, svnRepository.ts, svn.ts                           |
+| Core     | repository.ts, repositoryRegistry.ts, operationPolicy.ts, svnRepository.ts, svn.ts    |
 | Services | StatusService.ts, ResourceGroupManager.ts, RemoteChangeService.ts, credentialStore.ts |
-| Commands | command.ts (base), commands/\*.ts (73 files)                                          |
-| Parsing  | statusParser.ts, logParser.ts, infoParser.ts, blameParser.ts                          |
+| Commands | command.ts (base), commands/\*.ts (80 modules; 76 subclasses)                         |
+| Parsing  | statusParser.ts, logParser.ts, infoParser.ts, blameParser.ts, propertyParser.ts       |
 | Blame    | blameConfiguration.ts, blameStateManager.ts, blameProvider.ts                         |
 | Sparse   | sparse/depthOptions.ts, sparse/sparseOperations.ts, sparseCheckoutProvider.ts         |
 
@@ -56,7 +56,7 @@ VS Code extension for SVN source control with Positron IDE support. Event-driven
 
 ## Design Patterns
 
-1. **Command Pattern**: Base class + ~72 subclasses with DRY helpers
+1. **Command Pattern**: Base class + 76 subclasses with DRY helpers
 2. **Observer/Event**: EventEmitter throughout for loose coupling
 3. **Decorator**: @memoize, @throttle, @debounce, @sequentialize
 4. **Strategy**: Multiple parsers (status, log, info, diff, list)
@@ -284,7 +284,7 @@ External: vscode, @posit-dev/positron
 1. Clean separation of concerns (services extracted)
 2. Type-safe (strict TypeScript, minimal `any`)
 3. Performance optimized (all P0/P1 fixed)
-4. Comprehensive testing (2198 tests)
+4. Comprehensive testing (2218 tests)
 5. Security hardened (sanitization, stdin passwords)
 6. Multi-repo support (independent operation queues)
 
@@ -315,8 +315,7 @@ External: vscode, @posit-dev/positron
 ## Technical Debt
 
 - Repository.ts still ~3500 lines (auth + property-cache blocks extractable)
-- 73 command files in src/commands/ (incl. base) after consolidation (reveal, ignore, patch, commit merged)
-- ~248 `any` types remaining across 25 files (mostly test files; production ~5 files)
+- 80 command modules in src/commands/ (76 subclasses)
 - fs/ wrappers use `promisify(original-fs)` — could use `original-fs.promises`
 
 A standalone architecture & maintainability review lives in

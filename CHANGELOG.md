@@ -7,6 +7,22 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.2.106] - 2026-07-14
+
+Simplify repository architecture while preserving behavior and hot-path speed.
+
+### Fixed
+
+- **Path-sensitive caches and sparse safety respect filesystem semantics.** Cache keys preserve case, repository boundaries are segment-aware, and destructive macOS checks cannot miss case-variant local changes.
+- **Property reads stay coherent and truthful.** Operational failures propagate, mixed `W200017`/`E200000` absence is recognized, and invalidated async diff reads cannot republish.
+- **SVN execution preserves caller inputs.** Arguments and options are cloned before defaults, credentials, and transport metadata are added.
+
+### Changed
+
+- Centralized operation policy, repository registration/resolution, property XML parsing, sparse invariants, and best-effort teardown.
+- Simplified blame LRU eviction to native `Map` order.
+- Removed declaration-only service interfaces and the branch quick-pick runtime cycle.
+
 ## [0.2.105] - 2026-07-14
 
 Fix error propagation, multi-root selection, and lifecycle races.
