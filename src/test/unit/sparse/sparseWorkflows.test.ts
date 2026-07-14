@@ -6,6 +6,8 @@ import { SetDepth } from "../../../commands/setDepth";
 import { Command } from "../../../commands/command";
 import SparseCheckoutProvider from "../../../treeView/dataProviders/sparseCheckoutProvider";
 import { depthPickerOptions } from "../../../sparse/depthOptions";
+import { collectUnsafeSparsePaths } from "../../../sparse/sparseOperations";
+import * as util from "../../../util";
 
 const ok = { stdout: "", stderr: "", exitCode: 0 };
 
@@ -81,6 +83,33 @@ suite("Sparse production workflows", () => {
     assert.ok(
       executeCommand.mock.calls.some(([name]) => name === "sven.sparse.refresh")
     );
+  });
+
+  test("unsafe scan preserves case-sensitive path identity", () => {
+    const descendant = vi
+      .spyOn(util, "isDescendant")
+      .mockImplementation((parent, child) => {
+        const normalizedParent = parent.replace(/[\\/]/g, "/");
+        const normalizedChild = child.replace(/[\\/]/g, "/");
+        return (
+          normalizedChild === normalizedParent ||
+          normalizedChild.startsWith(`${normalizedParent}/`)
+        );
+      });
+    try {
+      const root = path.resolve("case-repo");
+      const repo = repository(root);
+      repo.changes.resourceStates.push(
+        resource(path.join(root, "data", "changed.txt"))
+      );
+
+      assert.deepStrictEqual(
+        collectUnsafeSparsePaths(repo as never, path.join(root, "Data")),
+        []
+      );
+    } finally {
+      descendant.mockRestore();
+    }
   });
 
   test("checkout cancellation uses one status envelope and still refreshes", async () => {

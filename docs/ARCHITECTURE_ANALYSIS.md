@@ -127,8 +127,8 @@ Per-file blame tracking with:
 
 ### Sparse Checkout
 
-- Commands and tree providers share one typed depth-option leaf and one pure
-  changed/unversioned descendant scan.
+- Commands and tree providers share one typed depth-option leaf and one
+  platform-aware changed/unversioned descendant scan.
 - Each action suppresses status once per affected repository and always releases
   it. Entry points retain their exact cancellation, progress, refresh, and batch
   aggregation behavior.
