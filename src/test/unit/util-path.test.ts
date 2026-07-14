@@ -1,6 +1,12 @@
 import * as assert from "assert";
 import * as path from "path";
-import { fixPathSeparator, normalizePath, isDescendant, fixPegRevision } from "../../util";
+import {
+  fixPathSeparator,
+  normalizePath,
+  isDescendant,
+  isDescendantForSafety,
+  fixPegRevision
+} from "../../util";
 
 suite("Util - Path Tests", () => {
   suite("fixPathSeparator", () => {
@@ -21,12 +27,17 @@ suite("Util - Path Tests", () => {
         path.sep === "\\"
           ? "c:\\Users\\test\\file.txt"
           : "C:/Users/test/file.txt";
-      assert.strictEqual(fixPathSeparator("C:\\Users/test\\file.txt"), expected);
+      assert.strictEqual(
+        fixPathSeparator("C:\\Users/test\\file.txt"),
+        expected
+      );
     });
 
     test("leaves forward slashes unchanged", () => {
-      const expectedUnix = path.sep === "\\" ? "\\usr\\local\\bin" : "/usr/local/bin";
-      const expectedRelative = path.sep === "\\" ? "path\\to\\file" : "path/to/file";
+      const expectedUnix =
+        path.sep === "\\" ? "\\usr\\local\\bin" : "/usr/local/bin";
+      const expectedRelative =
+        path.sep === "\\" ? "path\\to\\file" : "path/to/file";
       assert.strictEqual(fixPathSeparator("/usr/local/bin"), expectedUnix);
       assert.strictEqual(fixPathSeparator("path/to/file"), expectedRelative);
     });
@@ -47,7 +58,8 @@ suite("Util - Path Tests", () => {
     });
 
     test("handles forward slashes", () => {
-      const expected = path.sep === "\\" ? "\\usr\\local\\bin" : "/Usr/Local/Bin";
+      const expected =
+        path.sep === "\\" ? "\\usr\\local\\bin" : "/Usr/Local/Bin";
       assert.strictEqual(normalizePath("/Usr/Local/Bin"), expected);
     });
 
@@ -63,7 +75,10 @@ suite("Util - Path Tests", () => {
     });
 
     test("returns true for nested descendants", () => {
-      assert.strictEqual(isDescendant("/parent", "/parent/child/grandchild"), true);
+      assert.strictEqual(
+        isDescendant("/parent", "/parent/child/grandchild"),
+        true
+      );
       assert.strictEqual(isDescendant("C:/", "C:/Users/test/file.txt"), true);
     });
 
@@ -88,15 +103,56 @@ suite("Util - Path Tests", () => {
     });
   });
 
+  suite("isDescendantForSafety", () => {
+    test("folds case on macOS", () => {
+      assert.strictEqual(
+        isDescendantForSafety(
+          "/Users/me/WC/Data",
+          "/users/me/wc/data/changed.txt",
+          "darwin"
+        ),
+        true
+      );
+    });
+
+    test("preserves case on Linux", () => {
+      assert.strictEqual(
+        isDescendantForSafety(
+          "/home/me/WC/Data",
+          "/home/me/wc/data/changed.txt",
+          "linux"
+        ),
+        false
+      );
+    });
+
+    test("still rejects prefix siblings", () => {
+      assert.strictEqual(
+        isDescendantForSafety(
+          "/Users/me/WC/Data",
+          "/users/me/wc/database/changed.txt",
+          "darwin"
+        ),
+        false
+      );
+    });
+  });
+
   suite("fixPegRevision", () => {
     test("escapes @ symbol in paths", () => {
       assert.strictEqual(fixPegRevision("file@2x.png"), "file@2x.png@");
-      assert.strictEqual(fixPegRevision("path/to/file@.txt"), "path/to/file@.txt@");
+      assert.strictEqual(
+        fixPegRevision("path/to/file@.txt"),
+        "path/to/file@.txt@"
+      );
     });
 
     test("leaves paths without @ unchanged", () => {
       assert.strictEqual(fixPegRevision("file.txt"), "file.txt");
-      assert.strictEqual(fixPegRevision("path/to/file.txt"), "path/to/file.txt");
+      assert.strictEqual(
+        fixPegRevision("path/to/file.txt"),
+        "path/to/file.txt"
+      );
     });
 
     test("handles multiple @ symbols", () => {

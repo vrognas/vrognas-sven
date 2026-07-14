@@ -5,6 +5,16 @@
 
 ---
 
+### 120. Destructive Path Safety Needs a Conservative Case Policy
+
+**Lesson**: Segment-aware containment fixed Linux case collisions but treated default case-insensitive macOS paths as distinct, allowing sparse exclusion to miss local changes.
+
+**Fix**: Keep repository ownership precise; use an explicit safety comparator that folds Windows and macOS while retaining segment boundaries.
+
+**Rule**: Identity and destructive-safety comparisons may need different false-positive tradeoffs.
+
+---
+
 ### 119. SVN Diagnostics Can Carry Multiple Codes
 
 **Lesson**: Missing properties emit `W200017` followed by summary `E200000`. Keeping only the preferred error code hid the actionable warning and broke absent-property reads.

@@ -3,7 +3,7 @@
 
 import * as path from "path";
 import type { Repository } from "../repository";
-import { isDescendant } from "../util";
+import { isDescendantForSafety } from "../util";
 
 type SparseStatusSource = Pick<
   Repository,
@@ -22,7 +22,7 @@ export function collectUnsafeSparsePaths(
   const unsafe: string[] = [];
   for (const group of [repository.changes, repository.unversioned]) {
     for (const { resourceUri } of group.resourceStates) {
-      if (isDescendant(targetPath, resourceUri.fsPath)) {
+      if (isDescendantForSafety(targetPath, resourceUri.fsPath)) {
         unsafe.push(
           path.relative(repository.workspaceRoot, resourceUri.fsPath)
         );

@@ -87,7 +87,7 @@ suite("Sparse production workflows", () => {
 
   test("unsafe scan preserves case-sensitive path identity", () => {
     const descendant = vi
-      .spyOn(util, "isDescendant")
+      .spyOn(util, "isDescendantForSafety")
       .mockImplementation((parent, child) => {
         const normalizedParent = parent.replace(/[\\/]/g, "/");
         const normalizedChild = child.replace(/[\\/]/g, "/");

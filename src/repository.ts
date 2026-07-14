@@ -110,6 +110,7 @@ import {
   filterEvent,
   getSvnDir,
   isDescendant,
+  isDescendantForSafety,
   normalizePath,
   processConcurrently,
   timeout
@@ -3185,7 +3186,7 @@ export class Repository implements IRemoteRepository {
   public async promptLockIfNeeded(uri: Uri): Promise<void> {
     // Only check files in this repository's working copy
     const normalizedUri = normalizePath(uri.fsPath);
-    if (!ownsPath(this.workspaceRoot, uri.fsPath)) {
+    if (!isDescendantForSafety(this.workspaceRoot, uri.fsPath)) {
       return;
     }
 
@@ -3269,7 +3270,7 @@ export class Repository implements IRemoteRepository {
     if (this.lockEditPromptShown.has(normalizedUri)) {
       return;
     }
-    if (!ownsPath(this.workspaceRoot, uri.fsPath)) {
+    if (!isDescendantForSafety(this.workspaceRoot, uri.fsPath)) {
       return;
     }
 
@@ -3312,7 +3313,7 @@ export class Repository implements IRemoteRepository {
    */
   private async promptUpdateIfRemoteChanges(uri: Uri): Promise<void> {
     // Only check files in this repository's working copy
-    if (!ownsPath(this.workspaceRoot, uri.fsPath)) {
+    if (!isDescendantForSafety(this.workspaceRoot, uri.fsPath)) {
       return;
     }
 

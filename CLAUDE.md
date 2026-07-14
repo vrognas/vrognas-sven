@@ -30,6 +30,7 @@
 - Use SVN canonical auth cache folder naming in code/tests: `auth/svn.simple`.
 - In path validation, reject Windows-absolute forms on all platforms (`C:\`, `\\server\share`, `\rooted`).
 - Repository ownership uses segment-aware descendant checks; path identity folds case only on Windows.
+- Destructive safety and prompt containment conservatively fold case on Windows/macOS while keeping segment boundaries; do not reuse that policy for repository ownership.
 - For VS Code E2E in CI, keep `.vscode-test.mjs` target list explicit and stable; skip suite early when binaries/commands unavailable.
 - In cross-platform unit tests, avoid `startsWith(mockHome)` assertions; assert invariant path suffix + absolute path instead.
 - In suites with background polling/watchers, teardown order: dispose repositories, wait briefly, then delete temp repos. Suites not testing remote polling disable it before repository open.

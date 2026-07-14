@@ -160,7 +160,11 @@ export function normalizePath(file: string) {
   return file;
 }
 
-export function isDescendant(parent: string, descendant: string): boolean {
+function isDescendantWithCase(
+  parent: string,
+  descendant: string,
+  caseInsensitive: boolean
+): boolean {
   if (parent.trim() === "" || descendant.trim() === "") {
     return false;
   }
@@ -168,10 +172,13 @@ export function isDescendant(parent: string, descendant: string): boolean {
   parent = parent.replace(/[\\\/]/g, path.sep);
   descendant = descendant.replace(/[\\\/]/g, path.sep);
 
-  // IF Windows
   if (path.sep === "\\") {
-    parent = parent.replace(/^\\/, "").toLowerCase();
-    descendant = descendant.replace(/^\\/, "").toLowerCase();
+    parent = parent.replace(/^\\/, "");
+    descendant = descendant.replace(/^\\/, "");
+  }
+  if (caseInsensitive) {
+    parent = parent.toLowerCase();
+    descendant = descendant.toLowerCase();
   }
 
   if (parent === descendant) {
@@ -183,6 +190,27 @@ export function isDescendant(parent: string, descendant: string): boolean {
   }
 
   return descendant.startsWith(parent);
+}
+
+export function isDescendant(parent: string, descendant: string): boolean {
+  return isDescendantWithCase(parent, descendant, path.sep === "\\");
+}
+
+/**
+ * Conservative containment for warnings/prompts around destructive actions.
+ * Default macOS volumes are case-insensitive; false positives are safer than
+ * silently missing local changes on a case-sensitive volume.
+ */
+export function isDescendantForSafety(
+  parent: string,
+  descendant: string,
+  platform: NodeJS.Platform = process.platform
+): boolean {
+  return isDescendantWithCase(
+    parent,
+    descendant,
+    platform === "win32" || platform === "darwin"
+  );
 }
 
 export function camelcase(name: string) {
