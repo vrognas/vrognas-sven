@@ -29,7 +29,6 @@ import SvnError from "./svnError";
 import { logError } from "./util/errorLogger";
 import {
   anyEvent,
-  dispose,
   filterEvent,
   IDisposable,
   isDescendant,
@@ -41,6 +40,14 @@ import {
 import { matchAll } from "./util/globMatch";
 
 type State = "uninitialized" | "initialized";
+
+function runTeardown(message: string, action: () => void): void {
+  try {
+    action();
+  } catch (error) {
+    logError(message, error);
+  }
+}
 
 export class SourceControlManager implements IDisposable {
   private _onDidOpenRepository = new EventEmitter<Repository>();
@@ -245,10 +252,21 @@ export class SourceControlManager implements IDisposable {
   }
 
   private disable(): void {
-    [...this.openRepositories].forEach(repository => repository.dispose());
+    for (const repository of [...this.openRepositories]) {
+      runTeardown("Failed to close SVN repository", () => repository.dispose());
+    }
+    this.openRepositories = [];
+    this.excludedPathsCache.clear();
 
     this.possibleSvnRepositoryPaths.clear();
-    this.disposables = dispose(this.disposables);
+    this.pendingOpenPaths.clear();
+    const disposables = this.disposables;
+    this.disposables = [];
+    for (const disposable of disposables) {
+      runTeardown("Failed to dispose source control resource", () =>
+        disposable.dispose()
+      );
+    }
   }
 
   private onDidChangeWorkspaceFolders({
@@ -537,19 +555,28 @@ export class SourceControlManager implements IDisposable {
     const dispose = () => {
       if (disposed) return;
       disposed = true;
-      disappearListener.dispose();
-      changeListener.dispose();
-      changeStatus.dispose();
-      if (statusListener) {
-        statusListener.dispose();
+      const listeners = [
+        disappearListener,
+        changeListener,
+        changeStatus,
+        statusListener
+      ];
+      for (const listener of listeners) {
+        if (listener) {
+          runTeardown("Failed to dispose repository listener", () =>
+            listener.dispose()
+          );
+        }
       }
-      repository.dispose();
 
       this.openRepositories = this.openRepositories.filter(
         e => e !== openRepository
       );
       this.excludedPathsCache.delete(repository.workspaceRoot); // Phase 15 perf fix
-      this._onDidCloseRepository.fire(repository);
+      runTeardown("Failed to dispose repository", () => repository.dispose());
+      runTeardown("Failed to notify repository close", () =>
+        this._onDidCloseRepository.fire(repository)
+      );
     };
 
     const disappearListener = onDidDisappearRepository(() => dispose());
@@ -584,11 +611,9 @@ export class SourceControlManager implements IDisposable {
         repository
       ];
       for (const d of failureDisposables) {
-        try {
-          d.dispose();
-        } catch {
-          // Ignore disposal errors during cleanup
-        }
+        runTeardown("Failed to clean up unopened repository", () =>
+          d.dispose()
+        );
       }
       throw error;
     }
@@ -666,8 +691,12 @@ export class SourceControlManager implements IDisposable {
     this.topologyGeneration++;
     try {
       this.disable();
+    } catch (error) {
+      logError("Failed to disable source control manager", error);
     } finally {
-      this.configurationChangeDisposable.dispose();
+      runTeardown("Failed to dispose configuration listener", () =>
+        this.configurationChangeDisposable.dispose()
+      );
     }
   }
 }

@@ -187,4 +187,71 @@ suite("SourceControlManager workspace lifecycle", () => {
 
     assert.strictEqual(tryOpen.callCount, 0);
   });
+
+  test("manager disposal continues after a repository close failure", () => {
+    const manager = new SourceControlManager({} as never, {} as never);
+    managers.push(manager);
+    const failedDispose = sandbox.stub().throws(new Error("close failed"));
+    const remainingDispose = sandbox.spy();
+    const remainingResourceDispose = sandbox.spy();
+    manager.openRepositories = [
+      {
+        repository: { workspaceRoot: "/workspace/failed" },
+        dispose: failedDispose
+      },
+      {
+        repository: { workspaceRoot: "/workspace/remaining" },
+        dispose: remainingDispose
+      }
+    ] as never;
+    (manager as any).disposables = [{ dispose: remainingResourceDispose }];
+    (manager as any).possibleSvnRepositoryPaths.set("/workspace/pending", 1);
+    (manager as any).excludedPathsCache.set(
+      "/workspace/failed",
+      new Set(["/workspace/failed/external"])
+    );
+
+    try {
+      manager.dispose();
+    } catch {
+      // One broken close must not block the remaining snapshot.
+    }
+
+    assert.strictEqual(failedDispose.callCount, 1);
+    assert.strictEqual(remainingDispose.callCount, 1);
+    assert.strictEqual(remainingResourceDispose.callCount, 1);
+    assert.strictEqual(manager.openRepositories.length, 0);
+    assert.strictEqual((manager as any).possibleSvnRepositoryPaths.size, 0);
+    assert.strictEqual((manager as any).excludedPathsCache.size, 0);
+  });
+
+  test("repository close deregisters after its inner dispose throws", () => {
+    const event = () => ({ dispose: sandbox.spy() });
+    const repository = {
+      workspaceRoot: "/workspace/repository",
+      statusExternal: [],
+      ignored: [],
+      onDidChangeState: event,
+      onDidChangeRepository: event,
+      onDidChangeStatus: event,
+      dispose: sandbox.stub().throws(new Error("inner close failed"))
+    };
+    const manager = new SourceControlManager(
+      {} as never,
+      { globalState: { get: () => true } } as never
+    );
+    managers.push(manager);
+    const closed: unknown[] = [];
+    manager.onDidCloseRepository(value => closed.push(value));
+    (manager as any).open(repository);
+
+    try {
+      manager.openRepositories[0]!.dispose();
+    } catch {
+      // Inner cleanup failure must not retain the repository.
+    }
+
+    assert.strictEqual(manager.openRepositories.length, 0);
+    assert.deepStrictEqual(closed, [repository]);
+  });
 });
