@@ -92,7 +92,7 @@ Per-file blame tracking with:
 - Progressive rendering (10-20x faster)
 - Template compilation for status bar/gutter
 - Batch log fetching (50x faster), targeted at the blamed file
-- LRU cache eviction (MAX_CACHE_SIZE=20)
+- Native `Map`-order LRU eviction (MAX_CACHE_SIZE=20), including paired renders
 - Shared provider resolves deepest repo ownership per URI; owner generations,
   document versions, per-editor render generations, liveness, and current
   settings fence async writes/applies; delayed edit cleanup retains its owner

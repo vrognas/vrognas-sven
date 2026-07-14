@@ -5,6 +5,16 @@
 
 ---
 
+### 116. A Map Can Own Both Cache Values and LRU Order
+
+**Lesson**: Blame kept a second map plus a monotonic counter solely to find the least-recently-used key, making eviction O(n) and duplicating lifecycle cleanup.
+
+**Fix**: Reinsert blame hits/writes in the value map and evict its first key. Paired render eviction remains explicit.
+
+**Rule**: When insertion order has the required semantics, do not maintain a parallel recency index.
+
+---
+
 ### 115. Structured CLI Output Still Has Command-Specific Semantics
 
 **Lesson**: Four property readers duplicated indentation/delimiter parsing. XML removed that ambiguity, but live SVN showed recursive `propget --xml` returns absolute targets while its text mode returned relative paths.
@@ -1009,13 +1019,13 @@ catch (err) {
 
 - Before: Unlimited blameCache + messageCache = 700KB+ per 100 files
 - After: MAX_CACHE_SIZE=20, MAX_MESSAGE_CACHE_SIZE=500 = bounded memory
-- Implementation: cacheAccessOrder Map tracks access time, evictOldestCache()
+- Implementation: blameCache insertion order tracks recency; evictOldestCache() removes its first key
 
 **Pattern**:
 
-1. Add Map<key, timestamp> to track access order
-2. Update timestamp on cache hit/miss
-3. Evict oldest entry when size exceeds limit
+1. Reinsert cache hits/writes to move them newest
+2. Evict the first key when size exceeds limit
+3. Clear paired derived entries with the evicted key
 4. For immutable caches, simple FIFO eviction works (batch 25%)
 
 **When to use**:

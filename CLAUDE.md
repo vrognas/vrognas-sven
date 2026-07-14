@@ -39,6 +39,7 @@
 - Deduplicate fetches, not editor-specific apply continuations.
 - Coalesce active renders per repository; keep repositories concurrent and URI/editor timers lossless.
 - Message-dependent render caches track exact scoped revision dependencies; do not use a global or repo-wide persistent epoch.
+- Map-backed LRU caches reinsert hits/writes and evict the first key; avoid parallel timestamp/order indexes.
 - Lock-free cache peeks must use the fully resolved canonical key; unresolved BASE is a miss.
 - Filesystem cache keys preserve platform case semantics; fetch, peek, and invalidation share one key builder.
 - BASE cache generations start before async info resolution and fence every info/namespace/result write; clearing mid-resolution forces a live retry, while disposal aborts reads and downstream status/topology work.

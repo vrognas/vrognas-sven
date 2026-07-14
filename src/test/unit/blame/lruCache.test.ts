@@ -45,8 +45,11 @@ suite("BlameProvider - LRU Cache Eviction", () => {
     );
 
     // Act - Fill cache with 21 files
-    for (const uri of uris) {
+    for (const [index, uri] of uris.entries()) {
       await (provider as any).getBlameData(uri, edFor(uri));
+      if (index === 0) {
+        (provider as any).renderCache.set(uri.toString(), { marker: true });
+      }
     }
 
     // Assert - First file should be evicted, last file should exist
@@ -54,6 +57,11 @@ suite("BlameProvider - LRU Cache Eviction", () => {
     const lastCached = (provider as any).blameCache.has(uris[20]!.toString());
 
     assert.strictEqual(firstCached, false, "First file should be evicted");
+    assert.strictEqual(
+      (provider as any).renderCache.has(uris[0]!.toString()),
+      false,
+      "Paired render entry should be evicted"
+    );
     assert.strictEqual(lastCached, true, "Last file should remain cached");
     assert.strictEqual(
       (provider as any).blameCache.size,
@@ -87,6 +95,11 @@ suite("BlameProvider - LRU Cache Eviction", () => {
 
     // Access first file again (should move to front of LRU)
     await (provider as any).getBlameData(uris[0], edFor(uris[0]!));
+    assert.strictEqual(
+      mockRepository.blame.callCount,
+      20,
+      "Cache hit should not fetch blame"
+    );
 
     // Add one more file (should evict second file, not first)
     const newUri = Uri.file("/test/file_new.txt");

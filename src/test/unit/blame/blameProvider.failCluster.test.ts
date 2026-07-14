@@ -152,7 +152,6 @@ suite("BlameProvider - Fail Cluster", () => {
     assert.deepStrictEqual(result, cachedData);
     assert.ok(mockRepository.getInfo.notCalled);
     assert.ok(mockRepository.blame.notCalled);
-    assert.ok((provider as any).cacheAccessOrder.has(uri.toString()));
   });
 
   test("getBlameData auth failure prompts auth command", async () => {

@@ -77,11 +77,6 @@ export class BlameProvider implements Disposable {
   private messageScopeEpochs = new Map<string, number>();
   private uriOwners = new Map<string, UriOwnerToken>();
   private nextOwnerGeneration = 0;
-  // uri → monotonic access sequence for LRU eviction. A counter, not
-  // Date.now(): same-millisecond accesses tie on wall-clock time, making
-  // eviction order arbitrary (and the LRU test flaky on fast runners)
-  private cacheAccessOrder = new Map<string, number>();
-  private cacheAccessCounter = 0;
   /** Built decoration arrays per uri: revisiting a file at the same
    *  document version reuses them instead of rebuilding N hover/
    *  decoration objects per editor switch (measurable latency). */
@@ -279,7 +274,6 @@ export class BlameProvider implements Disposable {
   private clearCacheEntries(key: string): void {
     this.blameCache.delete(key);
     this.lineMappingCache.delete(key);
-    this.cacheAccessOrder.delete(key);
     this.addRevisionCache.delete(key);
     this.renderCache.delete(key);
     this.peekPrefetchDone.delete(key);
@@ -814,21 +808,9 @@ export class BlameProvider implements Disposable {
       return; // Within limit, no eviction needed
     }
 
-    // Find least recently used entry (oldest timestamp)
-    let oldestKey: string | undefined;
-    let oldestTime = Infinity;
-
-    for (const [key, timestamp] of this.cacheAccessOrder) {
-      if (timestamp < oldestTime) {
-        oldestTime = timestamp;
-        oldestKey = key;
-      }
-    }
-
-    // Evict oldest entry
+    const oldestKey = this.blameCache.keys().next().value;
     if (oldestKey) {
       this.blameCache.delete(oldestKey);
-      this.cacheAccessOrder.delete(oldestKey);
       this.renderCache.delete(oldestKey);
     }
   }
@@ -1975,7 +1957,8 @@ export class BlameProvider implements Disposable {
     // Check cache - validate version to detect external changes (svn update, etc.)
     const cached = this.blameCache.get(key);
     if (cached && cached.version === currentVersion && currentVersion !== -1) {
-      this.cacheAccessOrder.set(key, ++this.cacheAccessCounter);
+      this.blameCache.delete(key);
+      this.blameCache.set(key, cached);
       return cached.data;
     }
 
@@ -2006,8 +1989,8 @@ export class BlameProvider implements Disposable {
       ) {
         return undefined;
       }
+      this.blameCache.delete(key);
       this.blameCache.set(key, { data, version: currentVersion });
-      this.cacheAccessOrder.set(key, ++this.cacheAccessCounter);
       this.evictOldestCache();
       return data;
     } catch (err) {
