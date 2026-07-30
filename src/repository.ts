@@ -1359,7 +1359,12 @@ export class Repository implements IRemoteRepository {
     });
 
     this.sourceControl.count = count;
-    this.updateActionButton();
+    try {
+      this.updateActionButton();
+    } catch {
+      // Hosts without the scmActionButton proposed API (e.g. Cursor) throw here.
+      // Swallow so status completion and Explorer decoration refresh still run.
+    }
 
     // Update context keys for conditional UI
     const hasConflicts = this.groupManager.conflicts.resourceStates.length > 0;
